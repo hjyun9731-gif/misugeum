@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% set active = "billing" %}
+{% block title %}부과대수 관리{% endblock %}
+{% block page_title %}부과대수 관리{% endblock %}
+{% block content %}
+{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
+
+<div class="page-header">
+  <span class="page-sub">{{ sel_y }}년 {{ sel_m }}월 기준</span>
+  <form method="get" action="/billing-report" style="display:flex;gap:6px;align-items:center;margin-left:auto;">
+    <select name="year" class="fs" onchange="this.form.submit()" style="height:28px;">
+      {% for y in years %}<option value="{{ y }}" {% if sel_y==y %}selected{% endif %}>{{ y }}년</option>{% endfor %}
+    </select>
+    <select name="month" class="fs" onchange="this.form.submit()" style="height:28px;">
+      {% for m in months %}<option value="{{ m }}" {% if sel_m==m %}selected{% endif %}>{{ m }}월</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+<!-- 수동 입력 -->
+<div class="card">
+  <div class="card-title">{{ sel_y }}년 {{ sel_m }}월 부과대수 입력</div>
+  <form method="post" action="/billing-report">
+    <input type="hidden" name="year" value="{{ sel_y }}">
+    <input type="hidden" name="month" value="{{ sel_m }}">
+
+    <div style="background:var(--blue-lt);border-radius:8px;padding:12px 16px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">수동 입력 항목</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        {% for field, label, color in [
+          ("cnt_join","협회가입","#2563eb"),
+          ("cnt_transfer","양도","#d97706"),
+          ("cnt_cross","타도(이관)","#d97706"),
+          ("cnt_close","폐지(폐업)","#dc2626"),
+          ("cnt_quit","탈퇴","#dc2626"),
+          ("cnt_delivery_new","택배신규","#059669"),
+          ("cnt_mgmt_close","관리비폐지","#9333ea"),
+          ("cnt_age70","70세","#7c3aed")
+        ] %}
+        <div class="fg">
+          <label style="color:{{ color }};font-weight:700;">{{ label }}</label>
+          <input type="number" name="{{ field }}" value="{{ report[field] if report and report[field] is not none else 0 }}" min="0" style="font-size:18px;font-weight:900;text-align:center;padding:6px;">
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="fg" style="margin-bottom:12px;">
+      <label>메모</label>
+      <textarea name="memo" rows="2" placeholder="특이사항 메모">{{ report.memo if report else "" }}</textarea>
+    </div>
+
+    <button type="submit" class="btn btn-primary" style="width:100%;">저장</button>
+  </form>
+</div>
+
+<!-- 자동 계산 + 이력 -->
+<div>
+  {% if report %}
+  <div class="card" style="margin-bottom:14px;">
+    <div class="card-title">자동 계산 항목</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+      {% for label, val, color in [
+        ("협회기본대수", report.cnt_base, "#2563eb"),
+        ("총부과대수", report.cnt_total, "#1e40af"),
+        ("택배관리(관리비)", report.cnt_delivery, "#059669")
+      ] %}
+      <div style="background:{{ color }}0d;border:1px solid {{ color }}22;border-radius:8px;padding:12px;text-align:center;">
+        <div style="font-size:10px;color:#6b7280;font-weight:600;margin-bottom:4px;">{{ label }}</div>
+        <div style="font-size:28px;font-weight:900;color:{{ color }};">{{ val }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="margin-top:14px;padding:10px 14px;background:var(--surface-2);border-radius:6px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:8px;">이번 달 변동 요약</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        {% for label, val, color in [
+          ("협회가입", report.cnt_join, "#2563eb"),
+          ("양도", report.cnt_transfer, "#d97706"),
+          ("타도", report.cnt_cross, "#d97706"),
+          ("폐지", report.cnt_close, "#dc2626"),
+          ("탈퇴", report.cnt_quit, "#dc2626"),
+          ("택배신규", report.cnt_delivery_new, "#059669"),
+          ("관리비폐지", report.cnt_mgmt_close, "#9333ea"),
+          ("70세", report.cnt_age70, "#7c3aed"),
+        ] %}
+        {% if val > 0 %}
+        <span style="padding:3px 10px;background:{{ color }}0d;border:1px solid {{ color }}33;border-radius:20px;font-size:12px;font-weight:700;color:{{ color }};">
+          {{ label }} {{ val }}
+        </span>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="tbl-card">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;">이력</div>
+    <table>
+      <thead><tr>
+        <th>연월</th><th style="text-align:center;">가입</th><th style="text-align:center;">양도</th>
+        <th style="text-align:center;">타도</th><th style="text-align:center;">폐지</th>
+        <th style="text-align:center;">탈퇴</th><th style="text-align:center;">택배신규</th>
+        <th style="text-align:center;">기본대수</th>
+      </tr></thead>
+      <tbody>
+        {% for h in history %}
+        <tr {% if h.year==sel_y and h.month==sel_m %}style="background:var(--blue-lt);"{% endif %}>
+          <td class="nowrap"><a href="/billing-report?year={{ h.year }}&month={{ h.month }}" style="color:var(--blue);font-weight:600;">{{ h.year }}년 {{ h.month }}월</a></td>
+          <td style="text-align:center;font-weight:{% if h.cnt_join %}700{% else %}400{% endif %};">{{ h.cnt_join or '–' }}</td>
+          <td style="text-align:center;">{{ h.cnt_transfer or '–' }}</td>
+          <td style="text-align:center;">{{ h.cnt_cross or '–' }}</td>
+          <td style="text-align:center;color:{% if h.cnt_close %}var(--red){% else %}inherit{% endif %};">{{ h.cnt_close or '–' }}</td>
+          <td style="text-align:center;color:{% if h.cnt_quit %}var(--red){% else %}inherit{% endif %};">{{ h.cnt_quit or '–' }}</td>
+          <td style="text-align:center;color:{% if h.cnt_delivery_new %}var(--green){% else %}inherit{% endif %};">{{ h.cnt_delivery_new or '–' }}</td>
+          <td style="text-align:center;font-weight:700;">{{ h.cnt_base }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8"><div class="empty-state" style="padding:20px;"><div class="et">이력 없음</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</div>
+{% endblock %}

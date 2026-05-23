@@ -19,7 +19,7 @@ import pandas as pd
 from database import engine, SessionLocal, Base, get_db, IS_SQLITE
 from models import (User, UploadBatch, RawImportRow, Member, MonthlyLedger,
                     MemberStatusEvent, WorkQueue, LicenseRecord, BillingPerson,
-                    BankTransaction, CollectionTarget, Snapshot, AuditLog)
+                    BankTransaction, CollectionTarget, Snapshot, AuditLog, BillingReport)
 from auth import hash_pw, verify_pw, ensure_admin, require_user
 from core import (
     _s, norm_name, norm_vehicle, veh_last4, normalize_region, parse_amount,
@@ -101,6 +101,19 @@ def fmt_amt(v) -> str:
         if iv < 0: return f"-{abs(iv):,}"
         return f"{iv:,}"
     except: return str(v)
+
+
+def fmt_date(v) -> str:
+    """날짜를 26.05.18. 형식으로 표시"""
+    if not v: return ""
+    s = str(v).strip()
+    import re as _re
+    # 2026-05-18 → 26.05.18.
+    m = _re.search(r"(20(\d{2}))-(\d{2})-(\d{2})", s)
+    if m: return f"{m.group(2)}.{m.group(3)}.{m.group(4)}."
+    # 이미 26.05.18. 형식
+    if _re.match(r"\d{2}\.\d{2}\.\d{2}\.", s): return s
+    return s
 
 def fmt_acc(a) -> str: return {"협":"협회비","관":"관리비"}.get(a or "", a or "")
 
@@ -383,7 +396,7 @@ def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_f
     nkey = norm_name(name) if name else ""
     reg  = normalize_region(region) if region else ""
     acc  = "관" if ("관" in (account or "") or "관리" in (account or "")) else "협"
-    is_auto = any(kw in (note or "") for kw in ["이체","자동이체"])
+    is_auto = False  # 자동이체는 전용통장 업로드 후에만 확정
 
     if vkey and nkey:
         m = db.query(Member).filter(Member.vehicle_key == vkey, Member.name_key == nkey).first()
@@ -407,66 +420,55 @@ def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_f
 
 def _recalc_member(db: Session, m: Member):
     """
-    회원 미수금 재계산 + 검증사유 생성
-    우선순위: 엑셀 기재 미수금 = 기준값 / 재계산값 = 참고값
+    회원 미수금 갱신.
+    핵심 규칙:
+    - excel_arrears = 엑셀 기재 기준월 미수금 (우선값, 음수 그대로 유지)
+    - calc_arrears  = excel_arrears (재계산 누적 완전 중단)
+    - arrears_diff  = 0
+    - is_overpay    = excel_arrears < 0
+    - verify_reason = 실제 사유 있을 때만 (차이 0원 금지)
     """
     ledgers = (db.query(MonthlyLedger).filter(MonthlyLedger.member_id == m.id)
                .order_by(MonthlyLedger.year, MonthlyLedger.month).all())
 
-    if not ledgers:
-        # 원장 없음: 수동 입력값 그대로 유지
-        m.calc_arrears  = m.excel_arrears or 0
-        m.arrears_diff  = 0
-        m.arrears_verified = True
-        m.verify_reason = None
-        m.is_overpay = (m.excel_arrears or 0) < 0
-        return
-
-    # 엑셀 기재 최신월 미수금 → 음수 포함 그대로 저장
-    latest = ledgers[-1]
-    excel_arr = latest.arrears_amount  # 음수일 수 있음
-    m.excel_arrears = excel_arr
-
-    # 재계산: 이월금 + 부과금 누계 - 입금액 누계
-    total_carry  = sum(l.carry_over or 0 for l in ledgers)
-    total_charge = sum(l.charge_amount or 0 for l in ledgers)
-    total_paid   = sum(l.paid_amount or 0 for l in ledgers)
-    calc_arr = total_carry + total_charge - total_paid
-    m.calc_arrears = calc_arr
-    m.arrears_diff = abs(excel_arr - calc_arr)
-
-    # 음수 = 초과납부/선납
-    m.is_overpay = excel_arr < 0
-
-    # 검증여부: 차이 0원이면 무조건 verified=True (절대 규칙)
-    if m.arrears_diff == 0:
-        m.arrears_verified = True
-        m.verify_reason = None
+    if ledgers:
+        # 기준: 최신월 원장의 arrears_amount (음수 그대로)
+        latest = ledgers[-1]
+        excel_arr = latest.arrears_amount
+        if excel_arr is None:
+            excel_arr = m.excel_arrears or 0
+        m.excel_arrears = excel_arr
+        # 최초 미납월
+        m.first_unpaid_month = ""
+        for l in ledgers:
+            if (l.arrears_amount or 0) > 0:
+                m.first_unpaid_month = f"{l.year}-{l.month:02d}"
+                break
+        # 최근 입금일
+        paid_ls = [l for l in reversed(ledgers) if (l.paid_amount or 0) > 0 and l.paid_date]
+        if paid_ls:
+            m.last_paid_date = paid_ls[0].paid_date
     else:
-        # 검증사유 생성 (금액차이 + 비고충돌만)
-        reasons = build_verify_reasons(
-            excel_arr, calc_arr,
-            m.name or "", m.vehicle_no or "", m.account or "",
-            m.match_status or "", m.region or "",
-            m.mobile or "", m.address or "", m.note or ""
-        )
-        if reasons:
-            m.verify_reason = " | ".join(reasons)
-            m.arrears_verified = False
-        else:
-            # 차이가 있어도 사유가 없으면 verified (1000원 미만 오차 허용)
-            m.arrears_verified = m.arrears_diff < 1000
-            m.verify_reason = None
+        excel_arr = m.excel_arrears or 0
 
-    # 최초 미납월 (양수 미수금 기준)
-    m.first_unpaid_month = ""
-    for l in ledgers:
-        if (l.arrears_amount or 0) > 0:
-            m.first_unpaid_month = f"{l.year}-{l.month:02d}"; break
+    # 재계산 누적 완전 중단 — calc = excel
+    m.calc_arrears = excel_arr
+    m.arrears_diff = 0
+    m.is_overpay   = excel_arr < 0
 
-    # 최근 입금일
-    paid_ls = [l for l in reversed(ledgers) if (l.paid_amount or 0) > 0 and l.paid_date]
-    m.last_paid_date = paid_ls[0].paid_date if paid_ls else ""
+    # 검증사유: 실제 문제 있을 때만 (차이 0원이므로 금액차이는 없음)
+    reasons = build_verify_reasons(
+        excel_arr, excel_arr,  # diff = 0 → 금액차이 사유 절대 생성 안 됨
+        m.name or "", m.vehicle_no or "", m.account or "",
+        m.match_status or "", m.region or "",
+        m.mobile or "", m.address or "", m.note or ""
+    )
+    if reasons:
+        m.verify_reason = " | ".join(reasons)
+        m.arrears_verified = False
+    else:
+        m.verify_reason = None
+        m.arrears_verified = True
 
 def _full_recalc(db: Session):
     """전체 회원 재계산 후 스냅샷 갱신"""
@@ -538,8 +540,9 @@ async def upload_legacy(request: Request, file: UploadFile = File(...),
                             year=file_year, month=mo,
                             carry_over=carry_v, charge_amount=charge,
                             paid_amount=paid, arrears_amount=arrears,
-                            paid_date=pdate, calc_arrears=calc,
-                            verified=abs(calc-arrears) < 100,
+                            paid_date=pdate,
+                            calc_arrears=arrears,   # 재계산 누적 중단: calc = excel
+                            verified=True,          # 차이 0이므로 항상 verified
                         ))
                         nl += 1
                     db.flush()
@@ -567,7 +570,11 @@ async def upload_legacy(request: Request, file: UploadFile = File(...),
                     db.flush()
             db.commit()
 
-        _full_recalc(db)
+        # 재계산 (excel_arrears 동기화 + is_overpay 갱신)
+        for m_obj in db.query(Member).filter(Member.source_batch_id == batch.id).all():
+            _recalc_member(db, m_obj)
+        db.commit()
+        _invalidate_snap(db, "dashboard")
         batch.total_rows = db.query(RawImportRow).filter(RawImportRow.batch_id == batch.id).count()
         batch.saved_rows = nl; batch.warn_rows = len(warns); db.commit()
         add_log(db, user.id, "미수금업로드",
@@ -636,48 +643,80 @@ async def upload_license(request: Request, file: UploadFile = File(...),
 
 # ── 전체자 대조 ────────────────────────────────────────────────────────────────
 def _reconcile_license(db: Session):
+    """
+    전체자명단 ↔ 미수금명단 대조.
+    정규화: norm_vehicle(강원·공백·호 제거), norm_name(공백제거)
+    우선순위:
+    1) vkey + 성명 완전일치 → 정상매칭
+    2) 뒷자리4 + 성명 일치 → 정상매칭
+    3) vkey 단독 단일후보 → 성명확인필요
+    4) 뒷자리 단독 단일후보 → 뒷자리매칭
+    5) 성명 단독 단일후보 → 차량번호확인필요
+    """
+    from core import is_sum_row
     lics = db.query(LicenseRecord).all()
-    by_vkey: dict = {}; by_l4: dict = {}; by_nkey: dict = {}
+    by_vkey: dict = {}
+    by_l4: dict = {}
+    by_nkey: dict = {}
+
     for lic in lics:
-        vk = lic.vehicle_key or ""
+        # 전체자명단도 현재 정규화 기준으로 재인덱싱
+        vk = norm_vehicle(lic.vehicle_no or "")
         if vk: by_vkey.setdefault(vk, []).append(lic)
         l4 = veh_last4(lic.vehicle_no or "")
-        if l4: by_l4.setdefault(l4, []).append(lic)
+        if l4 and len(l4) >= 3: by_l4.setdefault(l4, []).append(lic)
         nk = norm_name(lic.name or "")
         if nk: by_nkey.setdefault(nk, []).append(lic)
 
     for m in db.query(Member).all():
-        vkey = m.vehicle_key or norm_vehicle(m.vehicle_no or "")
+        # 합계행은 대조 생략
+        if is_sum_row(m.name or "", m.vehicle_no or ""):
+            m.match_status = "해당없음"
+            m.match_fail_reason = "합계행 제외"
+            continue
+
+        vkey = norm_vehicle(m.vehicle_no or "")
         l4   = veh_last4(m.vehicle_no or "")
-        nkey = m.name_key or norm_name(m.name or "")
-        vc = list({x.id:x for x in by_vkey.get(vkey, [])}.values())
-        lc = list({x.id:x for x in by_l4.get(l4, [])}.values()) if l4 else []
-        nc = list({x.id:x for x in by_nkey.get(nkey, [])}.values())
+        nkey = norm_name(m.name or "")
+
+        vc = list({x.id: x for x in by_vkey.get(vkey, [])}.values())
+        lc = list({x.id: x for x in (by_l4.get(l4, []) if l4 and len(l4) >= 3 else [])}.values())
+        nc = list({x.id: x for x in by_nkey.get(nkey, [])}.values())
 
         best = None; status = "전체자미확인"; fail = ""
-        exact   = [x for x in vc if norm_name(x.name or "") == nkey]
-        l4_name = [x for x in lc if norm_name(x.name or "") == nkey]
 
-        if exact:                         best=exact[0];  status="정상매칭"
-        elif l4_name:                     best=l4_name[0];status="정상매칭"
-        elif vkey and len(vc) == 1:       best=vc[0];     status="성명확인필요"
-        elif l4 and len(lc) == 1:         best=lc[0];     status="뒷자리매칭"
-        elif len(nc) == 1:                best=nc[0];     status="차량번호확인필요"
-        elif len(nc) > 1:   fail = f"동명이인 {len(nc)}명"
-        elif not vkey:      fail = "차량번호 없음"
-        elif l4 and len(lc) > 1: fail = f"차량뒷자리 후보 {len(lc)}명"
-        else:               fail = "전체자명단에 없음"
+        # 1순위: vkey + 성명
+        exact_vn = [x for x in vc if norm_name(x.name or "") == nkey]
+        # 2순위: 뒷자리 + 성명
+        exact_l4n = [x for x in lc if norm_name(x.name or "") == nkey]
+
+        if exact_vn:
+            best = exact_vn[0]; status = "정상매칭"
+        elif exact_l4n:
+            best = exact_l4n[0]; status = "정상매칭"
+        elif vkey and len(vc) == 1:
+            best = vc[0]; status = "성명확인필요"
+        elif l4 and len(l4) >= 3 and len(lc) == 1:
+            best = lc[0]; status = "뒷자리매칭"
+        elif len(nc) == 1:
+            best = nc[0]; status = "차량번호확인필요"
+        elif len(nc) > 1:
+            fail = f"동명이인 {len(nc)}명"
+        elif not (m.vehicle_no or "").strip():
+            fail = "차량번호 없음"
+        elif l4 and len(lc) > 1:
+            fail = f"차량뒷자리 후보 {len(lc)}명"
+        else:
+            fail = "전체자명단에 없음"
 
         if best:
             m.match_license_id = best.id; m.match_status = status
             m.match_fail_reason = None
             for attr, lattr in [("mobile","mobile"),("phone","phone"),("address","address"),
                                  ("official_address","official_address"),
-                                 ("join_date_raw","join_date_raw"),
-                                 ("permit_date_raw","permit_date_raw"),
-                                 ("cert_issue_date_raw","cert_issue_date_raw"),
-                                 ("cert_no","cert_no")]:
-                if not getattr(m, attr) and getattr(best, lattr, None):
+                                 ("join_date_raw","join_date_raw"),("permit_date_raw","permit_date_raw"),
+                                 ("cert_issue_date_raw","cert_issue_date_raw"),("cert_no","cert_no")]:
+                if not getattr(m, attr, None) and getattr(best, lattr, None):
                     setattr(m, attr, getattr(best, lattr))
         else:
             m.match_license_id = None; m.match_status = "전체자미확인"
@@ -822,60 +861,77 @@ def verify_clear(mid: int, db: Session = Depends(get_db), user: User = Depends(r
 # ── 문자대상 ──────────────────────────────────────────────────────────────────
 @app.get("/collection", response_class=HTMLResponse)
 def collection_page(request: Request, region: str = "", account: str = "",
-                    tab: str = "전체", q: str = "",
+                    tab: str = "전체", q: str = "", min_amt: int = 0,
                     db: Session = Depends(get_db), user: User = Depends(require_user)):
+    from datetime import date as _date
     base_q = db.query(CollectionTarget, Member).join(Member)
 
-    # 탭별 필터
-    if tab == "자동이체":
-        base_q = base_q.filter(CollectionTarget.category == "자동이체")
+    TABS_ALL = ["전체","협회비","관리비","초과납부","연락처없음","주소없음","제외",
+                "금액5천+","금액1만+","금액3만+","금액5만+","금액10만+","금액30만+","금액50만+","금액100만+",
+                "장기3개월+","장기6개월+","장기12개월+"]
+
+    if tab == "협회비":
+        base_q = base_q.filter(CollectionTarget.excluded==False, Member.account=="협")
+    elif tab == "관리비":
+        base_q = base_q.filter(CollectionTarget.excluded==False, Member.account=="관")
     elif tab == "초과납부":
-        base_q = base_q.filter(Member.is_overpay == True)
-    elif tab == "장기미납":
-        # 6개월 이상 미납 (first_unpaid_month 기준)
-        from datetime import date
-        cutoff = f"{date.today().year - 1}-{date.today().month:02d}"
+        base_q = base_q.filter(Member.is_overpay==True)
+    elif tab == "연락처없음":
+        base_q = base_q.filter(or_(Member.mobile==None, Member.mobile==""))
+    elif tab == "주소없음":
+        base_q = base_q.filter(and_(
+            or_(Member.official_address==None, Member.official_address==""),
+            or_(Member.address==None, Member.address=="")
+        ))
+    elif tab == "제외":
+        base_q = base_q.filter(CollectionTarget.excluded==True)
+    elif tab.startswith("금액"):
+        amt_map = {"금액5천+":5000,"금액1만+":10000,"금액3만+":30000,"금액5만+":50000,
+                   "금액10만+":100000,"금액30만+":300000,"금액50만+":500000,"금액100만+":1000000}
+        threshold = amt_map.get(tab, 0)
+        base_q = base_q.filter(CollectionTarget.excluded==False, Member.excel_arrears>=threshold)
+    elif tab.startswith("장기"):
+        months_map = {"장기3개월+":3,"장기6개월+":6,"장기12개월+":12}
+        mo = months_map.get(tab, 3)
+        today = _date.today()
+        cutoff_year = today.year - (1 if today.month <= mo else 0)
+        cutoff_month = (today.month - mo - 1) % 12 + 1
+        cutoff = f"{cutoff_year}-{cutoff_month:02d}"
         base_q = base_q.filter(
-            CollectionTarget.excluded == False,
+            CollectionTarget.excluded==False,
             Member.first_unpaid_month != None,
             Member.first_unpaid_month != "",
             Member.first_unpaid_month <= cutoff,
         )
-    elif tab == "연락처없음":
-        base_q = base_q.filter(
-            CollectionTarget.excluded == False,
-            or_(Member.mobile == None, Member.mobile == "")
-        )
-    elif tab == "제외":
-        base_q = base_q.filter(CollectionTarget.excluded == True)
-    else:
-        base_q = base_q.filter(CollectionTarget.excluded == False)
+    else:  # 전체
+        base_q = base_q.filter(CollectionTarget.excluded==False)
 
-    if region: base_q = base_q.filter(Member.region == region)
-    if account: base_q = base_q.filter(Member.account == account)
+    if region: base_q = base_q.filter(Member.region==region)
+    if account: base_q = base_q.filter(Member.account==account)
     if q:
         like = f"%{q}%"
         base_q = base_q.filter(or_(Member.name.ilike(like), Member.vehicle_no.ilike(like)))
 
     targets = base_q.order_by(Member.region, Member.name).all()
     total = sum(t.CollectionTarget.arrears for t in targets if not t.CollectionTarget.excluded)
-    regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region != None).all() if x[0]})
+    regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region!=None).all() if x[0]})
 
-    # 탭 카운트
     def _cnt(t):
-        bq = db.query(CollectionTarget)
-        if t == "자동이체": return bq.filter(CollectionTarget.category == "자동이체").count()
-        if t == "초과납부": return db.query(Member).filter(Member.status=="정상", Member.is_overpay==True).count()
-        if t == "연락처없음": return bq.join(Member).filter(CollectionTarget.excluded==False, or_(Member.mobile==None,Member.mobile=="")).count()
-        if t == "제외": return bq.filter(CollectionTarget.excluded==True).count()
-        return bq.filter(CollectionTarget.excluded==False).count()
+        bq2 = db.query(CollectionTarget).join(Member)
+        if t == "협회비": return bq2.filter(CollectionTarget.excluded==False, Member.account=="협").count()
+        if t == "관리비": return bq2.filter(CollectionTarget.excluded==False, Member.account=="관").count()
+        if t == "초과납부": return bq2.filter(Member.is_overpay==True).count()
+        if t == "연락처없음": return bq2.filter(or_(Member.mobile==None,Member.mobile=="")).count()
+        if t == "주소없음": return bq2.filter(and_(or_(Member.official_address==None,Member.official_address==""),or_(Member.address==None,Member.address==""))).count()
+        if t == "제외": return bq2.filter(CollectionTarget.excluded==True).count()
+        return bq2.filter(CollectionTarget.excluded==False).count()
 
-    tab_counts = {t: _cnt(t) for t in ["전체","자동이체","초과납부","장기미납","연락처없음","제외"]}
+    tab_counts = {t: _cnt(t) for t in ["전체","협회비","관리비","초과납부","연락처없음","주소없음","제외"]}
 
     return templates.TemplateResponse(request, "collection.html", {
         "request": request, "user": user, "targets": targets, "total": total,
         "regions": regions, "region": region, "account": account,
-        "tab": tab, "q": q, "tab_counts": tab_counts,
+        "tab": tab, "q": q, "tab_counts": tab_counts, "TABS_ALL": TABS_ALL,
         "fmt_amt": fmt_amt, "msg": request.query_params.get("msg", ""),
     })
 
@@ -889,13 +945,20 @@ def collection_generate(db: Session = Depends(get_db), user: User = Depends(requ
     ).all()
     count = 0
     for m in members:
-        is_auto = m.is_auto_transfer
+        # 자동이체는 전용통장 업로드 후에만 확정 → 현재는 일반으로 처리
         no_mobile = not (m.mobile or "").strip()
-        excluded = is_auto
-        exc_reason = "자동이체" if is_auto else ("연락처없음" if no_mobile else "")
+        no_address = not (m.official_address or m.address or "").strip()
+        excluded = False
+        exc_reason = ""
+        # 음수(초과납부) 제외
+        if (m.excel_arrears or 0) < 0:
+            excluded = True; exc_reason = "초과납부/선납"
+        # 검증필요 제외
+        elif m.arrears_verified == False and m.verify_reason:
+            excluded = True; exc_reason = "검증필요"
         mob_clean = phone_clean(m.mobile or "")
         addr = address_clean(m)
-        cat = "자동이체" if is_auto else "일반"
+        cat = "연락처없음" if no_mobile else "일반"
         now_ = datetime.now()
         db.add(CollectionTarget(
             member_id=m.id, generated_by=user.id,
@@ -1216,7 +1279,7 @@ def fix_negatives(db: Session = Depends(get_db), user: User = Depends(require_us
 def admin_reset(db: Session = Depends(get_db), user: User = Depends(require_user)):
     for tbl in [CollectionTarget, BankTransaction, BillingPerson, WorkQueue,
                 MemberStatusEvent, MonthlyLedger, RawImportRow,
-                LicenseRecord, Member, UploadBatch, Snapshot]:
+                LicenseRecord, Member, UploadBatch, Snapshot, BillingReport]:
         db.query(tbl).delete(synchronize_session=False)
     db.commit()
     add_log(db, user.id, "데이터초기화", "전체")
@@ -1389,6 +1452,64 @@ def work_reflect_amount(wid: int, db: Session = Depends(get_db),
         add_log(db, user.id, "금액수정반영", f"{m.name}: {before:,}→{new_amt:,}원")
         return RedirectResponse(f"/work?msg=금액수정 반영완료", status_code=302)
     return RedirectResponse(f"/work?msg=금액 파싱 실패", status_code=302)
+
+
+# ── 부과대수 관리 (협회 월례보고 항목) ─────────────────────────────────────────
+@app.get("/billing-report", response_class=HTMLResponse)
+def billing_report_page(request: Request, year: Optional[int] = None, month: Optional[int] = None,
+                         db: Session = Depends(get_db), user: User = Depends(require_user)):
+    now = datetime.now()
+    sel_y = year or now.year; sel_m = month or now.month
+    report = db.query(BillingReport).filter(
+        BillingReport.year == sel_y, BillingReport.month == sel_m).first()
+    history = (db.query(BillingReport)
+               .order_by(BillingReport.year.desc(), BillingReport.month.desc())
+               .limit(24).all())
+    years = list(range(now.year - 2, now.year + 2))
+    return templates.TemplateResponse(request, "billing_report.html", {
+        "request": request, "user": user, "report": report,
+        "sel_y": sel_y, "sel_m": sel_m, "history": history,
+        "years": years, "months": list(range(1,13)),
+        "msg": request.query_params.get("msg", ""),
+    })
+
+@app.post("/billing-report")
+def billing_report_save(
+    request: Request,
+    year: int = Form(...), month: int = Form(...),
+    cnt_join: int = Form(0), cnt_transfer: int = Form(0),
+    cnt_cross: int = Form(0), cnt_close: int = Form(0),
+    cnt_quit: int = Form(0), cnt_delivery_new: int = Form(0),
+    cnt_mgmt_close: int = Form(0), cnt_age70: int = Form(0),
+    memo: str = Form(""),
+    db: Session = Depends(get_db), user: User = Depends(require_user)):
+    # 자동계산: 기준대수 = 현재 정상 회원수
+    cnt_base = db.query(Member).filter(_clean_filter()).count()
+    cnt_delivery = db.query(Member).filter(_clean_filter(), Member.account == "관").count()
+    cnt_total = cnt_base
+
+    r = db.query(BillingReport).filter(
+        BillingReport.year == year, BillingReport.month == month).first()
+    if r:
+        r.cnt_join=cnt_join; r.cnt_transfer=cnt_transfer
+        r.cnt_cross=cnt_cross; r.cnt_close=cnt_close
+        r.cnt_quit=cnt_quit; r.cnt_delivery_new=cnt_delivery_new
+        r.cnt_mgmt_close=cnt_mgmt_close; r.cnt_age70=cnt_age70
+        r.cnt_base=cnt_base; r.cnt_total=cnt_total
+        r.cnt_delivery=cnt_delivery; r.memo=memo
+    else:
+        db.add(BillingReport(
+            year=year, month=month,
+            cnt_join=cnt_join, cnt_transfer=cnt_transfer,
+            cnt_cross=cnt_cross, cnt_close=cnt_close,
+            cnt_quit=cnt_quit, cnt_delivery_new=cnt_delivery_new,
+            cnt_mgmt_close=cnt_mgmt_close, cnt_age70=cnt_age70,
+            cnt_base=cnt_base, cnt_total=cnt_total,
+            cnt_delivery=cnt_delivery, memo=memo, created_by=user.id,
+        ))
+    db.commit()
+    add_log(db, user.id, "부과대수저장", f"{year}년{month}월")
+    return RedirectResponse(f"/billing-report?year={year}&month={month}&msg=저장완료", status_code=302)
 
 if __name__ == "__main__":
     import uvicorn

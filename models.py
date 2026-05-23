@@ -14,7 +14,7 @@ DB 스키마 v4
   users / audit_logs
 """
 import json
-from sqlalchemy import (Column, Integer, String, DateTime, Numeric, Text,
+from sqlalchemy import (Column, Integer, BigInteger, String, DateTime, Numeric, Text,
                         ForeignKey, Boolean, SmallInteger, Index)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -88,9 +88,9 @@ class Member(Base):
     is_auto_transfer    = Column(Boolean, default=False)
     note                = Column(Text)
     # 미수금 (스냅샷 값)
-    excel_arrears       = Column(Integer, default=0)   # 엑셀 기재 최신월 미수금
-    calc_arrears        = Column(Integer, default=0)   # 재계산값
-    arrears_diff        = Column(Integer, default=0)   # 차이
+    excel_arrears       = Column(BigInteger, default=0)   # 엑셀 기재 최신월 미수금
+    calc_arrears        = Column(BigInteger, default=0)   # 재계산값
+    arrears_diff        = Column(BigInteger, default=0)   # 차이
     is_overpay          = Column(Boolean, default=False)  # 초과납부/선납
     arrears_verified    = Column(Boolean, default=True)
     verify_reason       = Column(Text)                 # 검증필요 사유 (| 구분)
@@ -133,12 +133,12 @@ class MonthlyLedger(Base):
     raw_note        = Column(Text)
     year            = Column(Integer, index=True)
     month           = Column(SmallInteger, index=True)
-    carry_over      = Column(Integer, default=0)
-    charge_amount   = Column(Integer, default=0)
-    paid_amount     = Column(Integer, default=0)
-    arrears_amount  = Column(Integer, default=0)   # 엑셀 기재값
+    carry_over      = Column(BigInteger, default=0)
+    charge_amount   = Column(BigInteger, default=0)
+    paid_amount     = Column(BigInteger, default=0)
+    arrears_amount  = Column(BigInteger, default=0)   # 엑셀 기재값
     paid_date       = Column(String(100))
-    calc_arrears    = Column(Integer, default=0)   # 재계산값
+    calc_arrears    = Column(BigInteger, default=0)   # 재계산값
     verified        = Column(Boolean, default=True)
     is_duplicate    = Column(Boolean, default=False)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
@@ -184,7 +184,7 @@ class WorkQueue(Base):
     source_screen   = Column(String(50))   # 미수금명단/검증필요/전체자대조/수동
     reason          = Column(Text)
     event_date_raw  = Column(String(100))
-    arrears_at_submit= Column(Integer, default=0)
+    arrears_at_submit= Column(BigInteger, default=0)
     submitted_by    = Column(Integer, ForeignKey("users.id"), nullable=True)
     submitted_at    = Column(DateTime(timezone=True), server_default=func.now())
     reflected_by    = Column(Integer, nullable=True)
@@ -240,7 +240,7 @@ class BillingPerson(Base):
     join_date_raw       = Column(String(100))
     cert_issue_date_raw = Column(String(100))
     cert_no             = Column(String(100))
-    charge_amount       = Column(Integer, default=0)
+    charge_amount       = Column(BigInteger, default=0)
     note                = Column(Text)
     reflect_status      = Column(String(50), default="확인필요")
     reflected_member_id = Column(Integer, ForeignKey("members.id"), nullable=True)
@@ -253,8 +253,8 @@ class BankTransaction(Base):
     id                    = Column(Integer, primary_key=True)
     batch_id              = Column(Integer, ForeignKey("upload_batches.id"), nullable=True)
     txn_date              = Column(String(100), index=True)
-    deposit_amount        = Column(Integer, default=0)
-    balance_amount        = Column(Integer, default=0)
+    deposit_amount        = Column(BigInteger, default=0)
+    balance_amount        = Column(BigInteger, default=0)
     method                = Column(String(120))
     memo                  = Column(String(300), index=True)
     source_type           = Column(String(50), default="paste")  # paste/excel/auto
@@ -265,8 +265,8 @@ class BankTransaction(Base):
     match_candidates_json = Column(Text)
     matched_member_id     = Column(Integer, ForeignKey("members.id"), nullable=True)
     applied               = Column(Boolean, default=False, index=True)
-    applied_amount        = Column(Integer, default=0)
-    overpay_amount        = Column(Integer, default=0)
+    applied_amount        = Column(BigInteger, default=0)
+    overpay_amount        = Column(BigInteger, default=0)
     applied_at            = Column(DateTime(timezone=True), nullable=True)
     note                  = Column(Text)
     raw_text              = Column(Text)
@@ -285,7 +285,7 @@ class CollectionTarget(Base):
     generated_by    = Column(Integer, nullable=True)
     base_year       = Column(Integer)
     base_month      = Column(SmallInteger)
-    arrears         = Column(Integer, default=0)
+    arrears         = Column(BigInteger, default=0)
     category        = Column(String(50))  # 일반/자동이체/주기납부/초과납부
     excluded        = Column(Boolean, default=False)
     exclude_reason  = Column(String(200))
@@ -318,3 +318,28 @@ class AppSetting(Base):
     id    = Column(Integer, primary_key=True)
     key   = Column(String(100), unique=True)
     value = Column(Text)
+
+class BillingReport(Base):
+    """부과대수 관리 — 월례보고 기준 항목 입력"""
+    __tablename__ = "billing_reports"
+    id              = Column(Integer, primary_key=True)
+    year            = Column(Integer, index=True)
+    month           = Column(SmallInteger, index=True)
+    # 수동 입력 항목
+    cnt_join        = Column(Integer, default=0)   # 협회가입
+    cnt_transfer    = Column(Integer, default=0)   # 양도
+    cnt_cross       = Column(Integer, default=0)   # 타도(이관)
+    cnt_close       = Column(Integer, default=0)   # 폐지(폐업)
+    cnt_quit        = Column(Integer, default=0)   # 탈퇴
+    cnt_delivery_new= Column(Integer, default=0)   # 택배신규
+    cnt_mgmt_close  = Column(Integer, default=0)   # 관리비폐지
+    cnt_age70       = Column(Integer, default=0)   # 70세
+    # 자동 계산 (참고값)
+    cnt_base        = Column(Integer, default=0)   # 협회기본대수
+    cnt_total       = Column(Integer, default=0)   # 총부과대수
+    cnt_delivery    = Column(Integer, default=0)   # 해당월 택배관리
+    memo            = Column(Text)
+    created_by      = Column(Integer, nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at      = Column(DateTime(timezone=True), onupdate=func.now())
+

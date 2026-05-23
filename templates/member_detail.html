@@ -97,24 +97,29 @@
   </div>
 </div>
 
-<!-- 월별 원장 -->
+<!-- 월별 원장 (기본 단순화) -->
 {% if ledgers %}
 <div class="tbl-card" style="margin-bottom:14px;">
   <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
     <span style="font-size:12px;font-weight:700;color:var(--text-2);">월별 원장 ({{ ledgers|length }}건)</span>
-    {% if dup_count > 0 %}<span class="badge b-warn">중복원장 {{ dup_count }}건 있음</span>{% endif %}
+    <div style="display:flex;gap:8px;align-items:center;">
+      {% if dup_count > 0 %}<span class="badge b-warn">중복 {{ dup_count }}건</span>{% endif %}
+      <button class="btn btn-ghost btn-sm" onclick="toggleAdvanced()" id="adv-btn">⚙ 고급보기</button>
+    </div>
   </div>
-  <div style="max-height:360px;overflow-y:auto;">
+  <div style="max-height:400px;overflow-y:auto;">
     <table>
       <thead>
         <tr>
           <th>연도</th><th>월</th><th>계정</th>
-          <th style="text-align:right;">이월금</th>
           <th style="text-align:right;">부과금</th>
           <th style="text-align:right;">입금액</th>
-          <th style="text-align:right;">엑셀미수금</th>
-          <th style="text-align:right;">재계산</th>
-          <th>입금날짜</th><th>검증</th><th>출처</th>
+          <th style="text-align:right;">미수금</th>
+          <th>입금일자</th>
+          <!-- 고급보기 컬럼 (기본 숨김) -->
+          <th class="adv-col" style="display:none;text-align:right;">이월금</th>
+          <th class="adv-col" style="display:none;text-align:right;">재계산</th>
+          <th class="adv-col" style="display:none;">원본</th>
         </tr>
       </thead>
       <tbody>
@@ -122,15 +127,17 @@
         <tr {% if l.is_duplicate %}style="opacity:.5;"{% endif %}>
           <td class="text-sm">{{ l.year }}</td>
           <td class="text-sm">{{ l.month }}월</td>
-          <td><span class="badge b-{{ l.raw_account[:1] if l.raw_account else '협' }}" style="font-size:10px;">{{ l.raw_account or '협' }}</span></td>
-          <td class="text-sm text-right">{{ fmt_amt(l.carry_over) if l.carry_over else '–' }}</td>
-          <td class="text-sm text-right">{{ fmt_amt(l.charge_amount) }}</td>
-          <td class="text-sm amount-pos text-right">{{ fmt_amt(l.paid_amount) if l.paid_amount else '–' }}</td>
-          <td class="amount text-right" style="font-size:12px;">{{ fmt_amt(l.arrears_amount) }}</td>
-          <td style="text-align:right;font-size:12px;color:{% if not l.verified %}var(--amber){% else %}var(--text-4){% endif %};">{{ fmt_amt(l.calc_arrears) }}</td>
+          <td><span class="badge b-{{ '협' if not l.raw_account or '협' in l.raw_account else '관' }}" style="font-size:10px;">{{ '협' if not l.raw_account or '협' in l.raw_account else '관' }}</span></td>
+          <td class="text-sm text-right">{{ fmt_amt(l.charge_amount) if l.charge_amount else '–' }}</td>
+          <td class="text-sm text-right" style="color:var(--green);font-weight:{% if l.paid_amount %}600{% else %}400{% endif %};">{{ fmt_amt(l.paid_amount) if l.paid_amount else '–' }}</td>
+          <td class="text-right" style="font-weight:700;color:{% if (l.arrears_amount or 0) < 0 %}var(--blue){% elif (l.arrears_amount or 0) > 0 %}var(--red){% else %}var(--text-3){% endif %};">
+            {{ fmt_amt(l.arrears_amount) }}원
+          </td>
           <td class="text-xs">{{ l.paid_date or '' }}</td>
-          <td>{% if not l.verified %}<span class="badge b-warn" style="font-size:9px;">⚠</span>{% else %}<span style="color:var(--green);font-size:11px;">✓</span>{% endif %}</td>
-          <td class="text-xs" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ l.source_sheet }}/{{ l.source_row }}">{{ l.source_sheet }}/{{ l.source_row }}</td>
+          <!-- 고급보기 -->
+          <td class="adv-col text-sm text-right" style="display:none;">{{ fmt_amt(l.carry_over) if l.carry_over else '–' }}</td>
+          <td class="adv-col text-sm text-right" style="display:none;color:var(--text-4);">{{ fmt_amt(l.calc_arrears) }}</td>
+          <td class="adv-col text-xs" style="display:none;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ l.source_file }}/{{ l.source_sheet }}/{{ l.source_row }}">{{ l.source_sheet }}/{{ l.source_row }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -229,8 +236,20 @@
 
 {% endblock %}
 {% block scripts %}
+
 <script>
+let advVisible = false;
+function toggleAdvanced() {
+  advVisible = !advVisible;
+  document.querySelectorAll('.adv-col').forEach(el => {
+    el.style.display = advVisible ? '' : 'none';
+  });
+  document.getElementById('adv-btn').textContent = advVisible ? '✕ 기본보기' : '⚙ 고급보기';
+}
 document.getElementById('work-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+document.getElementById('amount-modal')?.addEventListener('click', function(e) {
   if (e.target === this) this.classList.remove('open');
 });
 </script>

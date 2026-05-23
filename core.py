@@ -188,26 +188,28 @@ def build_verify_reasons(
     match_status: str, region: str,
     mobile: str, address: str, note: str,
 ) -> List[str]:
-    """검증필요 사유 리스트 생성. 사유가 없으면 빈 리스트 → 검증불필요"""
+    """
+    검증필요 사유 리스트 생성.
+    규칙:
+    - 재계산 차이는 사유로 쓰지 않음 (calc_arrears = excel_arrears)
+    - 법인명/합산행 의심만 실제 사유
+    - 비고에 폐업/양도 등 상태충돌 키워드 있을 때만 사유
+    - 사유 없으면 빈 리스트 반환 → 검증필요 생성 안 함
+    """
     reasons = []
 
-    # 금액 차이 (차이 0이면 절대 검증필요 아님)
-    diff = excel_arr - calc_arr
-    if abs(diff) >= 1000:  # 1000원 이상 차이
-        reasons.append(f"금액차이 {abs(diff):,}원 (엑셀:{excel_arr:,} / 재계산:{calc_arr:,})")
-
-    # 법인명/업체명 의심
-    if name and any(k in name for k in ["(주)","주식회사","유한","합명","법인","회사"]):
+    # 법인명/업체명 의심 (협회 대상이 아닌 법인)
+    if name and any(k in name for k in ["(주)","주식회사","유한","합명","법인","회사","조합"]):
         reasons.append("법인명/업체명 의심")
 
-    # 합산행 의심 (n대, 외n대 등)
-    if vehicle_no and re.search(r"외\s*\d+대|합계|\d+대\s*$", vehicle_no):
+    # 합산행 의심 (n대, 외n대 패턴)
+    if vehicle_no and re.search(r"외\s*\d+대|\d+대\s*$", vehicle_no or ""):
         reasons.append("차량 합산행 의심")
 
-    # 비고와 상태 충돌 (보조 근거에만 사용)
+    # 비고에 상태충돌 키워드 (폐업인데 비고에 양도 등)
     note_status = detect_status(note or "")
     if note_status:
-        reasons.append(f"비고에 {note_status} 키워드 있음 (처리구분과 충돌 확인 필요)")
+        reasons.append(f"비고에 [{note_status}] 키워드 있음 — 상태 확인 필요")
 
     return reasons
 
