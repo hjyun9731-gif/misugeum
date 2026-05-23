@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% set active = "arrears" %}
+{% block title %}미수금 명단{% endblock %}
+{% block page_title %}미수금 명단{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <span class="page-sub">현재 미수금 <strong style="color:var(--red);">{{ fmt_amt(total_arr) }}원</strong> · {{ items|length }}명</span>
+  <div class="flex-gap" style="margin-left:auto;">
+    <a href="/member/new" class="btn btn-primary btn-sm">+ 명단 추가</a>
+  </div>
+</div>
+
+{% if msg %}<div class="msg-box msg-ok">✓ {{ msg }}</div>{% endif %}
+
+<!-- 탭 -->
+<div class="tabs">
+  {% for t, label in [("전체","전체"),("문자후보","문자후보"),("검증필요","검증필요"),("연락처없음","연락처없음"),("자동이체정기","자동이체/정기"),("초과납부선납","초과납부/선납")] %}
+  <a href="/arrears?tab={{ t }}" class="tab-btn {% if tab==t %}active{% endif %}">
+    {{ label }}
+    <span class="tab-cnt {% if tab_counts.get(t,0) > 0 %}has{% endif %}">{{ tab_counts.get(t,0) }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<!-- 필터 -->
+<form method="get" action="/arrears" class="filter-bar auto-submit">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 뒷자리 4자리" class="fi">
+  <label>지역</label>
+  <select name="region" class="fs">
+    <option value="">전체 지역</option>
+    {% for r in regions %}<option value="{{ r }}" {% if region==r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+  </select>
+  <label>계정</label>
+  <select name="account" class="fs">
+    <option value="">전체</option>
+    <option value="협" {% if account=="협" %}selected{% endif %}>협회비</option>
+    <option value="관" {% if account=="관" %}selected{% endif %}>관리비</option>
+  </select>
+  <button type="submit" class="btn btn-search btn-sm">검색</button>
+  <a href="/arrears?tab={{ tab }}" class="btn btn-ghost btn-sm">초기화</a>
+</form>
+
+<!-- 테이블 -->
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr>
+        <th>지역</th><th>계정</th><th>차량번호</th><th>성명</th>
+        <th>연락처</th><th style="text-align:right;">현재미수금</th>
+        <th>첫미납월</th><th>최근입금일</th><th>검증</th><th style="text-align:center;">처리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in items %}
+      <tr id="row-{{ m.id }}">
+        <td class="nowrap text-sm">{{ m.region or '–' }}</td>
+        <td><span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span></td>
+        <td class="nowrap text-sm" style="font-family:monospace;letter-spacing:.3px;">{{ m.vehicle_no or '–' }}</td>
+        <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
+        <td class="text-sm">{{ m.mobile or '–' }}</td>
+        <td class="nowrap" style="text-align:right;">
+          <span class="{% if m.is_overpay %}overpay{% else %}amount{% endif %}" style="font-weight:700;">{{ fmt_amt(m.excel_arrears) }}원</span>
+        </td>
+        <td class="text-sm">{{ m.first_unpaid_month or '–' }}</td>
+        <td class="text-sm">{{ m.last_paid_date or '–' }}</td>
+        <td style="text-align:center;">
+          {% if not m.arrears_verified %}
+            <span class="badge b-warn" title="{{ m.verify_reason or '' }}">⚠</span>
+          {% else %}
+            <span style="color:var(--green);font-size:12px;">✓</span>
+          {% endif %}
+        </td>
+        <td style="text-align:center;white-space:nowrap;">
+          <a href="/member/{{ m.id }}" class="btn btn-ghost btn-sm">상세</a>
+          <button class="btn btn-warn btn-sm" onclick="openWorkModal({{ m.id }}, '{{ m.name }}', {{ m.excel_arrears or 0 }})">부과대수 등록</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="10"><div class="empty-state"><div class="ei">💰</div><div class="et">조회 결과가 없습니다</div></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="tbl-footer">
+    <span>{{ total_count }}명 중 {{ items|length }}명 표시</span>
+    <span>총 미수금 <strong style="color:var(--red);">{{ fmt_amt(total_arr) }}원</strong></span>
+    {% if total_pages > 1 %}
+    <div style="display:flex;align-items:center;gap:4px;">
+      {% if page > 1 %}<a href="?tab={{ tab }}&q={{ q }}&region={{ region }}&account={{ account }}&page={{ page-1 }}" class="btn btn-ghost btn-sm">← 이전</a>{% endif %}
+      <span class="text-sm" style="padding:0 8px;">{{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}<a href="?tab={{ tab }}&q={{ q }}&region={{ region }}&account={{ account }}&page={{ page+1 }}" class="btn btn-ghost btn-sm">다음 →</a>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 업무처리 모달 -->
+<div class="modal-bg" id="work-modal">
+  <div class="modal">
+    <h3>⚙️ 업무처리 — <span id="wm-name"></span></h3>
+    <div id="wm-info" style="background:var(--surface-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;"></div>
+    <form method="post" id="wm-form" action="">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="fg">
+          <label>처리 구분</label>
+          <select name="process_type">
+            <option value="폐업">폐업</option>
+            <option value="양도">양도</option>
+            <option value="이관">이관</option>
+            <option value="탈퇴">탈퇴</option>
+            <option value="사망">사망</option>
+            <option value="말소">말소</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>처리일자</label>
+          <input type="date" name="event_date">
+        </div>
+      </div>
+      <div class="fg">
+        <label>사유/비고</label>
+        <input type="text" name="reason" placeholder="선택 입력">
+      </div>
+      <div style="margin-top:10px;padding:9px 12px;background:var(--amber-lt);border-radius:6px;font-size:12px;color:var(--amber);border:1px solid var(--amber-mid);">
+        ⚠ 즉시 확정이 아닙니다. <strong>부과대수 관리</strong>에 반영대기로 등록됩니다.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('work-modal').classList.remove('open')">취소</button>
+        <button type="submit" class="btn btn-primary">부과대수 관리로</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function openWorkModal(mid, name, arrears) {
+  document.getElementById('wm-name').textContent = name;
+  document.getElementById('wm-info').textContent = '현재 미수금: ' + arrears.toLocaleString() + '원';
+  document.getElementById('wm-form').action = '/arrears/' + mid + '/to-work';
+  document.getElementById('work-modal').classList.add('open');
+}
+document.getElementById('work-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+document.querySelectorAll('.auto-submit select').forEach(el => el.addEventListener('change', () => el.closest('form').submit()));
+</script>
+{% endblock %}
+
+<!-- pagination macro (appended) -->

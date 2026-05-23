@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% set active = "work" %}
+{% block title %}부과대수 관리{% endblock %}
+{% block page_title %}부과대수 관리{% endblock %}
+{% block content %}
+{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
+
+<div class="msg-box msg-info">
+  ⚠ <strong>반영 버튼</strong>을 눌러야 실제 상태가 변경됩니다. 반영 전에는 미수금 명단에 아무 변화가 없습니다.
+</div>
+
+<div class="tabs">
+  {% for t in TABS %}
+  <a href="/work?tab={{ t }}" class="tab-btn {% if tab==t %}active{% endif %}">
+    {{ t }} <span class="tab-cnt {% if tab_counts.get(t,0)>0 %}has{% endif %}">{{ tab_counts.get(t,0) }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<form method="get" action="/work" class="filter-bar">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호" class="fi">
+  <button type="submit" class="btn btn-search btn-sm">검색</button>
+  <a href="/work?tab={{ tab }}" class="btn btn-ghost btn-sm">초기화</a>
+</form>
+
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr>
+        <th>상태</th><th>처리구분</th><th>지역</th><th>성명</th><th>차량번호</th>
+        <th>계정</th><th style="text-align:right;">처리전 미수금</th>
+        <th>요청일</th><th>출처</th><th>처리사유</th><th>반영</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in items %}
+      {% set wq = row.WorkQueue %}{% set m = row.Member %}
+      <tr>
+        <td class="nowrap">
+          {% if wq.status == '반영대기' %}<span class="badge b-warn">반영대기</span>
+          {% elif wq.status == '반영완료' %}<span class="badge b-ok">반영완료</span>
+          {% elif wq.status == '취소' %}<span class="badge b-gray">취소</span>
+          {% else %}<span class="badge b-gray">{{ wq.status }}</span>{% endif %}
+        </td>
+        <td class="nowrap">
+          <span class="badge {% if wq.process_type in ['폐업','탈퇴','사망','말소'] %}b-red{% elif wq.process_type in ['양도','이관'] %}b-warn{% elif wq.process_type == '금액수정' %}b-purple{% else %}b-blue{% endif %}">
+            {{ wq.process_type }}
+          </span>
+        </td>
+        <td class="text-sm">{{ m.region or '–' }}</td>
+        <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
+        <td class="nowrap text-sm" style="font-family:monospace;">{{ m.vehicle_no or '–' }}</td>
+        <td><span class="badge b-{{ m.account }}">{{ {'협':'협회비','관':'관리비'}.get(m.account,'') }}</span></td>
+        <td style="text-align:right;font-weight:700;color:{% if wq.arrears_at_submit < 0 %}var(--blue){% else %}var(--red){% endif %};">
+          {% if wq.arrears_at_submit < 0 %}-{% endif %}{{ fmt_amt(wq.arrears_at_submit|abs) }}원
+        </td>
+        <td class="text-sm nowrap">
+          {% if wq.submitted_at %}{{ wq.submitted_at.strftime('%y.%m.%d.') }}{% endif %}
+        </td>
+        <td class="text-xs">{{ wq.source_screen or '' }}</td>
+        <td class="text-sm" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ wq.reason or '' }}">{{ wq.reason or '' }}</td>
+        <td class="nowrap">
+          {% if wq.status == '반영대기' %}
+            {% if wq.process_type == '금액수정' %}
+              <form method="post" action="/work/{{ wq.id }}/reflect-amount" style="display:inline;">
+                <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('금액수정을 반영하시겠습니까?')">반영</button>
+              </form>
+            {% else %}
+              <form method="post" action="/work/{{ wq.id }}/reflect" style="display:inline;">
+                <button type="submit" class="btn btn-primary btn-sm"
+                  onclick="return confirm('{{ m.name }} → {{ wq.process_type }} 확정하시겠습니까?')">반영</button>
+              </form>
+            {% endif %}
+            <form method="post" action="/work/{{ wq.id }}/cancel" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">취소</button>
+            </form>
+          {% else %}
+            <span class="text-xs" style="color:var(--text-4);">
+              {% if wq.reflected_at %}{{ wq.reflected_at.strftime('%y.%m.%d.') }}{% endif %}
+            </span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="11">
+          <div class="empty-state">
+            <div class="ei">⚙️</div>
+            <div class="et">{{ tab }} 항목 없음</div>
+            <div class="es">미수금 명단에서 상태변경 버튼으로 등록하세요</div>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="tbl-footer"><span>{{ items|length }}건</span></div>
+</div>
+{% endblock %}

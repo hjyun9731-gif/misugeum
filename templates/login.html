@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>로그인 — 강원도개인소형화물협회</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-icon">화</div>
+      <h1>강원도개인소형화물협회</h1>
+      <p>통합관리시스템에 로그인하세요</p>
+    </div>
+    {% if error %}<div class="msg-box msg-err">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <div class="fg"><label>아이디</label><input type="text" name="username" autofocus required placeholder="아이디 입력"></div>
+      <div class="fg" style="margin-top:12px;"><label>비밀번호</label><input type="password" name="password" required placeholder="비밀번호 입력"></div>
+      <button type="submit" class="login-submit" style="margin-top:20px;">로그인 →</button>
+    </form>
+    <div class="login-hint">기본 계정: admin / admin1234</div>
+  </div>
+</div>
+</body>
+</html>

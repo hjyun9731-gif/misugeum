@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% set active = "collection" %}
+{% block title %}문자대상관리{% endblock %}
+{% block page_title %}문자대상관리{% endblock %}
+{% block content %}
+{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
+
+<div class="page-header">
+  <span class="page-sub">{{ targets|length }}명 · 총 <strong style="color:var(--red);">{{ fmt_amt(total) }}원</strong></span>
+  <div class="flex-gap" style="margin-left:auto;">
+    <form method="post" action="/collection/generate" style="display:inline;">
+      <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('문자대상을 새로 생성합니다. 기존 목록은 삭제됩니다.')">문자대상 생성</button>
+    </form>
+  </div>
+</div>
+
+<!-- 탭 -->
+<div class="tabs">
+  {% for t in ["전체","자동이체","초과납부","장기미납","연락처없음","제외"] %}
+  <a href="/collection?tab={{ t }}" class="tab-btn {% if tab==t %}active{% endif %}">
+    {{ t }} <span class="tab-cnt {% if tab_counts.get(t,0)>0 %}has{% endif %}">{{ tab_counts.get(t,0) }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<!-- 필터 -->
+<form method="get" action="/collection" class="filter-bar auto-submit">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호" class="fi">
+  <label>지역</label>
+  <select name="region" class="fs">
+    <option value="">전체</option>
+    {% for r in regions %}<option value="{{ r }}" {% if region==r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+  </select>
+  <label>계정</label>
+  <select name="account" class="fs">
+    <option value="">전체</option>
+    <option value="협" {% if account=="협" %}selected{% endif %}>협회비</option>
+    <option value="관" {% if account=="관" %}selected{% endif %}>관리비</option>
+  </select>
+  <button type="submit" class="btn btn-search btn-sm">검색</button>
+</form>
+
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr><th>지역</th><th>계정</th><th>성명</th><th>차량번호</th>
+      <th>핸드폰</th><th>사용주소</th>
+      <th style="text-align:right;">미수금</th><th>첫미납월</th><th>분류</th>
+      {% if tab == "초과납부" %}<th>초과금액</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in targets %}
+      {% set t = row.CollectionTarget %}{% set m = row.Member %}
+      <tr>
+        <td class="text-sm">{{ m.region or '–' }}</td>
+        <td><span class="badge b-{{ m.account }}">{{ {'협':'협회비','관':'관리비'}.get(m.account,'') }}</span></td>
+        <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
+        <td class="text-sm nowrap" style="font-family:monospace;">{{ m.vehicle_no or '–' }}</td>
+        <td class="text-sm">
+          {% if t.mobile_clean %}
+          <span style="color:var(--green);">{{ t.mobile_clean }}</span>
+          {% elif m.mobile %}
+          {{ m.mobile }}
+          {% else %}
+          <span class="badge b-warn">연락처없음</span>
+          {% endif %}
+        </td>
+        <td class="text-sm" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ t.address_clean or '' }}">{{ t.address_clean or '–' }}</td>
+        <td class="nowrap" style="text-align:right;">
+<span class="{% if m.is_overpay %}overpay{% else %}amount{% endif %}" style="font-weight:700;">{{ fmt_amt(m.excel_arrears) }}원</span>
+        </td>
+        <td class="text-sm">{{ m.first_unpaid_month or '–' }}</td>
+        <td>
+          <span class="badge {% if t.category=='자동이체' %}b-blue{% elif t.excluded %}b-gray{% else %}b-ok{% endif %}">
+            {{ t.category }}{% if t.excluded and t.exclude_reason %} ({{ t.exclude_reason }}){% endif %}
+          </span>
+        </td>
+        {% if tab == "초과납부" %}
+        <td class="nowrap"><span class="overpay">{{ fmt_amt(-m.excel_arrears) }}원</span></td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr><td colspan="9"><div class="empty-state"><div class="ei">📱</div><div class="et">{{ tab }} 대상 없음</div><div class="es">{% if tab=='전체' %}상단 버튼으로 생성하세요{% endif %}</div></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="tbl-footer">
+    <span>{{ targets|length }}명</span>
+    <span>총 미수금 <strong style="color:var(--red);">{{ fmt_amt(total) }}원</strong></span>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>document.querySelectorAll('.auto-submit select').forEach(el=>el.addEventListener('change',()=>el.closest('form').submit()));</script>{% endblock %}

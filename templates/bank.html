@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% set active = "bank" %}
+{% block title %}통장매칭{% endblock %}
+{% block page_title %}통장매칭{% endblock %}
+{% block content %}
+{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
+
+<div class="tabs">
+  {% for t, label in [('','전체'),('자동매칭','자동매칭'),('확인필요','확인필요'),('미매칭','미매칭'),('반영완료','반영완료')] %}
+  <a href="/bank?status={{ t }}" class="tab-btn {% if status==t %}active{% endif %}">
+    {{ label }} <span class="tab-cnt {% if counts.get(label,0)>0 %}has{% endif %}">{{ counts.get(label, counts.get('전체',0) if not t else 0) }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<div style="display:grid;grid-template-columns:3fr 1fr;gap:12px;margin-bottom:14px;">
+  <div class="card card-sm">
+    <div class="card-title">통장내역 붙여넣기</div>
+    <form method="post" action="/bank/paste">
+      <textarea name="pasted_text" class="paste-area" placeholder="통장 내역을 여기에 붙여넣으세요:
+2026-05-13   35,000   2,354,865   E-국민은행   이정기1016
+2026-05-14   30,000   2,384,865   폰하나은행   강원80배1075"></textarea>
+      <div style="margin-top:8px;"><button type="submit" class="btn btn-primary btn-sm">📥 파싱 및 자동매칭</button></div>
+    </form>
+  </div>
+  <div class="card card-sm">
+    <div class="card-title">검색</div>
+    <form method="get" action="/bank">
+      <input type="hidden" name="status" value="{{ status }}">
+      <input type="text" name="q" value="{{ q }}" placeholder="이체메모 검색" class="fi" style="width:100%;margin-bottom:8px;">
+      <button type="submit" class="btn btn-search btn-sm" style="width:100%;">검색</button>
+    </form>
+  </div>
+</div>
+
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr><th style="width:32px;"></th><th>입금일자</th><th style="text-align:right;">입금액</th>
+      <th>이체메모</th><th>상태</th><th>매칭대상</th><th>사유</th><th>처리</th></tr>
+    </thead>
+    <tbody>
+    {% for tx in txs %}
+      <tr id="btx-{{ tx.id }}">
+        <td style="text-align:center;">
+          {% if not tx.applied %}
+          <button class="btn btn-ghost btn-sm" style="width:26px;padding:0;font-size:11px;" onclick="toggleExpand(this)">▾</button>
+          {% endif %}
+        </td>
+        <td class="text-sm nowrap">{{ tx.txn_date or '–' }}</td>
+        <td class="amount text-right">{{ fmt_amt(tx.deposit_amount) }}원</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;" title="{{ tx.memo or '' }}">{{ tx.memo or '–' }}</td>
+        <td class="nowrap">
+          {% if tx.applied %}<span class="badge b-ok">✓ 반영완료</span>
+          {% elif tx.match_status == '자동매칭' %}<span class="badge b-blue">⚡ 자동매칭</span>
+          {% elif tx.match_status == '확인필요' %}<span class="badge b-warn">⚠ 확인필요</span>
+          {% elif tx.match_status == '보류' %}<span class="badge b-gray">보류</span>
+          {% else %}<span class="badge b-gray">미매칭</span>{% endif %}
+        </td>
+        <td class="text-sm nowrap">
+          {% if tx.matched_member %}
+          <a href="/member/{{ tx.matched_member.id }}" style="color:var(--blue);font-weight:600;">{{ tx.matched_member.name }}</a>
+          <span class="text-xs" style="margin-left:4px;">{{ tx.matched_member.vehicle_no or '' }}</span>
+          {% else %}–{% endif %}
+        </td>
+        <td class="text-xs" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ tx.match_reason or '' }}">{{ tx.match_reason or '' }}</td>
+        <td class="nowrap">
+          {% if tx.applied %}
+          <span class="text-sm amount-pos">{{ fmt_amt(tx.applied_amount) }}원</span>
+          {% else %}
+          {% if tx.match_status == '자동매칭' and tx.matched_member %}
+          <button class="btn btn-primary btn-sm" onclick="openApplyModal({{ tx.id }}, {{ tx.matched_member.id }}, '{{ tx.matched_member.name }}', {{ tx.deposit_amount or 0 }})">반영</button>
+          {% endif %}
+          {% if tx.match_status == '확인필요' %}
+          <button class="btn btn-warn btn-sm" onclick="toggleExpand(this.closest('tr').nextElementSibling?.previousElementSibling || document.getElementById('btx-{{ tx.id }}'))">후보선택</button>
+          {% endif %}
+          <form method="post" action="/bank/{{ tx.id }}/hold" style="display:inline;">
+            <button type="submit" class="btn btn-ghost btn-sm">보류</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% if not tx.applied %}
+      <tr class="expand-row">
+        <td colspan="8">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">후보 목록</div>
+              {% if tx._candidates %}
+              <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                <thead><tr style="background:var(--surface-2);">
+                  <th style="padding:5px 8px;text-align:left;">성명</th><th style="padding:5px 8px;">차량번호</th>
+                  <th style="padding:5px 8px;text-align:right;">미수금</th><th style="padding:5px 8px;">사유</th><th style="padding:5px 8px;"></th>
+                </tr></thead>
+                <tbody>
+                {% for cand in tx._candidates %}
+                <tr style="border-bottom:1px solid var(--border);">
+                  <td style="padding:5px 8px;font-weight:600;"><a href="/member/{{ cand.id }}" style="color:var(--blue);">{{ cand.name }}</a></td>
+                  <td style="padding:5px 8px;font-family:monospace;font-size:11px;">{{ cand.vehicle_no }}</td>
+                  <td style="padding:5px 8px;text-align:right;font-weight:700;color:var(--red);">{{ fmt_amt(cand.amount) }}원</td>
+                  <td style="padding:5px 8px;font-size:11px;color:var(--text-3);">{{ cand.reason }}</td>
+                  <td style="padding:5px 8px;">
+                    <button class="btn btn-primary btn-sm" onclick="openApplyModal({{ tx.id }}, {{ cand.id }}, '{{ cand.name }}', {{ tx.deposit_amount or 0 }})">이 사람으로 반영</button>
+                  </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+              {% else %}
+              <div class="text-sm" style="color:var(--text-3);">후보 없음 — 아래에서 직접 검색</div>
+              {% endif %}
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">직접 검색</div>
+              <div style="display:flex;gap:6px;margin-bottom:8px;">
+                <input type="text" id="bq-{{ tx.id }}" placeholder="이름 또는 차량번호 뒷자리" style="flex:1;height:30px;padding:0 9px;border:1px solid var(--border-2);border-radius:var(--r-sm);font-size:12.5px;">
+                <button class="btn btn-search btn-sm" onclick="searchMember({{ tx.id }}, {{ tx.deposit_amount or 0 }})">검색</button>
+              </div>
+              <div id="bres-{{ tx.id }}"></div>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% endif %}
+    {% else %}
+    <tr><td colspan="8"><div class="empty-state"><div class="ei">🏦</div><div class="et">통장내역을 붙여넣으세요</div></div></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="tbl-footer"><span>{{ txs|length }}건</span></div>
+</div>
+
+<!-- 반영 확인 모달 -->
+<div class="modal-bg" id="apply-modal">
+  <div class="modal">
+    <h3>💳 입금 반영 확인</h3>
+    <div id="apply-preview" style="background:var(--surface-2);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px;">로딩중...</div>
+    <form method="post" id="apply-form" action="">
+      <div class="fg"><label>메모 (선택)</label><input type="text" name="note" placeholder="예: 5월분 납부"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('apply-modal').classList.remove('open')">취소</button>
+        <button type="submit" class="btn btn-primary" id="apply-btn" disabled>반영 확정</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function toggleExpand(btn) {
+  const row = btn.closest ? btn.closest('tr') : btn;
+  const next = row.nextElementSibling;
+  if (!next || !next.classList.contains('expand-row')) return;
+  next.classList.toggle('open');
+  if (btn.textContent !== undefined) btn.textContent = next.classList.contains('open') ? '▴' : '▾';
+}
+async function openApplyModal(txId, memberId, name, deposit) {
+  const modal = document.getElementById('apply-modal');
+  const preview = document.getElementById('apply-preview');
+  const form = document.getElementById('apply-form');
+  form.action = '/bank/' + txId + '/apply?member_id=' + memberId;
+  document.getElementById('apply-btn').disabled = true;
+  modal.classList.add('open');
+  preview.innerHTML = '로딩중...';
+  try {
+    const r = await fetch('/bank/' + txId + '/preview?member_id=' + memberId);
+    const d = await r.json();
+    if (!d.ok) { preview.innerHTML = '<div style="color:var(--red);">' + d.msg + '</div>'; return; }
+    const ovHtml = d.overpay > 0 ? `<div style="color:var(--amber);margin-top:6px;font-size:12px;">⚠ 과납 ${d.overpay.toLocaleString()}원</div>` : '';
+    preview.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;">
+        <div><span style="color:var(--text-3);">대상자</span><br><strong>${d.name}</strong> <span style="color:var(--text-3);font-size:12px;">${d.vehicle_no}</span></div>
+        <div><span style="color:var(--text-3);">입금액</span><br><strong style="color:var(--green);">+${d.deposit.toLocaleString()}원</strong></div>
+        <div><span style="color:var(--text-3);">현재 미수금</span><br><strong style="color:var(--red);">${d.before.toLocaleString()}원</strong></div>
+        <div><span style="color:var(--text-3);">반영 후</span><br><strong style="color:${d.after<=0?'var(--blue)':'var(--red)'};">${d.after.toLocaleString()}원</strong></div>
+      </div>${ovHtml}`;
+    document.getElementById('apply-btn').disabled = false;
+  } catch(e) { preview.innerHTML = '<div style="color:var(--red);">오류</div>'; }
+}
+document.getElementById('apply-modal').addEventListener('click', function(e) { if(e.target===this) this.classList.remove('open'); });
+async function searchMember(txId, deposit) {
+  const q = document.getElementById('bq-'+txId).value;
+  const res = document.getElementById('bres-'+txId);
+  const r = await fetch('/api/member-search?q='+encodeURIComponent(q));
+  const d = await r.json();
+  if (!d.items || !d.items.length) { res.innerHTML='<span class="text-sm">결과 없음</span>'; return; }
+  res.innerHTML = d.items.map(m => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+      <strong style="min-width:60px;">${m.name}</strong>
+      <span style="font-family:monospace;font-size:11px;color:var(--text-3);">${m.vehicle_no}</span>
+      <span style="font-weight:700;color:var(--red);margin-left:auto;">${m.amount.toLocaleString()}원</span>
+      <button class="btn btn-primary btn-sm" onclick="openApplyModal(${txId},${m.id},'${m.name}',${deposit})">반영</button>
+    </div>`).join('');
+}
+</script>
+{% endblock %}

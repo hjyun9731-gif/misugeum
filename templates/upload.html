@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% set active = "upload" %}
+{% block title %}엑셀 업로드{% endblock %}
+{% block page_title %}엑셀 업로드{% endblock %}
+{% block content %}
+{% if msg %}<div class="msg-box {% if '오류' in msg or '실패' in msg %}msg-err{% else %}msg-ok{% endif %}">{{ msg }}</div>{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+
+<div class="card" style="border-top:3px solid var(--blue);">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+    <div style="width:38px;height:38px;background:var(--blue-lt);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">📋</div>
+    <div><div style="font-size:14px;font-weight:700;">미수금 엑셀 업로드</div><div style="font-size:11.5px;color:var(--text-3);">회비내역 + 상태정리 시트 자동 분류</div></div>
+    {% if latest.legacy %}<span class="badge b-ok" style="margin-left:auto;">✓ 완료</span>{% endif %}
+  </div>
+  <div style="background:var(--surface-2);border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:var(--text-3);line-height:1.8;">
+    <strong style="color:var(--text-1);">미수금n월.xlsm / 미수금n년.XLS 지원</strong><br>
+    시트 자동 분류: 회비내역 / 상태정리 / 월별부과대수<br>
+    원본 전체 보존 → 월별원장 변환 → 미수금 재계산
+    {% if latest.legacy %}<br><span style="color:var(--green);">최근: {{ latest.legacy.file_name }} ({{ latest.legacy.file_year }}년 / {{ latest.legacy.saved_rows }}행)</span>{% endif %}
+  </div>
+  <form method="post" action="/upload/legacy" enctype="multipart/form-data">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <label class="upload-zone" style="flex:1;padding:14px;" onclick="this.querySelector('input').click()">
+        <div class="uz-icon">📂</div><p id="ul-name">파일 선택</p>
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.XLS" style="display:none;" onchange="document.getElementById('ul-name').textContent=this.files[0]?.name||'선택됨'">
+      </label>
+      <button type="submit" class="btn btn-primary btn-sm">업로드</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="border-top:3px solid var(--green);">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+    <div style="width:38px;height:38px;background:var(--green-lt);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">👥</div>
+    <div><div style="font-size:14px;font-weight:700;">전체자명단 업로드</div><div style="font-size:11.5px;color:var(--text-3);">연락처·주소·가입일자 자동 보완</div></div>
+    {% if latest.license %}<span class="badge b-ok" style="margin-left:auto;">✓ 완료</span>{% endif %}
+  </div>
+  <div style="background:var(--surface-2);border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:var(--text-3);line-height:1.8;">
+    전체면허자현황 엑셀 업로드 → 미수금명단 자동 대조<br>
+    성명(공백제거) + 차량번호(정규화) 기준 매칭
+    {% if latest.license %}<br><span style="color:var(--green);">최근: {{ latest.license.file_name }} ({{ latest.license.saved_rows }}건)</span>{% endif %}
+  </div>
+  <form method="post" action="/upload/license" enctype="multipart/form-data">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <label class="upload-zone" style="flex:1;padding:14px;" onclick="this.querySelector('input').click()">
+        <div class="uz-icon">📄</div><p id="lic-name">파일 선택</p>
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" style="display:none;" onchange="document.getElementById('lic-name').textContent=this.files[0]?.name||'선택됨'">
+      </label>
+      <button type="submit" class="btn btn-sm" style="background:var(--green);color:#fff;border:none;">업로드</button>
+    </div>
+  </form>
+</div>
+
+</div>
+
+<!-- 업로드 이력 -->
+<div class="tbl-card">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;">업로드 이력</div>
+  <table>
+    <thead><tr><th>파일명</th><th>종류</th><th>연도</th><th style="text-align:right;">저장</th><th style="text-align:right;">경고</th><th>업로드 시각</th></tr></thead>
+    <tbody>
+      {% for b in batches %}
+      <tr>
+        <td class="text-sm">{{ b.file_name }}</td>
+        <td><span class="badge {% if b.data_type=='legacy' %}b-blue{% elif b.data_type=='license' %}b-ok{% else %}b-warn{% endif %}">{{ b.data_type }}</span></td>
+        <td class="text-sm">{{ b.file_year or '–' }}</td>
+        <td class="text-sm text-right">{{ b.saved_rows }}</td>
+        <td class="text-sm text-right" style="color:{% if b.warn_rows > 0 %}var(--amber){% else %}var(--text-4){% endif %};">{{ b.warn_rows }}</td>
+        <td class="text-sm">{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6"><div class="empty-state" style="padding:24px;"><div class="ei">📭</div><div class="et">업로드 이력 없음</div></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

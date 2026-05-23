@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}강원도개인소형화물협회{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+
+<!-- 사이드바 -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-icon">화</div>
+    <div>
+      <div class="sidebar-logo-text">강원도개인소형화물협회</div>
+      <div class="sidebar-logo-sub">통합관리시스템 v4</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/dashboard" class="sidebar-item {% if active=='dashboard' %}active{% endif %}">
+      <span class="si-icon">📊</span> 대시보드
+    </a>
+
+    <div class="sidebar-section">회원</div>
+    <a href="/arrears" class="sidebar-item {% if active=='arrears' %}active{% endif %}">
+      <span class="si-icon">💰</span> 미수금 명단
+    </a>
+    <a href="/verify" class="sidebar-item {% if active=='verify' %}active{% endif %}">
+      <span class="si-icon">⚠️</span> 검증필요
+      {% if verify_cnt is defined and verify_cnt > 0 %}
+      <span class="sidebar-badge alert">{{ verify_cnt }}</span>
+      {% endif %}
+    </a>
+    <a href="/license-check" class="sidebar-item {% if active=='license' %}active{% endif %}">
+      <span class="si-icon">👥</span> 전체자대조
+    </a>
+
+    <div class="sidebar-section">업무</div>
+    <a href="/work" class="sidebar-item {% if active=='work' %}active{% endif %}">
+      <span class="si-icon">⚙️</span> 부과대수 관리
+    </a>
+    <a href="/collection" class="sidebar-item {% if active=='collection' %}active{% endif %}">
+      <span class="si-icon">📱</span> 문자대상관리
+    </a>
+    <a href="/bank" class="sidebar-item {% if active=='bank' %}active{% endif %}">
+      <span class="si-icon">🏦</span> 통장매칭
+    </a>
+
+    <div class="sidebar-section">자료</div>
+    <a href="/upload" class="sidebar-item {% if active=='upload' %}active{% endif %}">
+      <span class="si-icon">📁</span> 엑셀 업로드
+    </a>
+
+    <div class="sidebar-section">시스템</div>
+    <a href="/settings" class="sidebar-item {% if active=='settings' %}active{% endif %}">
+      <span class="si-icon">🔧</span> 설정
+    </a>
+    <a href="/logout" class="sidebar-item">
+      <span class="si-icon">🚪</span> 로그아웃
+    </a>
+  </nav>
+</aside>
+
+<!-- 상단바 -->
+<header class="topbar">
+  <span class="topbar-title">{% block page_title %}{% endblock %}</span>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="topbar-avatar">{{ user.name[0] if user.name else 'A' }}</div>
+      {{ user.name or user.username }}
+    </div>
+    <a href="/logout" class="topbar-logout">로그아웃</a>
+  </div>
+</header>
+
+<!-- 본문 -->
+<main class="main">
+  {% block content %}{% endblock %}
+</main>
+
+</div><!-- .layout -->
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% set active = "arrears" %}
+{% block title %}회원 수정{% endblock %}
+{% block page_title %}회원 수정 — {{ m.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="/member/{{ m.id }}" class="btn btn-ghost btn-sm" style="margin-left:auto;">취소</a>
+</div>
+<div class="card" style="max-width:750px;">
+  <form method="post" action="/member/{{ m.id }}/edit">
+    <div class="form-section">
+      <div class="form-section-title">기본 정보</div>
+      <div class="form-grid">
+        <div class="fg"><label>성명</label><input type="text" name="name" value="{{ m.name }}" required></div>
+        <div class="fg"><label>차량번호</label><input type="text" name="vehicle_no" value="{{ m.vehicle_no or '' }}"></div>
+        <div class="fg"><label>지역</label><input type="text" name="region" value="{{ m.region or '' }}" list="rl"><datalist id="rl">{% for r in regions %}<option value="{{ r }}">{% endfor %}</datalist></div>
+        <div class="fg"><label>계정</label><select name="account"><option value="협" {% if m.account=='협' %}selected{% endif %}>협회비</option><option value="관" {% if m.account=='관' %}selected{% endif %}>관리비</option></select></div>
+        <div class="fg"><label>핸드폰</label><input type="text" name="mobile" value="{{ m.mobile or '' }}"></div>
+        <div class="fg"><label>전화번호</label><input type="text" name="phone" value="{{ m.phone or '' }}"></div>
+        <div class="fg" style="grid-column:span 2;"><label>공문주소</label><input type="text" name="official_address" value="{{ m.official_address or '' }}"></div>
+        <div class="fg" style="grid-column:span 2;"><label>주소</label><input type="text" name="address" value="{{ m.address or '' }}"></div>
+        <div class="fg"><label>상태</label><select name="status"><option value="정상" {% if m.status=='정상' %}selected{% endif %}>정상</option><option value="폐업" {% if m.status=='폐업' %}selected{% endif %}>폐업</option><option value="양도" {% if m.status=='양도' %}selected{% endif %}>양도</option><option value="이관" {% if m.status=='이관' %}selected{% endif %}>이관</option><option value="탈퇴" {% if m.status=='탈퇴' %}selected{% endif %}>탈퇴</option><option value="사망" {% if m.status=='사망' %}selected{% endif %}>사망</option><option value="말소" {% if m.status=='말소' %}selected{% endif %}>말소</option></select></div>
+        <div class="fg"><label>가입일자</label><input type="text" name="join_date_raw" value="{{ m.join_date_raw or '' }}"></div>
+        <div class="fg"><label>인가일자</label><input type="text" name="permit_date_raw" value="{{ m.permit_date_raw or '' }}"></div>
+        <div class="fg"><label>자격증명 발급일자</label><input type="text" name="cert_issue_date_raw" value="{{ m.cert_issue_date_raw or '' }}"></div>
+        <div class="fg"><label>자격증명 번호</label><input type="text" name="cert_no" value="{{ m.cert_no or '' }}"></div>
+        <div class="fg" style="grid-column:span 2;"><label>비고</label><textarea name="note" rows="2">{{ m.note or '' }}</textarea></div>
+      </div>
+    </div>
+    <div class="flex-gap"><button type="submit" class="btn btn-primary">저장</button><a href="/member/{{ m.id }}" class="btn btn-search">취소</a></div>
+  </form>
+</div>
+{% endblock %}

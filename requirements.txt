@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+sqlalchemy
+psycopg2-binary
+pandas
+openpyxl
+xlrd
+passlib[bcrypt]
+itsdangerous
+aiofiles
+httpx
