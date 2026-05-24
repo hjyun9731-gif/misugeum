@@ -278,7 +278,6 @@ def _build_dashboard_snap(db: Session) -> dict:
             "cnt_delivery":     latest_br.cnt_delivery or 0,
             "source_file":      latest_br.source_file or "",
             "upload_type":      latest_br.upload_type or "manual",
-        }
     billing_pending = db.query(BillingPerson).filter(
         BillingPerson.reflect_status == "처리대기").count()
     mgmt_pending = db.query(BillingPerson).filter(
@@ -296,7 +295,6 @@ def _build_dashboard_snap(db: Session) -> dict:
         "billing_data": billing_data,
         "billing_pending": billing_pending,
         "mgmt_pending": mgmt_pending,
-    }
 
 def _get_snap(db: Session, key: str):
     s = db.query(Snapshot).filter(Snapshot.snap_key == key).first()
@@ -372,8 +370,6 @@ def debug_arrears_counts(db: Session = Depends(get_db), user: User = Depends(req
         "negative_arrears": negative_arrears,
         "expected_from_user_list": 3199,
         "current_gap_vs_expected": 3199 - arrears_filter_count,
-    }
-}
 
 
 # ── 미수금 명단 ────────────────────────────────────────────────────────────────
@@ -401,7 +397,6 @@ def arrears_page(request: Request, q: str = "", region: str = "",
             "협": ["협", "협회비"],
             "관": ["관", "관리비"],
             "택배": ["택배", "택배관리", "택배관리비"],
-        }
         base_q = base_q.filter(Member.account.in_(acc_map.get(account, [account])))
 
     # 금액 필터 (amount_filter 프리셋)
@@ -1087,7 +1082,6 @@ def _collection_member_q(db, q="", region="", account="", min_amt=0,
             "협": ["협", "협회비"],
             "관": ["관", "관리비"],
             "택배": ["택배", "택배관리", "택배관리비"],
-        }
         base = base.filter(Member.account.in_(acc_map.get(account, [account])))
     if min_amt > 0:
         base = base.filter(Member.excel_arrears >= min_amt)
