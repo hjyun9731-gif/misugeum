@@ -316,7 +316,7 @@ def arrears_page(request: Request, q: str = "", region: str = "",
                  db: Session = Depends(get_db), user: User = Depends(require_user)):
     PAGE_SIZE = 200
     page = max(page, 1)
-    base_q = db.query(Member).filter(_clean_filter())
+    base_q = _real_member_q(db)
 
     if q:
         like = f"%{q}%"
@@ -335,8 +335,13 @@ def arrears_page(request: Request, q: str = "", region: str = "",
         base_q = base_q.filter(Member.account.in_(acc_map.get(account, [account])))
 
     # 금액 필터 (amount_filter 프리셋)
+    # 중요: amount_filter가 비어 있으면 "전체 보기"이므로 0원/완납자도 포함한다.
     if amount_filter == "미수만":
         base_q = base_q.filter(Member.excel_arrears > 0)
+    elif amount_filter == "완납":
+        base_q = base_q.filter(Member.excel_arrears == 0)
+    elif amount_filter in ("초과납부", "초과납부선납"):
+        base_q = base_q.filter(Member.excel_arrears < 0)
     elif amount_filter == "고액미납":
         # 계정별 고액 기준: 협회비 30만+, 관리비/택배 10만+
         _acc_vals_hyup = ["협", "협회비"]
@@ -352,8 +357,6 @@ def arrears_page(request: Request, q: str = "", region: str = "",
                     and_(Member.account.in_(_acc_vals_gwan), Member.excel_arrears >= 100000),
                 )
             )
-    else:
-        base_q = base_q.filter(Member.excel_arrears != 0)
 
     # 슬라이더 최소금액 (amount_min > 0 이면 추가 필터)
     if amount_min > 0:
