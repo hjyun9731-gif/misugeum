@@ -208,6 +208,16 @@ def _clean_filter():
         Member.name != "",
     )
 
+
+def _arrears_full_filter():
+    """미수금 명단 전체보기용: 합계행만 제외, 상태/미수금/차량번호 NULL로 제외하지 않음"""
+    return and_(
+        Member.name != None,
+        Member.name != "",
+        or_(Member.vehicle_no == None, Member.vehicle_no == "", ~Member.vehicle_no.in_(list(SUM_NAMES_DB))),
+        or_(Member.name_key == None, Member.name_key == "", ~Member.name_key.in_(list(SUM_NAMES_DB))),
+    )
+
 def _build_dashboard_snap(db: Session) -> dict:
     from datetime import date as _date
     now = datetime.now()
