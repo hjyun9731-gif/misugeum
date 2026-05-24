@@ -394,12 +394,12 @@ def arrears_page(request: Request, q: str = "", region: str = "",
     else:
         base_q = base_q.order_by(Member.region, Member.name)
 
-    total_count = base_q.count()
+    total_count = base_q.order_by(None).count()
     total_pages = max(1, (total_count + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(1, min(page, total_pages))
     items = base_q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
 
-    total_arr = base_q.filter(Member.excel_arrears > 0).with_entities(
+    total_arr = base_q.order_by(None).filter(Member.excel_arrears > 0).with_entities(
         func.sum(Member.excel_arrears)
     ).scalar() or 0
 
@@ -1063,11 +1063,11 @@ def collection_page(request: Request, q: str = "", region: str = "",
     else:
         base_q = base_q.order_by(Member.region, Member.name)
 
-    total_count = base_q.count()
+    total_count = base_q.order_by(None).count()
     total_pages = max(1, (total_count + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(1, min(page, total_pages))
     items = base_q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
-    total = base_q.with_entities(func.sum(Member.excel_arrears)).scalar() or 0
+    total = base_q.order_by(None).with_entities(func.sum(Member.excel_arrears)).scalar() or 0
 
     regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region != None).all() if x[0]})
 

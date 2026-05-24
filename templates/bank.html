@@ -3,6 +3,27 @@
 {% block title %}통장매칭{% endblock %}
 {% block page_title %}통장매칭{% endblock %}
 {% block content %}
+
+<div class="card reset-card" style="margin-bottom:14px;">
+  <div class="card-title">통장매칭 초기화</div>
+  <div class="flex-gap">
+    <form method="post" action="/bank/reset-unapplied" onsubmit="return confirm('미반영 통장내역만 삭제합니다. 반영완료 건은 보호됩니다. 진행할까요?')">
+      <button class="btn btn-sm btn-danger" type="submit">미반영 통장내역 삭제</button>
+    </form>
+    <form method="post" action="/bank/reset-match-status" onsubmit="return confirm('미반영 건의 매칭상태만 초기화합니다. 통장내역은 유지됩니다. 진행할까요?')">
+      <button class="btn btn-sm btn-ghost" type="submit">매칭상태 초기화</button>
+    </form>
+    <form method="post" action="/bank/reset-all" onsubmit="return confirm('통장내역을 초기화합니다. 기본은 반영완료 보호입니다. 진행할까요?')">
+      <label style="font-size:12px;margin-right:8px;">
+        <input type="checkbox" name="include_applied" value="yes">
+        반영완료까지 포함
+      </label>
+      <button class="btn btn-sm btn-danger" type="submit">통장내역 전체 초기화</button>
+    </form>
+  </div>
+  <p class="text-sm" style="margin-top:8px;">기본적으로 반영완료 입금은 보호됩니다. 전체 초기화에서 체크한 경우에만 반영완료까지 삭제됩니다.</p>
+</div>
+
 {% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
 
 <div class="tabs">

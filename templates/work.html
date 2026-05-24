@@ -3,6 +3,14 @@
 {% block title %}부과대수 관리{% endblock %}
 {% block page_title %}부과대수 관리{% endblock %}
 {% block content %}
+
+<div class="card" style="margin-bottom:14px;">
+  <div class="card-title">부과대수 파일 업로드</div>
+  <p class="text-sm">부과대수 엑셀은 월례보고서 화면에서 업로드하면 프로그램 내부 DB에 저장되고, 개인별 항목은 부과반영대기 목록으로 생성됩니다.</p>
+  <a class="btn btn-primary btn-sm" href="/billing-report">월례보고서/부과대수 업로드로 이동</a>
+  <a class="btn btn-ghost btn-sm" href="/work?tab=부과반영대기">부과반영대기 보기</a>
+</div>
+
 {% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
 
 <div class="msg-box msg-info">
