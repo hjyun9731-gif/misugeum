@@ -222,34 +222,25 @@ def _build_dashboard_snap(db: Session) -> dict:
     from datetime import date as _date
     now = datetime.now()
     cf = _clean_filter()
-
-    total = db.query(Member).filter(cf).count()
-    total_arr = db.query(func.sum(Member.excel_arrears)).filter(
-        cf, Member.excel_arrears > 0
-    ).scalar() or 0
-    overpay_sum = db.query(func.sum(Member.excel_arrears)).filter(
-        cf, Member.excel_arrears < 0
-    ).scalar() or 0
+    total      = db.query(Member).filter(cf).count()
+    total_arr  = db.query(func.sum(Member.excel_arrears)).filter(cf, Member.excel_arrears > 0).scalar() or 0
+    overpay_sum= db.query(func.sum(Member.excel_arrears)).filter(cf, Member.excel_arrears < 0).scalar() or 0
     verify_cnt = db.query(Member).filter(cf, Member.arrears_verified == False).count()
-    no_lic = db.query(Member).filter(
-        cf,
-        Member.user_confirmed_match == False,
-        or_(Member.match_license_id == None, Member.match_status == "전체자미확인")
-    ).count()
-    overpay_cnt = db.query(Member).filter(cf, Member.is_overpay == True).count()
+    no_lic     = db.query(Member).filter(cf,
+                    Member.user_confirmed_match == False,
+                    or_(Member.match_license_id == None, Member.match_status == "전체자미확인")).count()
+    overpay_cnt= db.query(Member).filter(cf, Member.is_overpay == True).count()
     work_pending = db.query(WorkQueue).filter(WorkQueue.status == "반영대기").count()
     bank_pending = db.query(BankTransaction).filter(
         BankTransaction.applied == False,
-        BankTransaction.match_status.in_(["자동매칭", "확인필요"])
-    ).count()
+        BankTransaction.match_status.in_(["자동매칭","확인필요"])).count()
 
+    # 월별 입금 데이터 (최근 12개월)
     today_d = _date.today()
     monthly_data = []
     for i in range(11, -1, -1):
         y, m = today_d.year, today_d.month - i
-        while m <= 0:
-            m += 12
-            y -= 1
+        while m <= 0: m += 12; y -= 1
         paid_sum = db.query(func.sum(MonthlyLedger.paid_amount)).filter(
             MonthlyLedger.year == y,
             MonthlyLedger.month == m,
@@ -266,49 +257,40 @@ def _build_dashboard_snap(db: Session) -> dict:
             "depositors": int(dep_cnt),
         })
 
-    latest_br = (
-        db.query(BillingReport)
-        .order_by(BillingReport.year.desc(), BillingReport.month.desc())
-        .first()
-    )
+    # 부과대수 최신월 데이터
+    latest_br = (db.query(BillingReport)
+                 .order_by(BillingReport.year.desc(), BillingReport.month.desc())
+                 .first())
     billing_data = {}
     if latest_br:
         billing_data = {
-            "year": latest_br.year,
-            "month": latest_br.month,
-            "cnt_join": latest_br.cnt_join or 0,
-            "cnt_transfer": latest_br.cnt_transfer or 0,
-            "cnt_cross": latest_br.cnt_cross or 0,
-            "cnt_close": latest_br.cnt_close or 0,
-            "cnt_quit": latest_br.cnt_quit or 0,
+            "year": latest_br.year, "month": latest_br.month,
+            "cnt_join":         latest_br.cnt_join or 0,
+            "cnt_transfer":     latest_br.cnt_transfer or 0,
+            "cnt_cross":        latest_br.cnt_cross or 0,
+            "cnt_close":        latest_br.cnt_close or 0,
+            "cnt_quit":         latest_br.cnt_quit or 0,
             "cnt_delivery_new": latest_br.cnt_delivery_new or 0,
-            "cnt_mgmt_close": latest_br.cnt_mgmt_close or 0,
-            "cnt_age70": latest_br.cnt_age70 or 0,
-            "cnt_base": latest_br.cnt_base or 0,
-            "cnt_total": latest_br.cnt_total or 0,
-            "cnt_delivery": latest_br.cnt_delivery or 0,
-            "source_file": latest_br.source_file or "",
-            "upload_type": latest_br.upload_type or "manual",
+            "cnt_mgmt_close":   latest_br.cnt_mgmt_close or 0,
+            "cnt_age70":        latest_br.cnt_age70 or 0,
+            "cnt_base":         latest_br.cnt_base or 0,
+            "cnt_total":        latest_br.cnt_total or 0,
+            "cnt_delivery":     latest_br.cnt_delivery or 0,
+            "source_file":      latest_br.source_file or "",
+            "upload_type":      latest_br.upload_type or "manual",
         }
-
     billing_pending = db.query(BillingPerson).filter(
-        BillingPerson.reflect_status == "처리대기"
-    ).count()
+        BillingPerson.reflect_status == "처리대기").count()
     mgmt_pending = db.query(BillingPerson).filter(
         BillingPerson.reflect_status == "처리대기",
-        BillingPerson.account.in_(["관", "택배"])
-    ).count()
+        BillingPerson.account.in_(["관", "택배"])).count()
 
     return {
-        "base_year": now.year,
-        "base_month": now.month,
-        "total_members": total,
-        "total_arrears": int(total_arr),
+        "base_year": now.year, "base_month": now.month,
+        "total_members": total, "total_arrears": int(total_arr),
         "overpay_sum": int(abs(overpay_sum)),
-        "verify_cnt": verify_cnt,
-        "no_lic": no_lic,
-        "overpay_cnt": overpay_cnt,
-        "work_pending": work_pending,
+        "verify_cnt": verify_cnt, "no_lic": no_lic,
+        "overpay_cnt": overpay_cnt, "work_pending": work_pending,
         "bank_pending": bank_pending,
         "monthly_data": monthly_data,
         "billing_data": billing_data,
@@ -333,33 +315,6 @@ def _invalidate_snap(db: Session, *keys: str):
     for key in keys:
         db.query(Snapshot).filter(Snapshot.snap_key == key).delete()
     db.commit()
-
-
-
-@app.get("/debug/arrears-counts")
-def debug_arrears_counts(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    total_members = db.query(Member).count()
-    no_name = db.query(Member).filter(or_(Member.name == None, Member.name == "")).count()
-    name_exists = db.query(Member).filter(Member.name != None, Member.name != "").count()
-    sum_by_vehicle = db.query(Member).filter(Member.vehicle_no.in_(list(SUM_NAMES_DB))).count()
-    sum_by_namekey = db.query(Member).filter(Member.name_key.in_(list(SUM_NAMES_DB))).count()
-    normal_status = db.query(Member).filter(Member.status == "정상").count()
-    non_normal_status = db.query(Member).filter(Member.status != "정상").count()
-    arrears_filter_count = db.query(Member).filter(_arrears_full_filter()).count()
-
-    return {
-        "members_total_db": total_members,
-        "name_exists": name_exists,
-        "no_name": no_name,
-        "sum_by_vehicle": sum_by_vehicle,
-        "sum_by_namekey": sum_by_namekey,
-        "normal_status": normal_status,
-        "non_normal_status": non_normal_status,
-        "arrears_full_filter_count": arrears_filter_count,
-        "expected_from_user_list": 3199,
-        "current_gap_vs_expected": 3199 - arrears_filter_count,
-    }
-
 
 # ── 미수금 명단 ────────────────────────────────────────────────────────────────
 @app.get("/arrears", response_class=HTMLResponse)
@@ -386,6 +341,7 @@ def arrears_page(request: Request, q: str = "", region: str = "",
             "협": ["협", "협회비"],
             "관": ["관", "관리비"],
             "택배": ["택배", "택배관리", "택배관리비"],
+        }
         base_q = base_q.filter(Member.account.in_(acc_map.get(account, [account])))
 
     # 금액 필터 (amount_filter 프리셋)
@@ -1071,6 +1027,7 @@ def _collection_member_q(db, q="", region="", account="", min_amt=0,
             "협": ["협", "협회비"],
             "관": ["관", "관리비"],
             "택배": ["택배", "택배관리", "택배관리비"],
+        }
         base = base.filter(Member.account.in_(acc_map.get(account, [account])))
     if min_amt > 0:
         base = base.filter(Member.excel_arrears >= min_amt)
