@@ -1965,3 +1965,73 @@ def billing_person_exclude(pid: int, db: Session = Depends(get_db),
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT","8080")))
+
+
+@app.get("/debug/arrears-counts")
+def debug_arrears_counts(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    # 전체 DB 저장 건수
+    members_total_db = db.query(Member).count()
+
+    # 이름/차량번호/상태별 확인
+    no_name = db.query(Member).filter(or_(Member.name == None, Member.name == "")).count()
+    name_exists = db.query(Member).filter(Member.name != None, Member.name != "").count()
+
+    no_vehicle = db.query(Member).filter(or_(Member.vehicle_no == None, Member.vehicle_no == "")).count()
+    no_name_key = db.query(Member).filter(or_(Member.name_key == None, Member.name_key == "")).count()
+
+    sum_by_vehicle = db.query(Member).filter(Member.vehicle_no.in_(list(SUM_NAMES_DB))).count()
+    sum_by_namekey = db.query(Member).filter(Member.name_key.in_(list(SUM_NAMES_DB))).count()
+
+    status_counts = {
+        str(k): int(v)
+        for k, v in db.query(Member.status, func.count(Member.id)).group_by(Member.status).all()
+    }
+
+    account_counts = {
+        str(k): int(v)
+        for k, v in db.query(Member.account, func.count(Member.id)).group_by(Member.account).all()
+    }
+
+    # 미수금 명단 전체보기용 필터: 합계행만 제외, 상태/미수금/차량번호 공란으로 제외하지 않음
+    arrears_full_filter = and_(
+        Member.name != None,
+        Member.name != "",
+        or_(Member.vehicle_no == None, Member.vehicle_no == "", ~Member.vehicle_no.in_(list(SUM_NAMES_DB))),
+        or_(Member.name_key == None, Member.name_key == "", ~Member.name_key.in_(list(SUM_NAMES_DB))),
+    )
+
+    arrears_full_count = db.query(Member).filter(arrears_full_filter).count()
+
+    positive_arrears = db.query(Member).filter(arrears_full_filter, Member.excel_arrears > 0).count()
+    zero_or_null_arrears = db.query(Member).filter(
+        arrears_full_filter,
+        or_(Member.excel_arrears == 0, Member.excel_arrears == None)
+    ).count()
+    negative_arrears = db.query(Member).filter(arrears_full_filter, Member.excel_arrears < 0).count()
+
+    return {
+        "expected_user_count": 3199,
+        "current_screen_count": 3117,
+        "gap_vs_expected": 3199 - 3117,
+
+        "members_total_db": members_total_db,
+        "name_exists": name_exists,
+        "no_name": no_name,
+        "no_vehicle": no_vehicle,
+        "no_name_key": no_name_key,
+
+        "sum_by_vehicle": sum_by_vehicle,
+        "sum_by_namekey": sum_by_namekey,
+
+        "arrears_full_filter_count": arrears_full_count,
+        "arrears_full_gap_vs_expected": 3199 - arrears_full_count,
+
+        "positive_arrears": positive_arrears,
+        "zero_or_null_arrears": zero_or_null_arrears,
+        "negative_arrears": negative_arrears,
+
+        "status_counts": status_counts,
+        "account_counts": account_counts,
+    }
+}
+
