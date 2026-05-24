@@ -316,6 +316,66 @@ def _invalidate_snap(db: Session, *keys: str):
         db.query(Snapshot).filter(Snapshot.snap_key == key).delete()
     db.commit()
 
+
+@app.get("/debug/arrears-counts")
+def debug_arrears_counts(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    total_members = db.query(Member).count()
+
+    no_name = db.query(Member).filter(
+        or_(Member.name == None, Member.name == "")
+    ).count()
+
+    name_exists = db.query(Member).filter(
+        Member.name != None,
+        Member.name != ""
+    ).count()
+
+    sum_by_vehicle = db.query(Member).filter(
+        Member.vehicle_no.in_(list(SUM_NAMES_DB))
+    ).count()
+
+    sum_by_namekey = db.query(Member).filter(
+        Member.name_key.in_(list(SUM_NAMES_DB))
+    ).count()
+
+    normal_status = db.query(Member).filter(Member.status == "정상").count()
+    non_normal_status = db.query(Member).filter(Member.status != "정상").count()
+
+    arrears_filter_count = db.query(Member).filter(_arrears_full_filter()).count()
+
+    zero_arrears = db.query(Member).filter(
+        _arrears_full_filter(),
+        or_(Member.excel_arrears == 0, Member.excel_arrears == None)
+    ).count()
+
+    positive_arrears = db.query(Member).filter(
+        _arrears_full_filter(),
+        Member.excel_arrears > 0
+    ).count()
+
+    negative_arrears = db.query(Member).filter(
+        _arrears_full_filter(),
+        Member.excel_arrears < 0
+    ).count()
+
+    return {
+        "members_total_db": total_members,
+        "name_exists": name_exists,
+        "no_name": no_name,
+        "sum_by_vehicle": sum_by_vehicle,
+        "sum_by_namekey": sum_by_namekey,
+        "normal_status": normal_status,
+        "non_normal_status": non_normal_status,
+        "arrears_full_filter_count": arrears_filter_count,
+        "zero_or_null_arrears": zero_arrears,
+        "positive_arrears": positive_arrears,
+        "negative_arrears": negative_arrears,
+        "expected_from_user_list": 3199,
+        "current_gap_vs_expected": 3199 - arrears_filter_count,
+    }
+}
+
+
 # ── 미수금 명단 ────────────────────────────────────────────────────────────────
 @app.get("/arrears", response_class=HTMLResponse)
 def arrears_page(request: Request, q: str = "", region: str = "",
