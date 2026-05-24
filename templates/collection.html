@@ -6,26 +6,17 @@
 {% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
 
 <div class="page-header">
-  <span class="page-sub">{{ targets|length }}명 · 총 <strong style="color:var(--red);">{{ fmt_amt(total) }}원</strong></span>
+  <span class="page-sub">{{ total_count }}명 · 총 <strong style="color:var(--red);">{{ fmt_amt(total) }}원</strong></span>
   <div class="flex-gap" style="margin-left:auto;">
-    <form method="post" action="/collection/generate" style="display:inline;">
-      <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('문자대상을 새로 생성합니다. 기존 목록은 삭제됩니다.')">문자대상 생성</button>
-    </form>
+    <button type="button" class="btn btn-outline btn-sm" onclick="extractPhones()">번호추출</button>
+    <button type="button" class="btn btn-outline btn-sm" onclick="extractAddresses()">주소추출</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="alert('기능 준비 중입니다')">선택 문자제외</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="alert('기능 준비 중입니다')">문자제외 해제</button>
   </div>
 </div>
 
-<!-- 탭 -->
-<div class="tabs">
-  {% for t in ["전체","자동이체","초과납부","장기미납","연락처없음","제외"] %}
-  <a href="/collection?tab={{ t }}" class="tab-btn {% if tab==t %}active{% endif %}">
-    {{ t }} <span class="tab-cnt {% if tab_counts.get(t,0)>0 %}has{% endif %}">{{ tab_counts.get(t,0) }}</span>
-  </a>
-  {% endfor %}
-</div>
-
 <!-- 필터 -->
-<form method="get" action="/collection" class="filter-bar auto-submit">
-  <input type="hidden" name="tab" value="{{ tab }}">
+<form method="get" action="/collection" id="filter-form" class="filter-bar auto-submit">
   <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호" class="fi">
   <label>지역</label>
   <select name="region" class="fs">
@@ -37,59 +28,133 @@
     <option value="">전체</option>
     <option value="협" {% if account=="협" %}selected{% endif %}>협회비</option>
     <option value="관" {% if account=="관" %}selected{% endif %}>관리비</option>
+    <option value="택배" {% if account=="택배" %}selected{% endif %}>택배관리비</option>
   </select>
-  <button type="submit" class="btn btn-search btn-sm">검색</button>
+  <label>최소금액</label>
+  <div class="range-wrap">
+    <input type="range" class="range-input" id="coll-range"
+           min="0" max="1000000" step="10000" value="{{ min_amt }}">
+    <span class="range-val" id="coll-range-val">{{ (min_amt // 10000)|string + '만원+' if min_amt > 0 else '전체' }}</span>
+    <input type="hidden" name="min_amt" id="coll-min-amt" value="{{ min_amt }}">
+  </div>
+  <label>연락처</label>
+  <select name="contact_filter" class="fs">
+    <option value="">전체</option>
+    <option value="있음" {% if contact_filter=="있음" %}selected{% endif %}>있음</option>
+    <option value="없음" {% if contact_filter=="없음" %}selected{% endif %}>없음</option>
+  </select>
+  <label>장기미납</label>
+  <select name="long_term" class="fs">
+    <option value="" {% if not long_term %}selected{% endif %}>전체</option>
+    <option value="3개월+" {% if long_term=="3개월+" %}selected{% endif %}>3개월+</option>
+    <option value="6개월+" {% if long_term=="6개월+" %}selected{% endif %}>6개월+</option>
+    <option value="12개월+" {% if long_term=="12개월+" %}selected{% endif %}>12개월+</option>
+  </select>
+  <label>정렬</label>
+  <select name="sort" class="fs">
+    <option value="" {% if not sort %}selected{% endif %}>지역·성명순</option>
+    <option value="amount_desc" {% if sort=="amount_desc" %}selected{% endif %}>금액 높은순</option>
+    <option value="amount_asc" {% if sort=="amount_asc" %}selected{% endif %}>금액 낮은순</option>
+  </select>
+  <button type="submit" class="btn btn-search btn-sm">대상자 조회</button>
+  <a href="/collection" class="btn btn-ghost btn-sm">초기화</a>
 </form>
 
 <div class="tbl-card">
   <table>
     <thead>
-      <tr><th>지역</th><th>계정</th><th>성명</th><th>차량번호</th>
-      <th>핸드폰</th><th>사용주소</th>
-      <th style="text-align:right;">미수금</th><th>첫미납월</th><th>분류</th>
-      {% if tab == "초과납부" %}<th>초과금액</th>{% endif %}
+      <tr>
+        <th><input type="checkbox" id="chk-all"></th>
+        <th>지역</th><th>계정</th><th>차량번호</th><th>성명</th>
+        <th>연락처</th><th style="text-align:right;">현재미수금</th>
+        <th>최근입금일</th><th>주소</th><th>상태</th><th style="text-align:center;">처리</th>
       </tr>
     </thead>
     <tbody>
-      {% for row in targets %}
-      {% set t = row.CollectionTarget %}{% set m = row.Member %}
+      {% for m in items %}
       <tr>
+        <td><input type="checkbox" class="row-chk" value="{{ m.id }}"></td>
         <td class="text-sm">{{ m.region or '–' }}</td>
-        <td><span class="badge b-{{ m.account }}">{{ {'협':'협회비','관':'관리비'}.get(m.account,'') }}</span></td>
-        <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
+        <td><span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span></td>
         <td class="text-sm nowrap" style="font-family:monospace;">{{ m.vehicle_no or '–' }}</td>
+        <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
         <td class="text-sm">
-          {% if t.mobile_clean %}
-          <span style="color:var(--green);">{{ t.mobile_clean }}</span>
-          {% elif m.mobile %}
-          {{ m.mobile }}
-          {% else %}
-          <span class="badge b-warn">연락처없음</span>
-          {% endif %}
+          {% if m.mobile %}<span style="color:var(--green);">{{ m.mobile }}</span>
+          {% elif m.phone %}{{ m.phone }}
+          {% else %}<span class="badge b-warn">연락처없음</span>{% endif %}
         </td>
-        <td class="text-sm" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ t.address_clean or '' }}">{{ t.address_clean or '–' }}</td>
         <td class="nowrap" style="text-align:right;">
-<span class="{% if m.is_overpay %}overpay{% else %}amount{% endif %}" style="font-weight:700;">{{ fmt_amt(m.excel_arrears) }}원</span>
+          {% set amt = m.excel_arrears or 0 %}
+          {% if amt < 0 %}<span class="overpay" style="font-weight:700;">{{ fmt_amt(amt) }}원</span>
+          {% else %}<span class="amount" style="font-weight:700;">{{ fmt_amt(amt) }}원</span>{% endif %}
         </td>
-        <td class="text-sm">{{ m.first_unpaid_month or '–' }}</td>
+        <td class="text-sm">{{ m.last_paid_date or '–' }}</td>
+        <td class="text-sm" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ m.official_address or m.address or '' }}">
+          {{ m.official_address or m.address or '–' }}
+        </td>
         <td>
-          <span class="badge {% if t.category=='자동이체' %}b-blue{% elif t.excluded %}b-gray{% else %}b-ok{% endif %}">
-            {{ t.category }}{% if t.excluded and t.exclude_reason %} ({{ t.exclude_reason }}){% endif %}
-          </span>
+          {% if not m.arrears_verified %}<span class="badge b-warn">확인필요</span>
+          {% elif m.is_overpay %}<span class="badge b-blue">초과납부</span>
+          {% else %}<span class="badge b-red">미수</span>{% endif %}
         </td>
-        {% if tab == "초과납부" %}
-        <td class="nowrap"><span class="overpay">{{ fmt_amt(-m.excel_arrears) }}원</span></td>
-        {% endif %}
+        <td style="text-align:center;">
+          <a href="/member/{{ m.id }}" class="btn btn-ghost btn-sm">상세</a>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="9"><div class="empty-state"><div class="ei">📱</div><div class="et">{{ tab }} 대상 없음</div><div class="es">{% if tab=='전체' %}상단 버튼으로 생성하세요{% endif %}</div></div></td></tr>
+      <tr><td colspan="11"><div class="empty-state"><div class="ei">📱</div><div class="et">조회 결과가 없습니다</div><div class="es">필터를 설정하고 대상자 조회를 클릭하세요</div></div></td></tr>
       {% endfor %}
     </tbody>
   </table>
   <div class="tbl-footer">
-    <span>{{ targets|length }}명</span>
+    <span>{{ total_count }}명</span>
     <span>총 미수금 <strong style="color:var(--red);">{{ fmt_amt(total) }}원</strong></span>
+    {% if total_pages > 1 %}
+    <div style="display:flex;align-items:center;gap:4px;">
+      {% if page > 1 %}<a href="?q={{ q }}&region={{ region }}&account={{ account }}&min_amt={{ min_amt }}&contact_filter={{ contact_filter }}&long_term={{ long_term }}&sort={{ sort }}&page={{ page-1 }}" class="btn btn-ghost btn-sm">← 이전</a>{% endif %}
+      <span class="text-sm" style="padding:0 8px;">{{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}<a href="?q={{ q }}&region={{ region }}&account={{ account }}&min_amt={{ min_amt }}&contact_filter={{ contact_filter }}&long_term={{ long_term }}&sort={{ sort }}&page={{ page+1 }}" class="btn btn-ghost btn-sm">다음 →</a>{% endif %}
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script>document.querySelectorAll('.auto-submit select').forEach(el=>el.addEventListener('change',()=>el.closest('form').submit()));</script>{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.auto-submit select').forEach(el => el.addEventListener('change', () => el.closest('form').submit()));
+
+// 금액 슬라이더
+(function(){
+  const range = document.getElementById('coll-range');
+  const valEl = document.getElementById('coll-range-val');
+  const hidden = document.getElementById('coll-min-amt');
+  if (!range) return;
+  function update() {
+    const v = parseInt(range.value);
+    hidden.value = v;
+    valEl.textContent = v > 0 ? (v / 10000).toFixed(0) + '만원+' : '전체';
+    const pct = ((v / 1000000) * 100).toFixed(1);
+    range.style.background = `linear-gradient(to right, #e91e8c ${pct}%, #dcd6e4 ${pct}%)`;
+  }
+  range.addEventListener('input', update);
+  range.addEventListener('change', () => range.closest('form').submit());
+  update();
+})();
+document.getElementById('chk-all').addEventListener('change', function() {
+  document.querySelectorAll('.row-chk').forEach(c => c.checked = this.checked);
+});
+
+function getFilterParams() {
+  const f = document.getElementById('filter-form');
+  return new URLSearchParams(new FormData(f)).toString();
+}
+
+function extractPhones() {
+  window.location.href = '/collection/extract-phones?' + getFilterParams();
+}
+
+function extractAddresses() {
+  window.location.href = '/collection/extract-addresses?' + getFilterParams();
+}
+</script>
+{% endblock %}

@@ -221,16 +221,20 @@ Index("ix_lic_vkey", LicenseRecord.vehicle_key)
 
 
 class BillingPerson(Base):
-    """부과대수 파일 사람별 행"""
+    """부과대수 파일 — 사람별 처리 대기 항목"""
     __tablename__ = "billing_persons"
     id                  = Column(Integer, primary_key=True)
     batch_id            = Column(Integer, ForeignKey("upload_batches.id"), index=True)
+    billing_report_id   = Column(Integer, ForeignKey("billing_reports.id"), nullable=True, index=True)
     source_file         = Column(String(300))
     source_sheet        = Column(String(200))
     source_row          = Column(Integer)
+    raw_data            = Column(Text)             # JSON — 원본 행
     year                = Column(Integer, index=True)
     month               = Column(SmallInteger, index=True)
     process_type        = Column(String(50), index=True)
+    # 처리구분: 관리비폐지/70세/협회가입/탈퇴/택배신규/양도/타도/폐지
+    account             = Column(String(20))       # 협/관/택배
     region              = Column(String(80))
     name                = Column(String(100))
     vehicle_no          = Column(String(100))
@@ -241,9 +245,16 @@ class BillingPerson(Base):
     cert_issue_date_raw = Column(String(100))
     cert_no             = Column(String(100))
     charge_amount       = Column(BigInteger, default=0)
+    charge_start_month  = Column(String(10))       # 부과시작월 YYYY-MM
+    charge_end_month    = Column(String(10))       # 부과종료월 YYYY-MM
+    from_status         = Column(String(50))       # 기존상태
+    to_status           = Column(String(50))       # 변경상태
     note                = Column(Text)
-    reflect_status      = Column(String(50), default="확인필요")
+    reflect_status      = Column(String(50), default="처리대기", index=True)
+    # 처리대기/반영완료/보류/제외
     reflected_member_id = Column(Integer, ForeignKey("members.id"), nullable=True)
+    reflected_at        = Column(DateTime(timezone=True), nullable=True)
+    reflected_by        = Column(Integer, nullable=True)
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -320,7 +331,7 @@ class AppSetting(Base):
     value = Column(Text)
 
 class BillingReport(Base):
-    """부과대수 관리 — 월례보고 기준 항목 입력"""
+    """부과대수 관리 — 월례보고 기준 항목 (수동입력 + 파일업로드)"""
     __tablename__ = "billing_reports"
     id              = Column(Integer, primary_key=True)
     year            = Column(Integer, index=True)
@@ -339,6 +350,10 @@ class BillingReport(Base):
     cnt_total       = Column(Integer, default=0)   # 총부과대수
     cnt_delivery    = Column(Integer, default=0)   # 해당월 택배관리
     memo            = Column(Text)
+    # 파일 업로드 추적
+    source_file     = Column(String(300))          # 원본 파일명
+    raw_data        = Column(Text)                 # JSON — 파서 결과 전체
+    upload_type     = Column(String(20), default="manual")  # manual / file
     created_by      = Column(Integer, nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now())

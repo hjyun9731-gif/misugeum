@@ -5,7 +5,7 @@
 {% block content %}
 
 <div class="page-header">
-  <span class="page-sub">현재 미수금 <strong style="color:var(--red);">{{ fmt_amt(total_arr) }}원</strong> · {{ items|length }}명</span>
+  <span class="page-sub">현재 미수금 <strong style="color:var(--red);">{{ fmt_amt(total_arr) }}원</strong> · {{ total_count }}명</span>
   <div class="flex-gap" style="margin-left:auto;">
     <a href="/member/new" class="btn btn-primary btn-sm">+ 명단 추가</a>
   </div>
@@ -13,19 +13,15 @@
 
 {% if msg %}<div class="msg-box msg-ok">✓ {{ msg }}</div>{% endif %}
 
-<!-- 탭 -->
-<div class="tabs">
-  {% for t, label in [("전체","전체"),("문자후보","문자후보"),("검증필요","검증필요"),("연락처없음","연락처없음"),("자동이체정기","자동이체/정기"),("초과납부선납","초과납부/선납")] %}
-  <a href="/arrears?tab={{ t }}" class="tab-btn {% if tab==t %}active{% endif %}">
-    {{ label }}
-    <span class="tab-cnt {% if tab_counts.get(t,0) > 0 %}has{% endif %}">{{ tab_counts.get(t,0) }}</span>
-  </a>
-  {% endfor %}
+<!-- 빠른 필터 -->
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
+  <a href="/arrears" class="btn btn-sm {% if not amount_filter and not status_filter and not contact_filter and not amount_min %}btn-primary{% else %}btn-ghost{% endif %}">전체 보기</a>
+  <a href="/arrears?amount_filter=미수만{% if region %}&region={{ region }}{% endif %}{% if account %}&account={{ account }}{% endif %}" class="btn btn-sm {% if amount_filter=='미수만' %}btn-primary{% else %}btn-ghost{% endif %}">미수</a>
+  <a href="/arrears?amount_filter=고액미납{% if region %}&region={{ region }}{% endif %}{% if account %}&account={{ account }}{% endif %}" class="btn btn-sm {% if amount_filter=='고액미납' %}btn-primary{% else %}btn-ghost{% endif %}" title="관리비 10만+ / 협회비 30만+">고액미납</a>
 </div>
 
 <!-- 필터 -->
 <form method="get" action="/arrears" class="filter-bar auto-submit">
-  <input type="hidden" name="tab" value="{{ tab }}">
   <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 뒷자리 4자리" class="fi">
   <label>지역</label>
   <select name="region" class="fs">
@@ -37,9 +33,38 @@
     <option value="">전체</option>
     <option value="협" {% if account=="협" %}selected{% endif %}>협회비</option>
     <option value="관" {% if account=="관" %}selected{% endif %}>관리비</option>
+    <option value="택배" {% if account=="택배" %}selected{% endif %}>택배관리비</option>
+  </select>
+  <input type="hidden" name="amount_filter" value="{{ amount_filter }}">
+  <label>최소금액</label>
+  <div class="range-wrap">
+    <input type="range" class="range-input" id="arrears-range"
+           min="0" max="1000000" step="10000" value="{{ amount_min }}">
+    <span class="range-val" id="arrears-range-val">{{ (amount_min // 10000)|string + '만원+' if amount_min > 0 else '전체' }}</span>
+    <input type="hidden" name="amount_min" id="arrears-amount-min" value="{{ amount_min }}">
+  </div>
+  <label>상태</label>
+  <select name="status_filter" class="fs">
+    <option value="">전체</option>
+    <option value="완납제외" {% if status_filter=="완납제외" %}selected{% endif %}>완납 제외</option>
+    <option value="초과제외" {% if status_filter=="초과제외" %}selected{% endif %}>초과납부 제외</option>
+    <option value="확인필요" {% if status_filter=="확인필요" %}selected{% endif %}>확인필요</option>
+  </select>
+  <label>연락처</label>
+  <select name="contact_filter" class="fs">
+    <option value="">전체</option>
+    <option value="있음" {% if contact_filter=="있음" %}selected{% endif %}>있음</option>
+    <option value="없음" {% if contact_filter=="없음" %}selected{% endif %}>없음</option>
+  </select>
+  <label>정렬</label>
+  <select name="sort" class="fs">
+    <option value="" {% if not sort %}selected{% endif %}>지역·성명순</option>
+    <option value="amount_desc" {% if sort=="amount_desc" %}selected{% endif %}>금액 높은순</option>
+    <option value="amount_asc" {% if sort=="amount_asc" %}selected{% endif %}>금액 낮은순</option>
+    <option value="date_asc" {% if sort=="date_asc" %}selected{% endif %}>최근입금 오래된순</option>
   </select>
   <button type="submit" class="btn btn-search btn-sm">검색</button>
-  <a href="/arrears?tab={{ tab }}" class="btn btn-ghost btn-sm">초기화</a>
+  <a href="/arrears" class="btn btn-ghost btn-sm">초기화</a>
 </form>
 
 <!-- 테이블 -->
@@ -47,29 +72,43 @@
   <table>
     <thead>
       <tr>
+        <th><input type="checkbox" id="chk-all"></th>
         <th>지역</th><th>계정</th><th>차량번호</th><th>성명</th>
         <th>연락처</th><th style="text-align:right;">현재미수금</th>
-        <th>첫미납월</th><th>최근입금일</th><th>검증</th><th style="text-align:center;">처리</th>
+        <th>최근입금일</th><th>상태</th><th style="text-align:center;">처리</th>
       </tr>
     </thead>
     <tbody>
       {% for m in items %}
       <tr id="row-{{ m.id }}">
+        <td><input type="checkbox" class="row-chk" value="{{ m.id }}"></td>
         <td class="nowrap text-sm">{{ m.region or '–' }}</td>
         <td><span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span></td>
         <td class="nowrap text-sm" style="font-family:monospace;letter-spacing:.3px;">{{ m.vehicle_no or '–' }}</td>
         <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
-        <td class="text-sm">{{ m.mobile or '–' }}</td>
-        <td class="nowrap" style="text-align:right;">
-          <span class="{% if m.is_overpay %}overpay{% else %}amount{% endif %}" style="font-weight:700;">{{ fmt_amt(m.excel_arrears) }}원</span>
+        <td class="text-sm">
+          {% if m.mobile %}{{ m.mobile }}{% elif m.phone %}{{ m.phone }}{% else %}<span style="color:var(--muted);">–</span>{% endif %}
         </td>
-        <td class="text-sm">{{ m.first_unpaid_month or '–' }}</td>
-        <td class="text-sm">{{ m.last_paid_date or '–' }}</td>
-        <td style="text-align:center;">
-          {% if not m.arrears_verified %}
-            <span class="badge b-warn" title="{{ m.verify_reason or '' }}">⚠</span>
+        <td class="nowrap" style="text-align:right;">
+          {% set amt = m.excel_arrears or 0 %}
+          {% if amt < 0 %}
+            <span class="overpay" style="font-weight:700;">{{ fmt_amt(amt) }}원</span>
+          {% elif amt > 0 %}
+            <span class="amount" style="font-weight:700;">{{ fmt_amt(amt) }}원</span>
           {% else %}
-            <span style="color:var(--green);font-size:12px;">✓</span>
+            <span class="text-sm" style="color:var(--muted);">0원</span>
+          {% endif %}
+        </td>
+        <td class="text-sm">{{ m.last_paid_date or '–' }}</td>
+        <td>
+          {% if not m.arrears_verified %}
+            <span class="badge b-warn" title="{{ m.verify_reason or '' }}">확인필요</span>
+          {% elif m.is_overpay %}
+            <span class="badge b-blue">초과납부</span>
+          {% elif amt > 0 %}
+            <span class="badge b-red">미수</span>
+          {% else %}
+            <span class="badge b-ok">정상</span>
           {% endif %}
         </td>
         <td style="text-align:center;white-space:nowrap;">
@@ -87,9 +126,9 @@
     <span>총 미수금 <strong style="color:var(--red);">{{ fmt_amt(total_arr) }}원</strong></span>
     {% if total_pages > 1 %}
     <div style="display:flex;align-items:center;gap:4px;">
-      {% if page > 1 %}<a href="?tab={{ tab }}&q={{ q }}&region={{ region }}&account={{ account }}&page={{ page-1 }}" class="btn btn-ghost btn-sm">← 이전</a>{% endif %}
+      {% if page > 1 %}<a href="?q={{ q }}&region={{ region }}&account={{ account }}&amount_filter={{ amount_filter }}&status_filter={{ status_filter }}&contact_filter={{ contact_filter }}&sort={{ sort }}&page={{ page-1 }}" class="btn btn-ghost btn-sm">← 이전</a>{% endif %}
       <span class="text-sm" style="padding:0 8px;">{{ page }} / {{ total_pages }}</span>
-      {% if page < total_pages %}<a href="?tab={{ tab }}&q={{ q }}&region={{ region }}&account={{ account }}&page={{ page+1 }}" class="btn btn-ghost btn-sm">다음 →</a>{% endif %}
+      {% if page < total_pages %}<a href="?q={{ q }}&region={{ region }}&account={{ account }}&amount_filter={{ amount_filter }}&status_filter={{ status_filter }}&contact_filter={{ contact_filter }}&sort={{ sort }}&page={{ page+1 }}" class="btn btn-ghost btn-sm">다음 →</a>{% endif %}
     </div>
     {% endif %}
   </div>
@@ -146,7 +185,26 @@ document.getElementById('work-modal').addEventListener('click', function(e) {
   if (e.target === this) this.classList.remove('open');
 });
 document.querySelectorAll('.auto-submit select').forEach(el => el.addEventListener('change', () => el.closest('form').submit()));
+
+// 금액 슬라이더
+(function(){
+  const range = document.getElementById('arrears-range');
+  const valEl = document.getElementById('arrears-range-val');
+  const hidden = document.getElementById('arrears-amount-min');
+  if (!range) return;
+  function update() {
+    const v = parseInt(range.value);
+    hidden.value = v;
+    valEl.textContent = v > 0 ? (v / 10000).toFixed(0) + '만원+' : '전체';
+    const pct = ((v / 1000000) * 100).toFixed(1);
+    range.style.background = `linear-gradient(to right, #e91e8c ${pct}%, #dcd6e4 ${pct}%)`;
+  }
+  range.addEventListener('input', update);
+  range.addEventListener('change', () => range.closest('form').submit());
+  update();
+})();
+document.getElementById('chk-all').addEventListener('change', function() {
+  document.querySelectorAll('.row-chk').forEach(c => c.checked = this.checked);
+});
 </script>
 {% endblock %}
-
-<!-- pagination macro (appended) -->

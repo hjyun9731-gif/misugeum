@@ -28,7 +28,8 @@ from core import (
     guess_sheet_type, guess_file_year,
     parse_ledger_sheet, parse_status_sheet,
     extract_memo_keys, is_useless_memo, score_bank_match,
-    classify_autopay, AUTOPAY_AMOUNTS
+    classify_autopay, AUTOPAY_AMOUNTS,
+    parse_billing_file, BILLING_WORK_TYPES, BILLING_ACCOUNT_MAP,
 )
 
 app = FastAPI(title="강원도개인소형화물협회 v4")
@@ -66,6 +67,18 @@ def _migrate():
                 ("members","user_confirmed_match","BOOLEAN DEFAULT FALSE"),
                 ("upload_batches","file_year","INTEGER"),
                 ("license_records","source_sheet","VARCHAR(200)"),
+                ("billing_reports","source_file","VARCHAR(300)"),
+                ("billing_reports","raw_data","TEXT"),
+                ("billing_reports","upload_type","VARCHAR(20) DEFAULT 'manual'"),
+                ("billing_persons","billing_report_id","INTEGER REFERENCES billing_reports(id)"),
+                ("billing_persons","raw_data","TEXT"),
+                ("billing_persons","account","VARCHAR(20)"),
+                ("billing_persons","charge_start_month","VARCHAR(10)"),
+                ("billing_persons","charge_end_month","VARCHAR(10)"),
+                ("billing_persons","from_status","VARCHAR(50)"),
+                ("billing_persons","to_status","VARCHAR(50)"),
+                ("billing_persons","reflected_at","TIMESTAMP WITH TIME ZONE"),
+                ("billing_persons","reflected_by","INTEGER"),
             ]:
                 conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {typ}"))
         elif IS_SQLITE:
@@ -83,6 +96,18 @@ def _migrate():
                 ("members","user_confirmed_match","INTEGER DEFAULT 0"),
                 ("upload_batches","file_year","INTEGER"),
                 ("license_records","source_sheet","TEXT"),
+                ("billing_reports","source_file","TEXT"),
+                ("billing_reports","raw_data","TEXT"),
+                ("billing_reports","upload_type","TEXT DEFAULT 'manual'"),
+                ("billing_persons","billing_report_id","INTEGER"),
+                ("billing_persons","raw_data","TEXT"),
+                ("billing_persons","account","TEXT"),
+                ("billing_persons","charge_start_month","TEXT"),
+                ("billing_persons","charge_end_month","TEXT"),
+                ("billing_persons","from_status","TEXT"),
+                ("billing_persons","to_status","TEXT"),
+                ("billing_persons","reflected_at","DATETIME"),
+                ("billing_persons","reflected_by","INTEGER"),
             ]:
                 _ac(tbl, col, typ)
 
@@ -151,17 +176,14 @@ def logout(request: Request):
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db),
               user: User = Depends(require_user)):
-    # 스냅샷에서 로드
     snap = _get_snap(db, "dashboard")
-    if not snap:
+    if not snap or "monthly_data" not in snap or "billing_data" not in snap:
+        _invalidate_snap(db, "dashboard")
         snap = _build_dashboard_snap(db)
         _set_snap(db, "dashboard", snap)
 
-    recent_logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(10).all()
     return templates.TemplateResponse(request, "dashboard.html", {
-        "request": request, "user": user, "snap": snap,
-        "recent_logs": recent_logs, "fmt_amt": fmt_amt,
-        "CURRENT_YEAR": CURRENT_YEAR,
+        "request": request, "user": user, "snap": snap, "fmt_amt": fmt_amt,
     })
 
 
@@ -187,6 +209,7 @@ def _clean_filter():
     )
 
 def _build_dashboard_snap(db: Session) -> dict:
+    from datetime import date as _date
     now = datetime.now()
     cf = _clean_filter()
     total      = db.query(Member).filter(cf).count()
@@ -196,21 +219,73 @@ def _build_dashboard_snap(db: Session) -> dict:
     no_lic     = db.query(Member).filter(cf,
                     Member.user_confirmed_match == False,
                     or_(Member.match_license_id == None, Member.match_status == "전체자미확인")).count()
-    coll_cnt   = db.query(CollectionTarget).filter(CollectionTarget.excluded == False).count()
     overpay_cnt= db.query(Member).filter(cf, Member.is_overpay == True).count()
     work_pending = db.query(WorkQueue).filter(WorkQueue.status == "반영대기").count()
     bank_pending = db.query(BankTransaction).filter(
         BankTransaction.applied == False,
         BankTransaction.match_status.in_(["자동매칭","확인필요"])).count()
-    status_counts = {s: db.query(Member).filter(Member.status == s).count()
-                     for s in ["폐업","양도","이관","탈퇴","사망","말소"]}
+
+    # 월별 입금 데이터 (최근 12개월)
+    today_d = _date.today()
+    monthly_data = []
+    for i in range(11, -1, -1):
+        y, m = today_d.year, today_d.month - i
+        while m <= 0: m += 12; y -= 1
+        paid_sum = db.query(func.sum(MonthlyLedger.paid_amount)).filter(
+            MonthlyLedger.year == y,
+            MonthlyLedger.month == m,
+            MonthlyLedger.paid_amount > 0,
+        ).scalar() or 0
+        dep_cnt = db.query(func.count(func.distinct(MonthlyLedger.member_id))).filter(
+            MonthlyLedger.year == y,
+            MonthlyLedger.month == m,
+            MonthlyLedger.paid_amount > 0,
+        ).scalar() or 0
+        monthly_data.append({
+            "label": f"{y%100:02d}.{m:02d}",
+            "paid": int(paid_sum),
+            "depositors": int(dep_cnt),
+        })
+
+    # 부과대수 최신월 데이터
+    latest_br = (db.query(BillingReport)
+                 .order_by(BillingReport.year.desc(), BillingReport.month.desc())
+                 .first())
+    billing_data = {}
+    if latest_br:
+        billing_data = {
+            "year": latest_br.year, "month": latest_br.month,
+            "cnt_join":         latest_br.cnt_join or 0,
+            "cnt_transfer":     latest_br.cnt_transfer or 0,
+            "cnt_cross":        latest_br.cnt_cross or 0,
+            "cnt_close":        latest_br.cnt_close or 0,
+            "cnt_quit":         latest_br.cnt_quit or 0,
+            "cnt_delivery_new": latest_br.cnt_delivery_new or 0,
+            "cnt_mgmt_close":   latest_br.cnt_mgmt_close or 0,
+            "cnt_age70":        latest_br.cnt_age70 or 0,
+            "cnt_base":         latest_br.cnt_base or 0,
+            "cnt_total":        latest_br.cnt_total or 0,
+            "cnt_delivery":     latest_br.cnt_delivery or 0,
+            "source_file":      latest_br.source_file or "",
+            "upload_type":      latest_br.upload_type or "manual",
+        }
+    billing_pending = db.query(BillingPerson).filter(
+        BillingPerson.reflect_status == "처리대기").count()
+    mgmt_pending = db.query(BillingPerson).filter(
+        BillingPerson.reflect_status == "처리대기",
+        BillingPerson.account.in_(["관", "택배"])).count()
+
     return {
         "base_year": now.year, "base_month": now.month,
         "total_members": total, "total_arrears": int(total_arr),
         "overpay_sum": int(abs(overpay_sum)),
-        "verify_cnt": verify_cnt, "no_lic": no_lic, "coll_cnt": coll_cnt,
+        "verify_cnt": verify_cnt, "no_lic": no_lic,
         "overpay_cnt": overpay_cnt, "work_pending": work_pending,
-        "bank_pending": bank_pending, "status_counts": status_counts,
+        "bank_pending": bank_pending,
+        "monthly_data": monthly_data,
+        "billing_data": billing_data,
+        "billing_pending": billing_pending,
+        "mgmt_pending": mgmt_pending,
     }
 
 def _get_snap(db: Session, key: str):
@@ -234,65 +309,112 @@ def _invalidate_snap(db: Session, *keys: str):
 # ── 미수금 명단 ────────────────────────────────────────────────────────────────
 @app.get("/arrears", response_class=HTMLResponse)
 def arrears_page(request: Request, q: str = "", region: str = "",
-                 account: str = "", tab: str = "전체",
-                 page: int = 1, per_page: int = 200,
+                 account: str = "", amount_filter: str = "",
+                 amount_min: int = 0,
+                 status_filter: str = "", contact_filter: str = "",
+                 sort: str = "", page: int = 1,
                  db: Session = Depends(get_db), user: User = Depends(require_user)):
-    per_page = min(max(per_page, 30), 500)
+    PAGE_SIZE = 200
     page = max(page, 1)
-    base_q = db.query(Member).filter(_clean_filter())  # 합계행 제외
+    base_q = db.query(Member).filter(_clean_filter())
+
     if q:
         like = f"%{q}%"
         l4 = "".join(c for c in q if c.isdigit())[-4:]
         flt = [Member.name.ilike(like), Member.vehicle_no.ilike(like)]
         if l4: flt.append(Member.vehicle_no.ilike(f"%{l4}%"))
         base_q = base_q.filter(or_(*flt))
-    if region: base_q = base_q.filter(Member.region == region)
-    if account: base_q = base_q.filter(Member.account == account)
+    if region:
+        base_q = base_q.filter(Member.region == region)
+    if account:
+        acc_map = {
+            "협": ["협", "협회비"],
+            "관": ["관", "관리비"],
+            "택배": ["택배", "택배관리", "택배관리비"],
+        }
+        base_q = base_q.filter(Member.account.in_(acc_map.get(account, [account])))
 
-    if tab == "문자후보":
-        base_q = base_q.filter(Member.excel_arrears > 0, Member.is_overpay == False,
-                                Member.is_auto_transfer == False, Member.mobile != None,
-                                Member.mobile != "", Member.arrears_verified == True)
-    elif tab == "검증필요":
-        base_q = base_q.filter(Member.arrears_verified == False)
-    elif tab == "연락처없음":
-        base_q = base_q.filter(or_(Member.mobile == None, Member.mobile == ""))
-    elif tab == "자동이체정기":
-        base_q = base_q.filter(Member.is_auto_transfer == True)
-    elif tab == "초과납부선납":
-        base_q = base_q.filter(Member.is_overpay == True)
+    # 금액 필터 (amount_filter 프리셋)
+    if amount_filter == "미수만":
+        base_q = base_q.filter(Member.excel_arrears > 0)
+    elif amount_filter == "고액미납":
+        # 계정별 고액 기준: 협회비 30만+, 관리비/택배 10만+
+        _acc_vals_hyup = ["협", "협회비"]
+        _acc_vals_gwan = ["관", "관리비", "택배", "택배관리", "택배관리비"]
+        if account in _acc_vals_hyup:
+            base_q = base_q.filter(Member.excel_arrears >= 300000)
+        elif account in _acc_vals_gwan:
+            base_q = base_q.filter(Member.excel_arrears >= 100000)
+        else:
+            base_q = base_q.filter(
+                or_(
+                    and_(Member.account.in_(_acc_vals_hyup), Member.excel_arrears >= 300000),
+                    and_(Member.account.in_(_acc_vals_gwan), Member.excel_arrears >= 100000),
+                )
+            )
     else:
         base_q = base_q.filter(Member.excel_arrears != 0)
 
-    PAGE_SIZE = 200
+    # 슬라이더 최소금액 (amount_min > 0 이면 추가 필터)
+    if amount_min > 0:
+        base_q = base_q.filter(Member.excel_arrears >= amount_min)
+
+    # 상태 필터
+    if status_filter == "완납제외":
+        base_q = base_q.filter(Member.excel_arrears != 0)
+    elif status_filter == "초과제외":
+        base_q = base_q.filter(Member.is_overpay == False)
+    elif status_filter == "확인필요":
+        base_q = base_q.filter(Member.arrears_verified == False)
+
+    # 연락처 필터
+    if contact_filter == "있음":
+        base_q = base_q.filter(
+            or_(
+                and_(Member.mobile != None, Member.mobile != ""),
+                and_(Member.phone != None, Member.phone != "")
+            )
+        )
+    elif contact_filter == "없음":
+        base_q = base_q.filter(
+            or_(Member.mobile == None, Member.mobile == ""),
+            or_(Member.phone == None, Member.phone == ""),
+        )
+
+    # 정렬
+    if sort == "amount_desc":
+        base_q = base_q.order_by(Member.excel_arrears.desc())
+    elif sort == "amount_asc":
+        base_q = base_q.order_by(Member.excel_arrears.asc())
+    elif sort == "date_asc":
+        if IS_SQLITE:
+            base_q = base_q.order_by(Member.last_paid_date.asc())
+        else:
+            base_q = base_q.order_by(Member.last_paid_date.asc().nullsfirst())
+    else:
+        base_q = base_q.order_by(Member.region, Member.name)
+
     total_count = base_q.count()
     total_pages = max(1, (total_count + PAGE_SIZE - 1) // PAGE_SIZE)
-    page = max(1, min(int(request.query_params.get("page", 1)), total_pages))
-    items = base_q.order_by(Member.region, Member.name).offset((page-1)*PAGE_SIZE).limit(PAGE_SIZE).all()
-    total_arr = db.query(func.sum(Member.excel_arrears)).filter(
-        Member.status == "정상", Member.excel_arrears > 0).scalar() or 0
-    regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region != None).all() if x[0]})
+    page = max(1, min(page, total_pages))
+    items = base_q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
 
-    tab_counts = {
-        "전체":      db.query(Member).filter(Member.status == "정상", Member.excel_arrears != 0).count(),
-        "문자후보":  db.query(Member).filter(Member.status == "정상", Member.excel_arrears > 0,
-                              Member.is_overpay == False, Member.is_auto_transfer == False,
-                              Member.arrears_verified == True).count(),
-        "검증필요":  db.query(Member).filter(Member.status == "정상", Member.arrears_verified == False).count(),
-        "연락처없음":db.query(Member).filter(Member.status == "정상",
-                              or_(Member.mobile == None, Member.mobile == "")).count(),
-        "자동이체정기":db.query(Member).filter(Member.status == "정상", Member.is_auto_transfer == True).count(),
-        "초과납부선납":db.query(Member).filter(Member.status == "정상", Member.is_overpay == True).count(),
-    }
+    total_arr = base_q.filter(Member.excel_arrears > 0).with_entities(
+        func.sum(Member.excel_arrears)
+    ).scalar() or 0
+
+    regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region != None).all() if x[0]})
 
     return templates.TemplateResponse(request, "arrears.html", {
         "request": request, "user": user, "items": items, "q": q,
-        "region": region, "account": account, "tab": tab,
+        "region": region, "account": account,
+        "amount_filter": amount_filter, "amount_min": amount_min,
+        "status_filter": status_filter,
+        "contact_filter": contact_filter, "sort": sort,
         "total_arr": int(total_arr), "regions": regions,
-        "tab_counts": tab_counts, "fmt_amt": fmt_amt, "fmt_acc": fmt_acc,
+        "fmt_amt": fmt_amt, "fmt_acc": fmt_acc,
         "msg": request.query_params.get("msg", ""),
-        "page": page, "per_page": per_page,
-        "total_pages": total_pages, "total_count": total_count,
+        "page": page, "total_pages": total_pages, "total_count": total_count,
     })
 
 # 부과대수 관리으로 보내기
@@ -792,17 +914,32 @@ def api_lic_search(q: str = "", db: Session = Depends(get_db),
 @app.get("/work", response_class=HTMLResponse)
 def work_page(request: Request, tab: str = "전체", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
-    TABS = ["전체","반영대기","폐업","양도","이관","탈퇴","사망","말소","현역복구","반영완료"]
-    wq = db.query(WorkQueue, Member).join(Member)
-    if tab == "반영대기": wq = wq.filter(WorkQueue.status == "반영대기")
-    elif tab == "반영완료": wq = wq.filter(WorkQueue.status == "반영완료")
-    elif tab != "전체": wq = wq.filter(WorkQueue.process_type == tab, WorkQueue.status == "반영대기")
-    if q:
-        like = f"%{q}%"
-        wq = wq.filter(or_(Member.name.ilike(like), Member.vehicle_no.ilike(like)))
-    items = wq.order_by(WorkQueue.submitted_at.desc()).limit(500).all()
+    TABS = ["전체","반영대기","폐업","양도","이관","탈퇴","사망","말소","현역복구","반영완료","부과반영대기"]
+    billing_tab = (tab == "부과반영대기")
+    items = []
+    billing_items = []
+
+    if billing_tab:
+        # BillingPerson 처리대기 항목
+        bq = db.query(BillingPerson).filter(BillingPerson.reflect_status == "처리대기")
+        if q:
+            like = f"%{q}%"
+            bq = bq.filter(or_(BillingPerson.name.ilike(like), BillingPerson.vehicle_no.ilike(like)))
+        billing_items = bq.order_by(BillingPerson.year.desc(), BillingPerson.month.desc(),
+                                     BillingPerson.process_type).limit(500).all()
+    else:
+        wq = db.query(WorkQueue, Member).join(Member)
+        if tab == "반영대기": wq = wq.filter(WorkQueue.status == "반영대기")
+        elif tab == "반영완료": wq = wq.filter(WorkQueue.status == "반영완료")
+        elif tab != "전체": wq = wq.filter(WorkQueue.process_type == tab, WorkQueue.status == "반영대기")
+        if q:
+            like = f"%{q}%"
+            wq = wq.filter(or_(Member.name.ilike(like), Member.vehicle_no.ilike(like)))
+        items = wq.order_by(WorkQueue.submitted_at.desc()).limit(500).all()
 
     def cnt(t):
+        if t == "부과반영대기":
+            return db.query(BillingPerson).filter(BillingPerson.reflect_status == "처리대기").count()
         q2 = db.query(WorkQueue)
         if t == "반영대기": return q2.filter(WorkQueue.status == "반영대기").count()
         if t == "반영완료": return q2.filter(WorkQueue.status == "반영완료").count()
@@ -811,7 +948,9 @@ def work_page(request: Request, tab: str = "전체", q: str = "",
     tab_counts = {t: cnt(t) for t in TABS}
 
     return templates.TemplateResponse(request, "work.html", {
-        "request": request, "user": user, "items": items, "tab": tab, "q": q,
+        "request": request, "user": user,
+        "items": items, "billing_items": billing_items,
+        "tab": tab, "q": q, "billing_tab": billing_tab,
         "tab_counts": tab_counts, "TABS": TABS, "fmt_amt": fmt_amt,
         "msg": request.query_params.get("msg", ""),
     })
@@ -859,81 +998,147 @@ def verify_clear(mid: int, db: Session = Depends(get_db), user: User = Depends(r
     return RedirectResponse("/verify?msg=검증해제완료", status_code=302)
 
 # ── 문자대상 ──────────────────────────────────────────────────────────────────
-@app.get("/collection", response_class=HTMLResponse)
-def collection_page(request: Request, region: str = "", account: str = "",
-                    tab: str = "전체", q: str = "", min_amt: int = 0,
-                    db: Session = Depends(get_db), user: User = Depends(require_user)):
+def _collection_member_q(db, q="", region="", account="", min_amt=0,
+                          contact_filter="", long_term=""):
+    """문자대상 공통 쿼리: Member 직접 조회, 필터 적용"""
     from datetime import date as _date
-    base_q = db.query(CollectionTarget, Member).join(Member)
+    base = db.query(Member).filter(_clean_filter(), Member.excel_arrears > 0)
 
-    TABS_ALL = ["전체","협회비","관리비","초과납부","연락처없음","주소없음","제외",
-                "금액5천+","금액1만+","금액3만+","금액5만+","금액10만+","금액30만+","금액50만+","금액100만+",
-                "장기3개월+","장기6개월+","장기12개월+"]
-
-    if tab == "협회비":
-        base_q = base_q.filter(CollectionTarget.excluded==False, Member.account=="협")
-    elif tab == "관리비":
-        base_q = base_q.filter(CollectionTarget.excluded==False, Member.account=="관")
-    elif tab == "초과납부":
-        base_q = base_q.filter(Member.is_overpay==True)
-    elif tab == "연락처없음":
-        base_q = base_q.filter(or_(Member.mobile==None, Member.mobile==""))
-    elif tab == "주소없음":
-        base_q = base_q.filter(and_(
-            or_(Member.official_address==None, Member.official_address==""),
-            or_(Member.address==None, Member.address=="")
-        ))
-    elif tab == "제외":
-        base_q = base_q.filter(CollectionTarget.excluded==True)
-    elif tab.startswith("금액"):
-        amt_map = {"금액5천+":5000,"금액1만+":10000,"금액3만+":30000,"금액5만+":50000,
-                   "금액10만+":100000,"금액30만+":300000,"금액50만+":500000,"금액100만+":1000000}
-        threshold = amt_map.get(tab, 0)
-        base_q = base_q.filter(CollectionTarget.excluded==False, Member.excel_arrears>=threshold)
-    elif tab.startswith("장기"):
-        months_map = {"장기3개월+":3,"장기6개월+":6,"장기12개월+":12}
-        mo = months_map.get(tab, 3)
+    if q:
+        like = f"%{q}%"
+        base = base.filter(or_(Member.name.ilike(like), Member.vehicle_no.ilike(like)))
+    if region:
+        base = base.filter(Member.region == region)
+    if account:
+        acc_map = {
+            "협": ["협", "협회비"],
+            "관": ["관", "관리비"],
+            "택배": ["택배", "택배관리", "택배관리비"],
+        }
+        base = base.filter(Member.account.in_(acc_map.get(account, [account])))
+    if min_amt > 0:
+        base = base.filter(Member.excel_arrears >= min_amt)
+    if contact_filter == "있음":
+        base = base.filter(
+            or_(
+                and_(Member.mobile != None, Member.mobile != ""),
+                and_(Member.phone != None, Member.phone != "")
+            )
+        )
+    elif contact_filter == "없음":
+        base = base.filter(
+            or_(Member.mobile == None, Member.mobile == ""),
+            or_(Member.phone == None, Member.phone == ""),
+        )
+    if long_term:
+        months_map = {"3개월+": 3, "6개월+": 6, "12개월+": 12}
+        mo = months_map.get(long_term, 3)
         today = _date.today()
         cutoff_year = today.year - (1 if today.month <= mo else 0)
         cutoff_month = (today.month - mo - 1) % 12 + 1
         cutoff = f"{cutoff_year}-{cutoff_month:02d}"
-        base_q = base_q.filter(
-            CollectionTarget.excluded==False,
+        base = base.filter(
             Member.first_unpaid_month != None,
             Member.first_unpaid_month != "",
             Member.first_unpaid_month <= cutoff,
         )
-    else:  # 전체
-        base_q = base_q.filter(CollectionTarget.excluded==False)
+    return base
 
-    if region: base_q = base_q.filter(Member.region==region)
-    if account: base_q = base_q.filter(Member.account==account)
-    if q:
-        like = f"%{q}%"
-        base_q = base_q.filter(or_(Member.name.ilike(like), Member.vehicle_no.ilike(like)))
 
-    targets = base_q.order_by(Member.region, Member.name).all()
-    total = sum(t.CollectionTarget.arrears for t in targets if not t.CollectionTarget.excluded)
-    regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region!=None).all() if x[0]})
+@app.get("/collection", response_class=HTMLResponse)
+def collection_page(request: Request, q: str = "", region: str = "",
+                    account: str = "", min_amt: int = 0,
+                    contact_filter: str = "", long_term: str = "",
+                    sort: str = "", page: int = 1,
+                    db: Session = Depends(get_db), user: User = Depends(require_user)):
+    PAGE_SIZE = 200
+    page = max(page, 1)
 
-    def _cnt(t):
-        bq2 = db.query(CollectionTarget).join(Member)
-        if t == "협회비": return bq2.filter(CollectionTarget.excluded==False, Member.account=="협").count()
-        if t == "관리비": return bq2.filter(CollectionTarget.excluded==False, Member.account=="관").count()
-        if t == "초과납부": return bq2.filter(Member.is_overpay==True).count()
-        if t == "연락처없음": return bq2.filter(or_(Member.mobile==None,Member.mobile=="")).count()
-        if t == "주소없음": return bq2.filter(and_(or_(Member.official_address==None,Member.official_address==""),or_(Member.address==None,Member.address==""))).count()
-        if t == "제외": return bq2.filter(CollectionTarget.excluded==True).count()
-        return bq2.filter(CollectionTarget.excluded==False).count()
+    base_q = _collection_member_q(db, q, region, account, min_amt, contact_filter, long_term)
 
-    tab_counts = {t: _cnt(t) for t in ["전체","협회비","관리비","초과납부","연락처없음","주소없음","제외"]}
+    if sort == "amount_desc":
+        base_q = base_q.order_by(Member.excel_arrears.desc())
+    elif sort == "amount_asc":
+        base_q = base_q.order_by(Member.excel_arrears.asc())
+    else:
+        base_q = base_q.order_by(Member.region, Member.name)
+
+    total_count = base_q.count()
+    total_pages = max(1, (total_count + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(1, min(page, total_pages))
+    items = base_q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    total = base_q.with_entities(func.sum(Member.excel_arrears)).scalar() or 0
+
+    regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region != None).all() if x[0]})
 
     return templates.TemplateResponse(request, "collection.html", {
-        "request": request, "user": user, "targets": targets, "total": total,
-        "regions": regions, "region": region, "account": account,
-        "tab": tab, "q": q, "tab_counts": tab_counts, "TABS_ALL": TABS_ALL,
-        "fmt_amt": fmt_amt, "msg": request.query_params.get("msg", ""),
+        "request": request, "user": user, "items": items,
+        "q": q, "region": region, "account": account,
+        "min_amt": min_amt, "contact_filter": contact_filter,
+        "long_term": long_term, "sort": sort,
+        "total": int(total), "regions": regions,
+        "page": page, "total_pages": total_pages, "total_count": total_count,
+        "fmt_amt": fmt_amt, "fmt_acc": fmt_acc,
+        "msg": request.query_params.get("msg", ""),
     })
+
+
+@app.get("/collection/extract-phones")
+def extract_phones(request: Request,
+                   q: str = "", region: str = "", account: str = "",
+                   min_amt: int = 0, contact_filter: str = "", long_term: str = "",
+                   fmt: str = "tsv",
+                   db: Session = Depends(get_db), user: User = Depends(require_user)):
+    from fastapi.responses import StreamingResponse
+    members = (_collection_member_q(db, q, region, account, min_amt, contact_filter, long_term)
+               .order_by(Member.region, Member.name).all())
+    sep = "," if fmt == "csv" else "\t"
+    ext = "csv" if fmt == "csv" else "tsv"
+    rows = [sep.join(["지역", "계정", "차량번호", "성명", "번호", "미수금"]) + "\n"]
+    for m in members:
+        mob = phone_clean(m.mobile or "")
+        pho = phone_clean(m.phone or "")
+        number = mob or pho or "연락처없음"
+        rows.append(sep.join([
+            m.region or "", fmt_acc(m.account),
+            m.vehicle_no or "", m.name or "",
+            number, str(m.excel_arrears or 0),
+        ]) + "\n")
+    add_log(db, user.id, "번호추출", f"{len(members)}명")
+    content = "".join(rows).encode("utf-8-sig")
+    return StreamingResponse(
+        iter([content]),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=phones.{ext}"},
+    )
+
+
+@app.get("/collection/extract-addresses")
+def extract_addresses(request: Request,
+                      q: str = "", region: str = "", account: str = "",
+                      min_amt: int = 0, contact_filter: str = "", long_term: str = "",
+                      fmt: str = "tsv",
+                      db: Session = Depends(get_db), user: User = Depends(require_user)):
+    from fastapi.responses import StreamingResponse
+    members = (_collection_member_q(db, q, region, account, min_amt, contact_filter, long_term)
+               .order_by(Member.region, Member.name).all())
+    sep = "," if fmt == "csv" else "\t"
+    ext = "csv" if fmt == "csv" else "tsv"
+    rows = [sep.join(["지역", "계정", "차량번호", "성명", "주소", "미수금"]) + "\n"]
+    for m in members:
+        addr = address_clean(m) or "주소없음"
+        rows.append(sep.join([
+            m.region or "", fmt_acc(m.account),
+            m.vehicle_no or "", m.name or "",
+            addr, str(m.excel_arrears or 0),
+        ]) + "\n")
+    add_log(db, user.id, "주소추출", f"{len(members)}명")
+    content = "".join(rows).encode("utf-8-sig")
+    return StreamingResponse(
+        iter([content]),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=addresses.{ext}"},
+    )
 
 @app.post("/collection/generate")
 def collection_generate(db: Session = Depends(get_db), user: User = Depends(require_user)):
@@ -1122,7 +1327,28 @@ def _do_bank_match(db: Session, tx: BankTransaction):
     best_id, best_sc, best_tier = best[3]["id"], best[0], best[2]
     best_member = db.query(Member).filter(Member.id == best_id).first()
     n = len(candidates)
-    status = "자동매칭" if (best_tier in {"exact","vkey"} and n == 1) or (best_sc >= 90 and n == 1) else "확인필요"
+    reasons_str = best[1]
+
+    # ── 자동매칭 판정 ──────────────────────────────────────────────────────────
+    # 조건 A: 성명 정확일치 + 차량번호 전체일치 → 후보 수 무관 자동
+    cond_A = best_tier == "exact" and "차량번호전체일치" in reasons_str and "성명일치" in reasons_str
+    # 조건 B: 성명 정확일치 + 차량번호 뒷4자리 일치 → 후보 수 무관 자동
+    cond_B = best_tier == "exact" and "차량번호뒷자리일치" in reasons_str and "성명일치" in reasons_str
+    # 조건 C: 성명 정확일치 + 금액=미수금 일치 + 후보 1명
+    cond_C = "성명일치" in reasons_str and "금액=미수금일치" in reasons_str and n == 1
+    # 조건 D: 성명 정확일치 + 후보 1명 (점수 80점 이상)
+    cond_D = best_tier == "name_exact" and n == 1 and best_sc >= 80
+    # 조건 E: 차량번호 전체일치 + 후보 1명
+    cond_E = "차량번호전체일치" in reasons_str and n == 1
+    # 조건 F: 차량번호 뒷4자리 + 금액=미수금 일치 + 후보 1명
+    cond_F = "차량번호뒷자리일치" in reasons_str and "금액=미수금일치" in reasons_str and n == 1
+
+    # 동명이인(후보 2명 이상이고 성명만 일치) → 절대 자동매칭 금지
+    only_name = reasons_str == "성명일치" or (best_tier == "name_exact" and "차량번호" not in reasons_str and "금액=미수금일치" not in reasons_str)
+    no_auto_dupe = only_name and n >= 2
+
+    auto_match = (cond_A or cond_B or cond_C or cond_D or cond_E or cond_F) and not no_auto_dupe
+    status = "자동매칭" if auto_match else "확인필요"
 
     tx.matched_member_id = best_id if status == "자동매칭" else None
     tx.match_score = best_sc; tx.match_reason = best[1]
@@ -1228,6 +1454,49 @@ def bank_hold(txid: int, db: Session = Depends(get_db), user: User = Depends(req
     if not tx: raise HTTPException(404)
     tx.match_status = "보류"; db.commit()
     return RedirectResponse("/bank?msg=보류처리", status_code=302)
+
+
+# ── 통장매칭 초기화 ─────────────────────────────────────────────────────────
+@app.post("/bank/reset-unapplied")
+def bank_reset_unapplied(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """미반영(applied=False) 통장내역만 삭제. 반영완료 건 보호."""
+    cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
+    db.query(BankTransaction).filter(BankTransaction.applied == False).delete()
+    db.commit()
+    add_log(db, user.id, "통장초기화-미반영삭제", f"{cnt}건 삭제")
+    return RedirectResponse(f"/bank?msg=미반영 통장내역 {cnt}건 삭제완료", status_code=302)
+
+
+@app.post("/bank/reset-match-status")
+def bank_reset_match_status(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """미반영 건의 매칭상태만 초기화. 반영완료 건 보호."""
+    txs = db.query(BankTransaction).filter(BankTransaction.applied == False).all()
+    cnt = len(txs)
+    for tx in txs:
+        tx.matched_member_id = None
+        tx.match_status = "미매칭"
+        tx.match_score = 0
+        tx.match_reason = ""
+        tx.match_candidates_json = None
+    db.commit()
+    add_log(db, user.id, "통장초기화-매칭상태", f"{cnt}건 초기화")
+    return RedirectResponse(f"/bank?msg=미반영 {cnt}건 매칭상태 초기화완료", status_code=302)
+
+
+@app.post("/bank/reset-all")
+def bank_reset_all(include_applied: bool = Form(False),
+                   db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """전체 통장내역 삭제. 기본: 반영완료 제외. include_applied=true이면 전부 삭제."""
+    if include_applied:
+        cnt = db.query(BankTransaction).count()
+        db.query(BankTransaction).delete()
+    else:
+        cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
+        db.query(BankTransaction).filter(BankTransaction.applied == False).delete()
+    db.commit()
+    scope = "반영완료 포함 전체" if include_applied else "미반영"
+    add_log(db, user.id, "통장초기화-전체", f"{scope} {cnt}건 삭제")
+    return RedirectResponse(f"/bank?msg={scope} 통장내역 {cnt}건 삭제완료", status_code=302)
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 @app.get("/settings", response_class=HTMLResponse)
@@ -1454,7 +1723,7 @@ def work_reflect_amount(wid: int, db: Session = Depends(get_db),
     return RedirectResponse(f"/work?msg=금액 파싱 실패", status_code=302)
 
 
-# ── 부과대수 관리 (협회 월례보고 항목) ─────────────────────────────────────────
+# ── 부과대수 관리 ──────────────────────────────────────────────────────────────
 @app.get("/billing-report", response_class=HTMLResponse)
 def billing_report_page(request: Request, year: Optional[int] = None, month: Optional[int] = None,
                          db: Session = Depends(get_db), user: User = Depends(require_user)):
@@ -1465,13 +1734,25 @@ def billing_report_page(request: Request, year: Optional[int] = None, month: Opt
     history = (db.query(BillingReport)
                .order_by(BillingReport.year.desc(), BillingReport.month.desc())
                .limit(24).all())
+    # 처리 대기 항목 (현재 선택 월 기준)
+    pending_items = (db.query(BillingPerson)
+                     .filter(BillingPerson.year == sel_y,
+                             BillingPerson.month == sel_m,
+                             BillingPerson.reflect_status == "처리대기")
+                     .order_by(BillingPerson.process_type, BillingPerson.id)
+                     .all())
+    all_pending_cnt = db.query(BillingPerson).filter(
+        BillingPerson.reflect_status == "처리대기").count()
     years = list(range(now.year - 2, now.year + 2))
     return templates.TemplateResponse(request, "billing_report.html", {
         "request": request, "user": user, "report": report,
         "sel_y": sel_y, "sel_m": sel_m, "history": history,
-        "years": years, "months": list(range(1,13)),
+        "pending_items": pending_items, "all_pending_cnt": all_pending_cnt,
+        "years": years, "months": list(range(1, 13)),
         "msg": request.query_params.get("msg", ""),
+        "fmt_amt": fmt_amt,
     })
+
 
 @app.post("/billing-report")
 def billing_report_save(
@@ -1483,9 +1764,8 @@ def billing_report_save(
     cnt_mgmt_close: int = Form(0), cnt_age70: int = Form(0),
     memo: str = Form(""),
     db: Session = Depends(get_db), user: User = Depends(require_user)):
-    # 자동계산: 기준대수 = 현재 정상 회원수
     cnt_base = db.query(Member).filter(_clean_filter()).count()
-    cnt_delivery = db.query(Member).filter(_clean_filter(), Member.account == "관").count()
+    cnt_delivery = db.query(Member).filter(_clean_filter(), Member.account.in_(["관", "택배"])).count()
     cnt_total = cnt_base
 
     r = db.query(BillingReport).filter(
@@ -1497,6 +1777,7 @@ def billing_report_save(
         r.cnt_mgmt_close=cnt_mgmt_close; r.cnt_age70=cnt_age70
         r.cnt_base=cnt_base; r.cnt_total=cnt_total
         r.cnt_delivery=cnt_delivery; r.memo=memo
+        r.upload_type = r.upload_type or "manual"
     else:
         db.add(BillingReport(
             year=year, month=month,
@@ -1505,11 +1786,168 @@ def billing_report_save(
             cnt_quit=cnt_quit, cnt_delivery_new=cnt_delivery_new,
             cnt_mgmt_close=cnt_mgmt_close, cnt_age70=cnt_age70,
             cnt_base=cnt_base, cnt_total=cnt_total,
-            cnt_delivery=cnt_delivery, memo=memo, created_by=user.id,
+            cnt_delivery=cnt_delivery, memo=memo,
+            upload_type="manual", created_by=user.id,
         ))
     db.commit()
+    _invalidate_snap(db, "dashboard")
     add_log(db, user.id, "부과대수저장", f"{year}년{month}월")
     return RedirectResponse(f"/billing-report?year={year}&month={month}&msg=저장완료", status_code=302)
+
+
+@app.post("/billing-report/upload")
+async def billing_report_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """부과대수 엑셀 파일 업로드 — 자동 파싱 후 BillingReport + BillingPerson 저장"""
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in {".xlsx", ".xlsm", ".xls"}:
+        return RedirectResponse(
+            f"/billing-report?year={year}&month={month}&msg=엑셀파일만 업로드 가능합니다",
+            status_code=302)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        result = parse_billing_file(tmp_path, year, month)
+    except Exception as e:
+        import os as _os; _os.unlink(tmp_path)
+        return RedirectResponse(
+            f"/billing-report?year={year}&month={month}&msg=파일 파싱 실패: {str(e)[:80]}",
+            status_code=302)
+    finally:
+        try:
+            import os as _os; _os.unlink(tmp_path)
+        except: pass
+
+    counts = result["counts"]
+    persons = result["persons"]
+
+    # 자동계산
+    cnt_base = db.query(Member).filter(_clean_filter()).count()
+    cnt_delivery_db = db.query(Member).filter(_clean_filter(), Member.account.in_(["관","택배"])).count()
+
+    r = db.query(BillingReport).filter(
+        BillingReport.year == year, BillingReport.month == month).first()
+    if r:
+        r.cnt_join         = counts.get("협회가입", r.cnt_join or 0)
+        r.cnt_transfer     = counts.get("양도", r.cnt_transfer or 0)
+        r.cnt_cross        = counts.get("타도", r.cnt_cross or 0)
+        r.cnt_close        = counts.get("폐지", r.cnt_close or 0)
+        r.cnt_quit         = counts.get("탈퇴", r.cnt_quit or 0)
+        r.cnt_delivery_new = counts.get("택배신규", r.cnt_delivery_new or 0)
+        r.cnt_mgmt_close   = counts.get("관리비폐지", r.cnt_mgmt_close or 0)
+        r.cnt_age70        = counts.get("70세", r.cnt_age70 or 0)
+        r.cnt_base   = counts.get("협회기본대수") or cnt_base
+        r.cnt_total  = counts.get("총부과대수") or cnt_base
+        r.cnt_delivery = counts.get("택배관리") or cnt_delivery_db
+        r.source_file = file.filename
+        r.raw_data = json.dumps(result, ensure_ascii=False, default=str)[:65000]
+        r.upload_type = "file"
+    else:
+        r = BillingReport(
+            year=year, month=month,
+            cnt_join         = counts.get("협회가입", 0),
+            cnt_transfer     = counts.get("양도", 0),
+            cnt_cross        = counts.get("타도", 0),
+            cnt_close        = counts.get("폐지", 0),
+            cnt_quit         = counts.get("탈퇴", 0),
+            cnt_delivery_new = counts.get("택배신규", 0),
+            cnt_mgmt_close   = counts.get("관리비폐지", 0),
+            cnt_age70        = counts.get("70세", 0),
+            cnt_base   = counts.get("협회기본대수") or cnt_base,
+            cnt_total  = counts.get("총부과대수") or cnt_base,
+            cnt_delivery = counts.get("택배관리") or cnt_delivery_db,
+            source_file = file.filename,
+            raw_data = json.dumps(result, ensure_ascii=False, default=str)[:65000],
+            upload_type = "file",
+            created_by = user.id,
+        )
+        db.add(r)
+    db.flush()  # r.id 확보
+
+    # 기존 처리대기 항목 제거 후 재생성 (재업로드 시)
+    db.query(BillingPerson).filter(
+        BillingPerson.billing_report_id == r.id,
+        BillingPerson.reflect_status == "처리대기",
+    ).delete()
+
+    created = 0
+    for p in persons:
+        if p["process_type"] not in BILLING_WORK_TYPES:
+            continue
+        db.add(BillingPerson(
+            billing_report_id = r.id,
+            source_file       = file.filename,
+            source_sheet      = p.get("source_sheet", ""),
+            source_row        = p.get("source_row", 0),
+            raw_data          = json.dumps(p.get("raw_data", {}), ensure_ascii=False),
+            year              = year,
+            month             = month,
+            process_type      = p["process_type"],
+            account           = p.get("account", ""),
+            name              = p.get("name", ""),
+            vehicle_no        = p.get("vehicle_no", ""),
+            region            = p.get("region", ""),
+            from_status       = p.get("from_status", "정상"),
+            to_status         = p.get("to_status", ""),
+            reflect_status    = "처리대기",
+        ))
+        created += 1
+
+    db.commit()
+    _invalidate_snap(db, "dashboard")
+    add_log(db, user.id, "부과대수업로드", f"{year}년{month}월 {file.filename} 개인항목{created}건")
+    return RedirectResponse(
+        f"/billing-report?year={year}&month={month}&msg=업로드완료 (항목{created}건 처리대기 생성)",
+        status_code=302)
+
+
+@app.post("/billing-person/{pid}/reflect")
+def billing_person_reflect(pid: int, db: Session = Depends(get_db),
+                            user: User = Depends(require_user)):
+    bp = db.query(BillingPerson).filter(BillingPerson.id == pid).first()
+    if not bp: raise HTTPException(404)
+    bp.reflect_status = "반영완료"
+    bp.reflected_by = user.id
+    bp.reflected_at = datetime.now()
+    db.commit()
+    _invalidate_snap(db, "dashboard")
+    return RedirectResponse(
+        f"/billing-report?year={bp.year}&month={bp.month}&msg=반영완료",
+        status_code=302)
+
+
+@app.post("/billing-person/{pid}/hold")
+def billing_person_hold(pid: int, db: Session = Depends(get_db),
+                        user: User = Depends(require_user)):
+    bp = db.query(BillingPerson).filter(BillingPerson.id == pid).first()
+    if not bp: raise HTTPException(404)
+    bp.reflect_status = "보류"
+    db.commit()
+    return RedirectResponse(
+        f"/billing-report?year={bp.year}&month={bp.month}&msg=보류처리",
+        status_code=302)
+
+
+@app.post("/billing-person/{pid}/exclude")
+def billing_person_exclude(pid: int, db: Session = Depends(get_db),
+                            user: User = Depends(require_user)):
+    bp = db.query(BillingPerson).filter(BillingPerson.id == pid).first()
+    if not bp: raise HTTPException(404)
+    bp.reflect_status = "제외"
+    db.commit()
+    return RedirectResponse(
+        f"/billing-report?year={bp.year}&month={bp.month}&msg=제외처리",
+        status_code=302)
 
 if __name__ == "__main__":
     import uvicorn

@@ -433,39 +433,51 @@ def is_useless_memo(memo: str) -> bool:
 def score_bank_match(memo: str, deposit: int, member) -> Tuple[int,str,str]:
     """
     반환: (score, reason, tier)
-    tier: exact/vkey/l4_name/name/l4/none
+    tier: exact/vkey/l4_name/name_exact/l4/none
+
+    점수 기준:
+      성명 정확일치: +40
+      차량번호 전체일치: +50
+      차량번호 뒷4자리 일치: +35
+      입금액 = 현재미수금: +20
+      입금액 = 월납부금액(정기): +10
+      전화번호 일치: +10
     """
     name_c, memo_vkey, memo_l4 = extract_memo_keys(memo)
     score = 0; reasons = []; tier = "none"
 
     # 차량번호 전체 일치
-    if memo_vkey and len(memo_vkey) >= 5 and member.vehicle_key and memo_vkey == member.vehicle_key:
-        score += 100; reasons.append("차량번호 전체일치"); tier = "vkey"
+    vkey_ok = bool(memo_vkey and len(memo_vkey) >= 5 and member.vehicle_key and memo_vkey == member.vehicle_key)
+    if vkey_ok:
+        score += 50; reasons.append("차량번호전체일치"); tier = "vkey"
 
     # 뒷자리 4자리 일치
     ml4 = veh_last4(member.vehicle_no)
     l4_ok = bool(memo_l4 and ml4 and len(memo_l4) >= 3 and memo_l4 == ml4)
-    if l4_ok: score += 50; reasons.append("차량번호 뒷자리일치")
+    if l4_ok:
+        score += 35; reasons.append("차량번호뒷자리일치")
 
-    # 성명 일치
+    # 성명 정확일치만 인정 (부분일치는 점수 없음)
     name_ok = False
     if name_c and norm_name(name_c) == norm_name(member.name):
-        score += 60; reasons.append("성명일치"); name_ok = True
-    elif name_c and len(name_c) >= 2 and (
-        norm_name(name_c) in norm_name(member.name) or
-        norm_name(member.name) in norm_name(name_c)
-    ):
-        score += 25; reasons.append("성명일부일치")
+        score += 40; reasons.append("성명일치"); name_ok = True
 
-    # 티어
-    if name_ok and l4_ok:           tier = "exact"
-    elif tier != "vkey" and name_ok and l4_ok: tier = "l4_name"
-    elif tier not in ("vkey","exact") and name_ok: tier = "name"
-    elif tier not in ("vkey","exact","l4_name") and l4_ok: tier = "l4"
+    # 티어 결정
+    if name_ok and vkey_ok:          tier = "exact"
+    elif name_ok and l4_ok:          tier = "exact"
+    elif vkey_ok:                    tier = "vkey"
+    elif name_ok:                    tier = "name_exact"
+    elif l4_ok:                      tier = "l4"
 
-    # 금액 일치 보너스
+    # 금액 일치 보너스 (현재미수금과 일치)
     due = member.excel_arrears or 0
-    if deposit and due and deposit == due: score += 15; reasons.append("금액일치")
+    if deposit and due > 0 and deposit == due:
+        score += 20; reasons.append("금액=미수금일치")
+
+    # 월납부 정기금액 일치 보너스 (협회비 30000, 관리비 50000/100000 등 정기금액)
+    MONTHLY_AMOUNTS = {30000, 50000, 60000, 100000, 120000, 150000}
+    if deposit and deposit in MONTHLY_AMOUNTS:
+        score += 10; reasons.append("월납부금액일치")
 
     return score, ", ".join(reasons), tier
 
@@ -525,3 +537,173 @@ def address_clean(m) -> str:
         if addr and addr.strip():
             return addr.strip()
     return ""
+
+
+# ── 부과대수 파일 파서 ────────────────────────────────────────────────────────
+
+# 항목명 → 정규명 매핑 (공백 제거 후 비교)
+BILLING_ITEM_ALIASES: Dict[str, str] = {}
+_BILLING_RAW_ALIASES = {
+    "협회가입":     ["협회가입","가입","협회가입수"],
+    "양도":         ["양도","양도양수","양도건수"],
+    "타도":         ["타도","타지역이전","타도이관","타도전출"],
+    "폐지":         ["폐지","폐업","폐지건수","차량폐지"],
+    "탈퇴":         ["탈퇴","탈퇴건수"],
+    "택배신규":     ["택배신규","택배 신규","배신규","택배신규건수"],
+    "관리비폐지":   ["관리비폐지","관리비폐지","관리비제외","관리비폐지건수"],
+    "70세":         ["70세","70세전환","고령자전환","70세이상","70세이상전환"],
+    "협회기본대수": ["협회기본대수","기본대수","협회기본","협회원기본대수"],
+    "총부과대수":   ["총부과대수","총부과","총부과건수"],
+    "택배관리":     ["택배관리","해당월택배관리","택배관리비건수","당월택배관리"],
+}
+for _canon, _aliases in _BILLING_RAW_ALIASES.items():
+    for _a in _aliases:
+        BILLING_ITEM_ALIASES[_a.replace(" ", "")] = _canon
+
+# 처리대기 생성 대상 항목 (WorkQueue/BillingPerson으로 관리해야 하는 항목)
+BILLING_WORK_TYPES = {"관리비폐지", "70세", "택배신규", "협회가입", "탈퇴", "폐지", "양도", "타도"}
+
+# 항목 → 계정 추론
+BILLING_ACCOUNT_MAP = {
+    "협회가입": "협", "탈퇴": "협", "양도": "협", "타도": "협", "폐지": "협",
+    "관리비폐지": "관", "70세": "관", "택배신규": "택배",
+    "협회기본대수": "", "총부과대수": "", "택배관리": "관",
+}
+
+# 항목 → 변경상태 추론
+BILLING_TO_STATUS_MAP = {
+    "폐지": "폐업", "탈퇴": "탈퇴", "양도": "양도", "타도": "이관",
+    "협회가입": "정상", "관리비폐지": "관리비폐지", "70세": "정상",
+    "택배신규": "정상",
+}
+
+
+def _nc(v) -> str:
+    """셀 값 정규화 — None/NaN → ''"""
+    if v is None: return ""
+    if isinstance(v, float) and math.isnan(v): return ""
+    return str(v).strip()
+
+
+def _is_vehicle_no(s: str) -> bool:
+    """차량번호 패턴 감지"""
+    return bool(re.search(r'[가-힣]{1,3}\s*\d{2}\s*[가-힣]\s*\d{4}', s))
+
+
+def _is_name(s: str) -> bool:
+    """한국 성명 패턴 (2~5자 한글)"""
+    return bool(re.match(r'^[가-힣]{2,5}$', s.strip()))
+
+
+def _try_int(v) -> Optional[int]:
+    try:
+        return int(float(str(v).replace(",", "").strip()))
+    except:
+        return None
+
+
+def parse_billing_file(xl_path: str, base_year: int, base_month: int) -> Dict:
+    """
+    부과대수 엑셀 파일 파싱.
+    Returns:
+      {
+        "counts": {"협회가입": N, "폐지": N, ...},   # 집계 카운트
+        "persons": [...],                             # 개인별 처리대기 항목
+        "sheets": [...],                              # 처리된 시트명 목록
+        "parse_log": [...],                           # 파싱 로그 (디버그용)
+      }
+    """
+    import pandas as _pd
+    counts = {k: 0 for k in _BILLING_RAW_ALIASES}
+    persons: List[Dict] = []
+    parse_log: List[str] = []
+    processed_sheets: List[str] = []
+
+    try:
+        p = str(xl_path).lower()
+        if p.endswith((".xlsx", ".xlsm")):
+            xl = _pd.ExcelFile(xl_path, engine="openpyxl")
+        else:
+            xl = _pd.ExcelFile(xl_path, engine="xlrd")
+    except Exception as e:
+        return {"counts": counts, "persons": [], "sheets": [], "parse_log": [f"파일 열기 실패: {e}"]}
+
+    for sname in xl.sheet_names:
+        try:
+            df = xl.parse(sname, header=None, dtype=str)
+        except Exception as e:
+            parse_log.append(f"{sname}: 파싱실패 {e}")
+            continue
+
+        rows = df.values.tolist()
+        if not rows:
+            continue
+
+        processed_sheets.append(sname)
+        current_section: Optional[str] = None  # 현재 섹션 (항목명)
+
+        for ri, raw_row in enumerate(rows):
+            cells = [_nc(c) for c in raw_row]
+            cells_ns = [c.replace(" ", "") for c in cells]  # 공백제거 버전
+
+            # ── 카운트 추출: "항목명  N" 패턴 ────────────────────────────
+            for ci, cv in enumerate(cells_ns):
+                if cv in BILLING_ITEM_ALIASES:
+                    canon = BILLING_ITEM_ALIASES[cv]
+                    # 오른쪽 및 왼쪽 인접 셀에서 숫자 찾기
+                    for dc in [1, 2, -1, 3]:
+                        nci = ci + dc
+                        if 0 <= nci < len(cells):
+                            n = _try_int(cells[nci])
+                            if n is not None and 0 <= n <= 9999:
+                                if n > counts.get(canon, 0):
+                                    counts[canon] = n
+                                    parse_log.append(f"{sname}[{ri},{ci}] {canon}={n}")
+                                break
+                    # 섹션 헤더로 지정 (처리대기 항목인 경우)
+                    if canon in BILLING_WORK_TYPES:
+                        current_section = canon
+
+            # ── 개인행 추출: 차량번호 + 성명이 있는 행 ──────────────────
+            veh_found = None
+            name_found = None
+            region_found = None
+
+            for ci, cv in enumerate(cells):
+                cv_ns = cv.replace(" ", "")
+                if not veh_found and _is_vehicle_no(cv):
+                    veh_found = cv
+                if not name_found and _is_name(cv_ns) and 2 <= len(cv_ns) <= 5:
+                    # 합계/섹션명 등 제외
+                    if cv_ns not in BILLING_ITEM_ALIASES and cv_ns not in {"합계","소계","총계","계","성명","이름"}:
+                        name_found = cv
+                if not region_found and len(cv_ns) <= 5 and re.match(r'^[가-힣]+[시군]$', cv_ns):
+                    region_found = cv
+
+            if veh_found and name_found and current_section:
+                raw_dict = {str(i): _nc(v) for i, v in enumerate(raw_row) if _nc(v)}
+                persons.append({
+                    "process_type": current_section,
+                    "account": BILLING_ACCOUNT_MAP.get(current_section, ""),
+                    "name": name_found.strip(),
+                    "vehicle_no": veh_found.strip(),
+                    "region": (region_found or "").strip(),
+                    "source_sheet": sname,
+                    "source_row": ri,
+                    "raw_data": raw_dict,
+                    "to_status": BILLING_TO_STATUS_MAP.get(current_section, ""),
+                    "from_status": "정상",
+                })
+                parse_log.append(f"{sname}[{ri}] 개인행: {current_section} {name_found} {veh_found}")
+
+            # 빈 행이면 섹션 리셋 (다음 섹션으로 넘어감)
+            non_empty = [c for c in cells if c.strip()]
+            if len(non_empty) == 0:
+                current_section = None
+
+    return {
+        "counts": counts,
+        "persons": persons,
+        "sheets": processed_sheets,
+        "parse_log": parse_log,
+    }
