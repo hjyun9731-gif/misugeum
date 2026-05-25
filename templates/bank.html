@@ -255,3 +255,56 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>
+
+
+<script id="manual-match-fix-js">
+document.addEventListener('DOMContentLoaded', function () {
+  // 1) 반영 form 옆에 수동매칭 붙이기
+  document.querySelectorAll('form[action*="/bank/"][action*="/apply"]').forEach(function(form){
+    var action = form.getAttribute('action') || '';
+    var m = action.match(/\/bank\/(\d+)\/apply/);
+    if (!m) return;
+    if (form.parentElement && form.parentElement.querySelector('.manual-match-link')) return;
+
+    var a = document.createElement('a');
+    a.href = '/bank/' + m[1] + '/match';
+    a.textContent = '수동매칭';
+    a.className = 'btn btn-ghost btn-sm manual-match-link';
+    a.style.marginLeft = '6px';
+    form.insertAdjacentElement('afterend', a);
+  });
+
+  // 2) 처리칸이 보류인 미매칭 행에도 수동매칭 버튼 붙이기
+  document.querySelectorAll('tr').forEach(function(tr){
+    if (tr.querySelector('.manual-match-link')) return;
+
+    var text = tr.innerText || '';
+    if (!text.includes('미매칭') || !text.includes('보류')) return;
+
+    // 행 안의 펼침/상세 링크나 data에서 id 찾기
+    var html = tr.innerHTML || '';
+    var idMatch =
+      html.match(/\/bank\/(\d+)\/match/) ||
+      html.match(/\/bank\/(\d+)\/apply/) ||
+      html.match(/data-id=["'](\d+)["']/) ||
+      html.match(/tx-id=["'](\d+)["']/);
+
+    // 못 찾으면 체크박스 value에서 찾기
+    if (!idMatch) {
+      var cb = tr.querySelector('input[type="checkbox"][value]');
+      if (cb && cb.value) idMatch = [null, cb.value];
+    }
+
+    if (!idMatch) return;
+
+    var tid = idMatch[1];
+    var cells = tr.querySelectorAll('td');
+    if (!cells.length) return;
+
+    var last = cells[cells.length - 1];
+    if (!last.innerText.includes('보류')) return;
+
+    last.innerHTML = '<a href="/bank/' + tid + '/match" class="btn btn-ghost btn-sm manual-match-link">수동매칭</a>';
+  });
+});
+</script>
