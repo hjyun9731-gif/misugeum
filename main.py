@@ -1601,55 +1601,46 @@ def settings_page(request: Request,
 def admin_reset(db: Session = Depends(get_db), user: User = Depends(require_user)):
     """
     설정 > 전체 초기화.
-    관리자 계정(User)은 보존하고, 업무 데이터만 삭제.
-    FK 오류 방지를 위해 자식 테이블부터 삭제하고,
-    오류가 나도 Internal Server Error 대신 설정 화면으로 메시지 반환.
+    로그인 계정(User)은 보존하고, 나머지 업무 데이터는 실제 DB 테이블 기준으로 삭제한다.
     """
     from urllib.parse import quote
+
     try:
-        # 자식/연관 테이블 먼저 삭제
-        tables = [
-            CollectionTarget,
-            BankTransaction,
-            BillingPerson,
-            WorkQueue,
-            MemberStatusEvent,
-            MonthlyLedger,
-            RawImportRow,
-            LicenseRecord,
-            Member,
-            UploadBatch,
-            Snapshot,
-            BillingReport,
-        ]
+        # 삭제 전 건수 확인용
+        before_members = db.query(Member).count()
+        before_bank = db.query(BankTransaction).count()
+
+        # FK 문제 방지를 위해 metadata 정렬 역순으로 삭제
+        preserve_tables = {"users", "user"}
 
         deleted_total = 0
-        for tbl in tables:
+        for table in reversed(Base.metadata.sorted_tables):
+            if table.name in preserve_tables:
+                continue
+
             try:
-                cnt = db.query(tbl).count()
-                db.query(tbl).delete(synchronize_session=False)
-                deleted_total += cnt
+                result = db.execute(table.delete())
+                if result.rowcount and result.rowcount > 0:
+                    deleted_total += result.rowcount
             except Exception:
-                # 특정 테이블이 없거나 관계 문제 있으면 rollback 후 다시 예외 전달
                 db.rollback()
                 raise
 
         db.commit()
 
+        # 삭제 후 스냅샷도 확실히 무효화
         try:
-            add_log(db, user.id, "데이터초기화", f"업무데이터 전체 삭제 {deleted_total}건")
+            _invalidate_snap(db, "dashboard")
         except Exception:
             pass
 
-        return RedirectResponse(
-            "/settings?msg=" + quote(f"전체 초기화 완료: {deleted_total}건 삭제"),
-            status_code=302
-        )
+        msg = f"전체 초기화 완료: 회원 {before_members}명, 통장 {before_bank}건 포함 총 {deleted_total}건 삭제"
+        return RedirectResponse("/settings?msg=" + quote(msg), status_code=302)
 
     except Exception as e:
         db.rollback()
         return RedirectResponse(
-            "/settings?msg=" + quote("전체초기화 오류: " + str(e)[:160]),
+            "/settings?msg=" + quote("전체초기화 오류: " + str(e)[:180]),
             status_code=302
         )
 
