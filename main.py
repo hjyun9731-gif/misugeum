@@ -2014,31 +2014,158 @@ def bank_manual_match_save(
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
+    """
+    수동매칭 즉시 반영:
+    회원 선택 즉시 통장거래를 반영완료 처리하고 미수금에서 입금액 차감.
+    """
     from urllib.parse import quote
+    from datetime import datetime
+    import re as _re
 
-    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
-    m = db.query(Member).filter(Member.id == member_id).first()
+    def _num(v):
+        try:
+            if v is None:
+                return 0
+            if isinstance(v, (int, float)):
+                return int(v)
+            t = str(v).replace(",", "").replace("원", "").strip()
+            nums = _re.findall(r"\d[\d,]*", t)
+            if not nums:
+                return 0
+            return int(nums[0].replace(",", ""))
+        except Exception:
+            return 0
 
-    if not tx or not m:
-        return RedirectResponse("/bank?status=미매칭&msg=" + quote("수동매칭 대상 없음"), status_code=302)
+    def _get_amount(tx):
+        for attr in ["amount", "deposit_amount", "in_amount", "paid_amount", "txn_amount", "money"]:
+            if hasattr(tx, attr):
+                v = _num(getattr(tx, attr))
+                if v:
+                    return abs(v)
 
-    tx.matched_member_id = m.id
-    tx.match_status = "수동매칭"
-    tx.match_reason = f"사용자 수동매칭: {m.name}/{m.vehicle_no}"
-    db.add(tx)
-    db.commit()
+        for attr in ["memo", "raw_data", "description"]:
+            if hasattr(tx, attr):
+                t = str(getattr(tx, attr) or "")
+                nums = [_num(x) for x in _re.findall(r"\d[\d,]*", t)]
+                nums = [x for x in nums if x > 0]
+                if nums:
+                    return max(nums)
+        return 0
+
+    def _get_date(tx):
+        raw_date = getattr(tx, "txn_date", None) or getattr(tx, "date", None) or getattr(tx, "paid_date", None)
+        y = datetime.now().year
+        m = datetime.now().month
+        pdate = ""
+        if raw_date:
+            try:
+                if hasattr(raw_date, "year"):
+                    y = raw_date.year
+                    m = raw_date.month
+                    pdate = raw_date.isoformat()[:10]
+                else:
+                    dt = datetime.fromisoformat(str(raw_date)[:10])
+                    y = dt.year
+                    m = dt.month
+                    pdate = dt.date().isoformat()
+            except Exception:
+                pdate = str(raw_date)[:10]
+        return y, m, pdate
 
     try:
-        add_log(db, user.id, "통장수동매칭", f"{getattr(tx, 'memo', '')} → {m.name}/{m.vehicle_no}")
-    except Exception:
-        pass
+        tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+        member = db.query(Member).filter(Member.id == member_id).first()
 
-    return RedirectResponse("/bank?status=미매칭&msg=" + quote("수동매칭 완료. 반영 버튼을 눌러 반영하세요."), status_code=302)
+        if not tx or not member:
+            return RedirectResponse("/bank?status=미매칭&msg=" + quote("수동매칭 대상 없음"), status_code=302)
+
+        amount = _get_amount(tx)
+        if amount <= 0:
+            tx.matched_member_id = member.id
+            tx.match_status = "확인필요"
+            tx.match_reason = f"수동매칭 금액확인필요: {member.name}/{member.vehicle_no}"
+            db.add(tx)
+            db.commit()
+            return RedirectResponse("/bank?status=확인필요&msg=" + quote("금액을 읽지 못해 확인필요로 이동했습니다."), status_code=302)
+
+        year, month, paid_date = _get_date(tx)
+        ledger_cols = set(MonthlyLedger.__table__.columns.keys())
+
+        exist = None
+        if "source_file" in ledger_cols and "source_row" in ledger_cols:
+            exist = (
+                db.query(MonthlyLedger)
+                .filter(MonthlyLedger.member_id == member.id)
+                .filter(MonthlyLedger.source_file == "통장반영")
+                .filter(MonthlyLedger.source_row == tx.id)
+                .first()
+            )
+
+        if not exist:
+            kwargs = {
+                "member_id": member.id,
+                "batch_id": None,
+                "source_file": "통장반영",
+                "source_sheet": "수동매칭",
+                "source_row": tx.id,
+                "raw_vehicle_no": member.vehicle_no or "",
+                "raw_name": member.name or "",
+                "raw_region": member.region or "",
+                "raw_account": member.account or "",
+                "raw_note": getattr(tx, "memo", "") or "",
+                "year": year,
+                "month": month,
+                "carry_over": 0,
+                "charge_amount": 0,
+                "paid_amount": amount,
+                "arrears_amount": 0,
+                "paid_date": paid_date,
+                "calc_arrears": 0,
+            }
+            kwargs = {k: v for k, v in kwargs.items() if k in ledger_cols}
+            db.add(MonthlyLedger(**kwargs))
+
+            before = int(member.excel_arrears or 0)
+            after = before - amount
+            member.excel_arrears = after
+            member.calc_arrears = after
+            member.arrears_diff = 0
+            member.is_overpay = after < 0
+
+            if hasattr(member, "last_paid_date"):
+                member.last_paid_date = paid_date
+
+            member.arrears_verified = True
+            member.verify_reason = ""
+            db.add(member)
+
+        tx.matched_member_id = member.id
+        tx.match_status = "반영완료"
+        tx.match_reason = f"수동매칭 즉시반영: {member.name}/{member.vehicle_no} / {amount}원"
+        tx.applied = True
+        db.add(tx)
+
+        db.commit()
+        _invalidate_snap(db, "dashboard")
+
+        try:
+            add_log(db, user.id, "통장수동매칭반영", f"{getattr(tx, 'memo', '')} → {member.name}/{member.vehicle_no} / {amount}원")
+        except Exception:
+            pass
+
+        return RedirectResponse(
+            "/bank?status=반영완료&msg=" + quote(f"수동매칭 및 반영완료: {member.name} {amount:,}원"),
+            status_code=302
+        )
+
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(
+            "/bank?status=미매칭&msg=" + quote("수동매칭 반영 오류: " + str(e)[:180]),
+            status_code=302
+        )
 
 
-
-
-# ── 문자관리: 번호/주소 엑셀추출 ─────────────────────────────
 @app.get("/sms/export")
 def sms_export_excel(
     export_type: str = "phone",
