@@ -2290,6 +2290,146 @@ def sms_export_excel(
     )
 
 
+
+
+# ── 중복 월 원장 정리 ─────────────────────────────────────
+@app.post("/admin/merge-monthly-ledgers")
+def admin_merge_monthly_ledgers(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    같은 회원 + 같은 연도 + 같은 월 원장이 여러 줄로 쪼개진 경우 한 줄로 합친다.
+    예:
+    5월 부과 5,000 / 입금 0 / 미수 5,000
+    5월 부과 0 / 입금 5,000 / 미수 0
+    → 5월 부과 5,000 / 입금 5,000 / 미수 0
+    """
+    from urllib.parse import quote
+    from sqlalchemy import func
+
+    try:
+        groups = (
+            db.query(
+                MonthlyLedger.member_id,
+                MonthlyLedger.year,
+                MonthlyLedger.month,
+                func.count(MonthlyLedger.id).label("cnt")
+            )
+            .filter(MonthlyLedger.member_id != None)
+            .filter(MonthlyLedger.year != None)
+            .filter(MonthlyLedger.month != None)
+            .group_by(MonthlyLedger.member_id, MonthlyLedger.year, MonthlyLedger.month)
+            .having(func.count(MonthlyLedger.id) > 1)
+            .all()
+        )
+
+        merged_groups = 0
+        deleted_rows = 0
+        touched_members = set()
+
+        for member_id, year, month, cnt in groups:
+            rows = (
+                db.query(MonthlyLedger)
+                .filter(MonthlyLedger.member_id == member_id)
+                .filter(MonthlyLedger.year == year)
+                .filter(MonthlyLedger.month == month)
+                .order_by(
+                    MonthlyLedger.charge_amount.desc(),
+                    MonthlyLedger.carry_over.desc(),
+                    MonthlyLedger.id.asc()
+                )
+                .all()
+            )
+
+            if len(rows) <= 1:
+                continue
+
+            # 기준행: 부과금/이월금이 있는 행 우선, 없으면 첫 행
+            base = rows[0]
+
+            total_carry = 0
+            total_charge = 0
+            total_paid = 0
+            paid_dates = []
+            notes = []
+
+            for r in rows:
+                total_carry += int(r.carry_over or 0)
+                total_charge += int(r.charge_amount or 0)
+                total_paid += int(r.paid_amount or 0)
+
+                if getattr(r, "paid_date", None):
+                    paid_dates.append(str(r.paid_date)[:10])
+
+                if getattr(r, "raw_note", None):
+                    notes.append(str(r.raw_note))
+
+            # 부과금/이월금은 중복으로 합산하면 안 되는 경우가 있어 보정
+            # 같은 월 원장 중 부과금이 있는 행이 하나면 그 값을 사용.
+            charge_values = [int(r.charge_amount or 0) for r in rows if int(r.charge_amount or 0) > 0]
+            carry_values = [int(r.carry_over or 0) for r in rows if int(r.carry_over or 0) > 0]
+
+            if charge_values:
+                total_charge = max(charge_values)
+            if carry_values:
+                total_carry = max(carry_values)
+
+            total_due = total_carry + total_charge
+            arrears = max(total_due - total_paid, 0)
+
+            base.carry_over = total_carry
+            base.charge_amount = total_charge
+            base.paid_amount = total_paid
+            base.arrears_amount = arrears
+
+            if hasattr(base, "calc_arrears"):
+                base.calc_arrears = arrears
+
+            if paid_dates:
+                base.paid_date = sorted(paid_dates)[-1]
+
+            if hasattr(base, "raw_note"):
+                joined = " / ".join(dict.fromkeys([n for n in notes if n]))
+                base.raw_note = joined[-500:]
+
+            db.add(base)
+
+            for r in rows[1:]:
+                db.delete(r)
+                deleted_rows += 1
+
+            touched_members.add(member_id)
+            merged_groups += 1
+
+        db.flush()
+
+        # 회원별 미수금 재계산
+        for mid in touched_members:
+            m = db.query(Member).filter(Member.id == mid).first()
+            if m:
+                try:
+                    _recalc_member(db, m)
+                except Exception:
+                    pass
+
+        db.commit()
+        _invalidate_snap(db, "dashboard")
+
+        try:
+            add_log(db, user.id, "중복월원장정리", f"{merged_groups}개 월 정리, {deleted_rows}행 삭제")
+        except Exception:
+            pass
+
+        msg = quote(f"중복 월 원장 정리 완료: {merged_groups}개 월 정리, {deleted_rows}행 삭제")
+        return RedirectResponse("/settings?msg=" + msg, status_code=302)
+
+    except Exception as e:
+        db.rollback()
+        msg = quote("중복 월 원장 정리 오류: " + str(e)[:180])
+        return RedirectResponse("/settings?msg=" + msg, status_code=302)
+
+
 @app.get("/bank", response_class=HTMLResponse)
 def bank_page(request: Request, status: str = "", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
