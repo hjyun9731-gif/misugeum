@@ -94,7 +94,7 @@
           {% if tx.applied %}<span class="badge b-ok">✓ 반영완료</span>
           {% elif tx.match_status == '자동매칭' %}<span class="badge b-blue">⚡ 자동매칭</span>
           {% elif tx.match_status == '확인필요' %}<span class="badge b-warn">⚠ 확인필요</span>
-          {% elif tx.match_status == '보류' %}<span class="badge b-gray">보류</span>
+          {% elif tx.match_status == '<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm 미매칭수동매칭">수동매칭</a>' %}<span class="badge b-gray">보류</span>
           {% else %}<span class="badge b-gray">미매칭</span>{% endif %}
         </td>
         <td class="text-sm nowrap">
