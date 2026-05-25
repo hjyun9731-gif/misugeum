@@ -333,7 +333,7 @@ def arrears_page(request: Request, q: str = "", region: str = "",
                  db: Session = Depends(get_db), user: User = Depends(require_user)):
     PAGE_SIZE = 200
     page = max(page, 1)
-    base_q = _real_member_q(db)
+    base_q = db.query(Member).filter(_arrears_full_filter())
 
     if q:
         like = f"%{q}%"
