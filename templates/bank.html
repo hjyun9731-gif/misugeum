@@ -45,7 +45,17 @@
 
 <div style="display:grid;grid-template-columns:3fr 1fr;gap:12px;margin-bottom:14px;">
   <div class="card card-sm">
-    <div class="card-title">통장내역 붙여넣기</div>
+    <div class="card-title">
+<div id="bank-bulk-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0;padding:12px;background:#fff;border:1px solid #f5c2d8;border-radius:14px;">
+  <form method="post" action="/bank/apply-auto-all" style="display:inline;" onsubmit="return confirm('자동매칭된 미반영 건을 모두 반영할까요?');">
+    <button type="submit" class="btn btn-primary btn-sm">⚡ 자동매칭 전체반영</button>
+  </form>
+  <a class="btn btn-ghost btn-sm" href="/bank?status=자동매칭">자동매칭만 보기</a>
+  <a class="btn btn-ghost btn-sm" href="/bank?status=미매칭">미매칭만 보기</a>
+  <a class="btn btn-ghost btn-sm" href="/bank?status=확인필요">확인필요만 보기</a>
+</div>
+
+통장내역 붙여넣기</div>
     <form method="post" action="/bank/paste">
       <textarea name="pasted_text" class="paste-area" placeholder="통장 내역을 여기에 붙여넣으세요:
 2026-05-13   35,000   2,354,865   E-국민은행   이정기1016
@@ -226,6 +236,8 @@ async function searchMember(txId, deposit) {
 {% endblock %}
 
 
+
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('form[action*="/bank/"][action*="/apply"]').forEach(function(form){
@@ -233,6 +245,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var m = action.match(/\/bank\/(\d+)\/apply/);
     if (!m) return;
     if (form.parentElement && form.parentElement.querySelector('.manual-match-link')) return;
+
     var a = document.createElement('a');
     a.href = '/bank/' + m[1] + '/match';
     a.textContent = '수동매칭';
