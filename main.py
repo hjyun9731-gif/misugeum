@@ -580,6 +580,38 @@ def _guess_name_from_raw_row(db: Session, batch_id: int, src_sheet: str, src_row
     return candidates[0] if candidates else (current_name or "")
 
 
+
+def _get_name_from_col_e(db: Session, batch_id: int, src_sheet: str, src_row: int, current_name: str = ""):
+    """
+    미수금 원본 엑셀 기준 성명은 E열.
+    parse_ledger_sheet가 성명을 못 읽으면 RawImportRow의 E열(index 4)을 강제로 성명으로 사용한다.
+    """
+    if current_name and str(current_name).strip():
+        return current_name
+
+    import json as _json
+    raw = (db.query(RawImportRow)
+             .filter(RawImportRow.batch_id == batch_id,
+                     RawImportRow.source_sheet == src_sheet,
+                     RawImportRow.source_row == src_row)
+             .first())
+    if not raw or not raw.raw_data:
+        return current_name or ""
+
+    try:
+        vals = _json.loads(raw.raw_data)
+    except Exception:
+        return current_name or ""
+
+    # E열 = 5번째 컬럼 = index 4
+    if len(vals) >= 5:
+        name = str(vals[4] or "").strip()
+        name = name.replace(" ", "")
+        return name
+
+    return current_name or ""
+
+
 def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_file, src_sheet, src_row, force_create=False):
     from core import is_sum_row
     if is_sum_row(name, veh): return None, "sum_row"
