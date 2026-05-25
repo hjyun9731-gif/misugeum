@@ -106,3 +106,32 @@
   <div class="tbl-footer"><span>{{ items|length }}건</span></div>
 </div>
 {% endblock %}
+
+
+<script id="force-work-reflect-buttons">
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('tr[id^="wo-row-"]').forEach(function(tr){
+    if (tr.querySelector('.force-reflect-btn')) return;
+
+    var idMatch = (tr.id || '').match(/wo-row-(\d+)/);
+    if (!idMatch) return;
+
+    var statusText = tr.innerText || '';
+    if (!statusText.includes('반영대기')) return;
+
+    var cells = tr.querySelectorAll('td');
+    if (!cells.length) return;
+
+    var last = cells[cells.length - 1];
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-primary force-reflect-btn';
+    btn.textContent = '반영';
+    btn.onclick = function(){ reflectOne(idMatch[1]); };
+
+    last.appendChild(document.createTextNode(' '));
+    last.appendChild(btn);
+  });
+});
+</script>
