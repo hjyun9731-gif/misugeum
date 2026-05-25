@@ -543,6 +543,107 @@ def export_monthly_payments(
     )
 
 
+
+
+# ── 명단 추가: /member/{mid} 충돌 방지용 /member_add ─────────────
+@app.get("/member_add", response_class=HTMLResponse)
+def member_add_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    html = """
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>명단 추가</title>
+      <link rel="stylesheet" href="/static/style.css">
+    </head>
+    <body style="padding:24px;background:#fafafa;">
+      <div style="max-width:760px;margin:0 auto;background:white;border:1px solid #eee;border-radius:18px;padding:24px;">
+        <h2>명단 추가</h2>
+        <form method="post" action="/member_add">
+          <p>지역<br><input name="region" placeholder="예: 강릉시" style="width:100%;padding:10px;"></p>
+          <p>계정<br>
+            <select name="account" style="width:100%;padding:10px;">
+              <option value="관리비">관리비</option>
+              <option value="협회비">협회비</option>
+            </select>
+          </p>
+          <p>차량번호<br><input name="vehicle_no" style="width:100%;padding:10px;"></p>
+          <p>성명<br><input name="name" style="width:100%;padding:10px;"></p>
+          <p>연락처<br><input name="mobile" style="width:100%;padding:10px;"></p>
+          <p>현재미수금<br><input name="excel_arrears" placeholder="예: 5000" style="width:100%;padding:10px;"></p>
+          <p>주소<br><input name="address" style="width:100%;padding:10px;"></p>
+          <p>비고<br><textarea name="note" rows="3" style="width:100%;padding:10px;"></textarea></p>
+          <button type="submit">저장</button>
+          <a href="/arrears">취소</a>
+        </form>
+      </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
+
+@app.post("/member_add")
+def member_add_save(
+    region: str = Form(""),
+    account: str = Form("관리비"),
+    vehicle_no: str = Form(""),
+    name: str = Form(""),
+    mobile: str = Form(""),
+    address: str = Form(""),
+    excel_arrears: str = Form("0"),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    def _amt(v):
+        try:
+            return int(str(v or "0").replace(",", "").replace("원", "").strip() or 0)
+        except Exception:
+            return 0
+
+    amount = _amt(excel_arrears)
+    acc = "관" if ("관" in (account or "") or "관리" in (account or "")) else "협"
+
+    m = Member(
+        region=normalize_region(region) if region else "",
+        account=acc,
+        vehicle_no=vehicle_no,
+        vehicle_key=norm_vehicle(vehicle_no) if vehicle_no else "",
+        name=name,
+        name_key=norm_name(name) if name else "",
+        mobile=phone_clean(mobile) or mobile,
+        address=address,
+        excel_arrears=amount,
+        calc_arrears=amount,
+        arrears_diff=0,
+        is_overpay=amount < 0,
+        arrears_verified=True,
+        status="정상",
+        status_source="manual",
+        note=note,
+        source_file="수기추가",
+        source_sheet="명단추가",
+    )
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+
+    try:
+        add_log(db, user.id, "명단추가", f"{m.name}/{m.vehicle_no}/{m.excel_arrears}원")
+    except Exception:
+        pass
+
+    _invalidate_snap(db, "dashboard")
+    return RedirectResponse("/arrears?msg=" + quote("명단 추가 완료"), status_code=302)
+
+
+@app.get("/member/new")
+def member_new_redirect():
+    return RedirectResponse("/member_add", status_code=302)
+
+
 # ── 회원 상세 ──────────────────────────────────────────────────────────────────
 @app.get("/member/{mid}", response_class=HTMLResponse)
 def member_detail(mid: int, request: Request, db: Session = Depends(get_db),
@@ -1614,6 +1715,350 @@ def collection_generate(db: Session = Depends(get_db), user: User = Depends(requ
     return RedirectResponse(f"/collection?msg={count}명 생성완료", status_code=302)
 
 # ── 통장매칭 ──────────────────────────────────────────────────────────────────
+
+
+# ── 자동매칭 전체반영 ─────────────────────────────────────
+@app.post("/bank/apply-auto-all")
+def bank_apply_auto_all(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """
+    자동매칭된 통장내역을 한 번에 반영.
+    대상: match_status='자동매칭', matched_member_id 존재, applied False/NULL.
+    """
+    from urllib.parse import quote
+    from datetime import datetime
+
+    try:
+        targets = (
+            db.query(BankTransaction)
+            .filter(BankTransaction.match_status == "자동매칭")
+            .filter(BankTransaction.matched_member_id != None)
+            .filter(or_(BankTransaction.applied == False, BankTransaction.applied == None))
+            .order_by(BankTransaction.txn_date, BankTransaction.id)
+            .all()
+        )
+
+        applied_cnt = 0
+        skipped_cnt = 0
+
+        for tx in targets:
+            m = db.query(Member).filter(Member.id == tx.matched_member_id).first()
+            if not m:
+                skipped_cnt += 1
+                continue
+
+            amount = int(getattr(tx, "amount", 0) or 0)
+            if amount <= 0:
+                skipped_cnt += 1
+                continue
+
+            y = datetime.now().year
+            mo = datetime.now().month
+            pdate = ""
+
+            raw_date = getattr(tx, "txn_date", None)
+            if raw_date:
+                try:
+                    if hasattr(raw_date, "year"):
+                        y = raw_date.year
+                        mo = raw_date.month
+                        pdate = raw_date.isoformat()[:10]
+                    else:
+                        dt = datetime.fromisoformat(str(raw_date)[:10])
+                        y = dt.year
+                        mo = dt.month
+                        pdate = dt.date().isoformat()
+                except Exception:
+                    pdate = str(raw_date)[:10]
+
+            exist = (
+                db.query(MonthlyLedger)
+                .filter(MonthlyLedger.member_id == m.id)
+                .filter(MonthlyLedger.source_file == "통장반영")
+                .filter(MonthlyLedger.source_row == tx.id)
+                .first()
+            )
+
+            if exist:
+                tx.applied = True
+                tx.match_status = "반영완료"
+                db.add(tx)
+                skipped_cnt += 1
+                continue
+
+            db.add(MonthlyLedger(
+                member_id=m.id,
+                batch_id=None,
+                source_file="통장반영",
+                source_sheet="자동매칭",
+                source_row=tx.id,
+                raw_vehicle_no=m.vehicle_no or "",
+                raw_name=m.name or "",
+                raw_region=m.region or "",
+                raw_account=m.account or "",
+                raw_note=getattr(tx, "memo", "") or "",
+                year=y,
+                month=mo,
+                carry_over=0,
+                charge_amount=0,
+                paid_amount=amount,
+                arrears_amount=0,
+                paid_date=pdate,
+                calc_arrears=0,
+            ))
+
+            tx.applied = True
+            tx.match_status = "반영완료"
+            db.add(tx)
+
+            try:
+                _recalc_member(db, m)
+            except Exception:
+                pass
+
+            applied_cnt += 1
+
+        db.commit()
+        _invalidate_snap(db, "dashboard")
+
+        try:
+            add_log(db, user.id, "자동매칭전체반영", f"{applied_cnt}건 반영, {skipped_cnt}건 보류")
+        except Exception:
+            pass
+
+        msg = quote(f"자동매칭 {applied_cnt}건 전체 반영완료 / 보류 {skipped_cnt}건")
+        return RedirectResponse(f"/bank?status=자동매칭&msg={msg}", status_code=302)
+
+    except Exception as e:
+        db.rollback()
+        msg = quote("자동매칭 전체반영 오류: " + str(e)[:180])
+        return RedirectResponse(f"/bank?status=자동매칭&msg={msg}", status_code=302)
+
+
+# ── 미매칭 수동매칭 화면 ─────────────────────────────────────
+@app.get("/bank/{tid}/match", response_class=HTMLResponse)
+def bank_manual_match_page(
+    tid: int,
+    request: Request,
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    members = []
+    if q:
+        like = f"%{q}%"
+        digits = "".join(ch for ch in q if ch.isdigit())
+        filters = [
+            Member.name.ilike(like),
+            Member.vehicle_no.ilike(like),
+            Member.mobile.ilike(like),
+        ]
+        if digits:
+            filters.append(Member.vehicle_no.ilike(f"%{digits[-4:]}%"))
+
+        members = (
+            db.query(Member)
+            .filter(or_(*filters))
+            .order_by(Member.region, Member.name, Member.vehicle_no)
+            .limit(80)
+            .all()
+        )
+
+    rows = ""
+    for m in members:
+        rows += f"""
+        <tr>
+          <td>{m.region or ""}</td>
+          <td>{m.account or ""}</td>
+          <td>{m.vehicle_no or ""}</td>
+          <td><b>{m.name or ""}</b></td>
+          <td>{int(m.excel_arrears or 0):,}원</td>
+          <td>
+            <form method="post" action="/bank/{tid}/manual-match" style="margin:0;">
+              <input type="hidden" name="member_id" value="{m.id}">
+              <button type="submit">이 사람으로 매칭</button>
+            </form>
+          </td>
+        </tr>
+        """
+
+    html = f"""
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>수동매칭</title>
+      <link rel="stylesheet" href="/static/style.css">
+    </head>
+    <body style="padding:24px;background:#fafafa;">
+      <div style="background:white;border:1px solid #eee;border-radius:18px;padding:20px;margin-bottom:16px;">
+        <h2>미매칭 수동매칭</h2>
+        <p><b>입금일자:</b> {getattr(tx, "txn_date", "") or ""}</p>
+        <p><b>입금액:</b> {int(getattr(tx, "amount", 0) or 0):,}원</p>
+        <p><b>이체메모:</b> {getattr(tx, "memo", "") or ""}</p>
+
+        <form method="get" action="/bank/{tid}/match">
+          <input name="q" value="{q or ""}" placeholder="성명, 차량번호, 뒷자리 4자리 검색" style="padding:10px;width:320px;">
+          <button type="submit">검색</button>
+          <a href="/bank?status=미매칭">돌아가기</a>
+        </form>
+      </div>
+
+      <div style="background:white;border:1px solid #eee;border-radius:18px;padding:20px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th>지역</th><th>계정</th><th>차량번호</th><th>성명</th><th>현재미수금</th><th>처리</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows if rows else '<tr><td colspan="6" style="text-align:center;padding:20px;">검색어를 입력해서 매칭할 회원을 찾으세요.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
+
+@app.post("/bank/{tid}/manual-match")
+def bank_manual_match_save(
+    tid: int,
+    member_id: int = Form(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    m = db.query(Member).filter(Member.id == member_id).first()
+
+    if not tx or not m:
+        return RedirectResponse("/bank?status=미매칭&msg=" + quote("수동매칭 대상 없음"), status_code=302)
+
+    tx.matched_member_id = m.id
+    tx.match_status = "수동매칭"
+    tx.match_reason = f"사용자 수동매칭: {m.name}/{m.vehicle_no}"
+    db.add(tx)
+    db.commit()
+
+    try:
+        add_log(db, user.id, "통장수동매칭", f"{getattr(tx, 'memo', '')} → {m.name}/{m.vehicle_no}")
+    except Exception:
+        pass
+
+    return RedirectResponse("/bank?status=미매칭&msg=" + quote("수동매칭 완료. 반영 버튼을 눌러 반영하세요."), status_code=302)
+
+
+
+
+# ── 문자관리: 번호/주소 엑셀추출 ─────────────────────────────
+@app.get("/sms/export")
+def sms_export_excel(
+    export_type: str = "phone",
+    region: str = "",
+    account: str = "",
+    status: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from io import BytesIO
+    from urllib.parse import quote
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    q = db.query(Member).filter(_arrears_full_filter())
+
+    if region:
+        q = q.filter(Member.region == region)
+
+    if account:
+        if account in ("관리비", "관"):
+            q = q.filter(Member.account.in_(["관", "관리비"]))
+        elif account in ("협회비", "협"):
+            q = q.filter(Member.account.in_(["협", "협회비"]))
+        else:
+            q = q.filter(Member.account == account)
+
+    if status:
+        q = q.filter(Member.status == status)
+
+    if export_type == "address":
+        q = q.filter(or_(Member.official_address != None, Member.address != None))
+    else:
+        q = q.filter(or_(Member.mobile != None, Member.phone != None))
+
+    members = q.order_by(Member.region, Member.account, Member.name, Member.vehicle_no).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "주소추출" if export_type == "address" else "번호추출"
+    ws.append(["지역", "계정", "차량번호", "성명", "연락처", "주소", "현재미수금", "상태"])
+
+    for m in members:
+        contact = (m.mobile or "").strip() or (m.phone or "").strip()
+        addr = (m.official_address or "").strip() or (m.address or "").strip()
+
+        if export_type != "address" and not contact:
+            continue
+        if export_type == "address" and not addr:
+            continue
+
+        acc = m.account or ""
+        if acc == "관":
+            acc = "관리비"
+        elif acc == "협":
+            acc = "협회비"
+
+        ws.append([
+            m.region or "",
+            acc,
+            m.vehicle_no or "",
+            m.name or "",
+            contact,
+            addr,
+            int(m.excel_arrears or 0),
+            m.status or "",
+        ])
+
+    header_fill = PatternFill("solid", fgColor="FCE7F3")
+    thin = Side(style="thin", color="E5E7EB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            if cell.row == 1:
+                cell.font = Font(bold=True, color="9D174D")
+                cell.fill = header_fill
+
+    widths = [14, 12, 18, 16, 18, 42, 14, 12]
+    for idx, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+
+    for r in range(2, ws.max_row + 1):
+        ws.cell(r, 7).number_format = '#,##0'
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    title = "주소추출" if export_type == "address" else "번호추출"
+    filename = quote(f"문자관리_{title}.xlsx")
+
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
+    )
+
+
 @app.get("/bank", response_class=HTMLResponse)
 def bank_page(request: Request, status: str = "", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
@@ -1643,7 +2088,7 @@ def bank_paste(request: Request, pasted_text: str = Form(""),
                db: Session = Depends(get_db), user: User = Depends(require_user)):
     count = _parse_and_match_bank_lines(db, pasted_text.splitlines(), "paste", None)
     add_log(db, user.id, "통장붙여넣기", f"{count}건")
-    return RedirectResponse(f"/bank?msg={count}건 파싱/매칭", status_code=302)
+    return RedirectResponse(f"/bank?status=자동매칭&msg={count}건 파싱/매칭", status_code=302)
 
 def _parse_bank_line(line: str) -> Optional[dict]:
     """
@@ -1799,11 +2244,11 @@ def bank_apply(txid: int, member_id: Optional[int] = None,
     tx = db.query(BankTransaction).filter(BankTransaction.id == txid).first()
     if not tx: raise HTTPException(404)
     if tx.applied:
-        return RedirectResponse("/bank?msg=이미 반영된 건입니다", status_code=302)
+        return RedirectResponse("/bank?status=자동매칭&msg=이미 반영된 건입니다", status_code=302)
     mid = member_id or tx.matched_member_id
-    if not mid: return RedirectResponse("/bank?msg=대상자를 선택해주세요", status_code=302)
+    if not mid: return RedirectResponse("/bank?status=자동매칭&msg=대상자를 선택해주세요", status_code=302)
     m = db.query(Member).filter(Member.id == mid).first()
-    if not m: return RedirectResponse("/bank?msg=회원을 찾을 수 없습니다", status_code=302)
+    if not m: return RedirectResponse("/bank?status=자동매칭&msg=회원을 찾을 수 없습니다", status_code=302)
 
     amt = tx.deposit_amount or 0
     before = m.excel_arrears or 0
@@ -1865,7 +2310,7 @@ def bank_apply(txid: int, member_id: Optional[int] = None,
 
     add_log(db, user.id, "통장반영",
             f"{m.name}/{m.vehicle_no}: {before:,}→{after:,}원 (입금 {amt:,}원, 날짜 {tx.txn_date})")
-    return RedirectResponse(f"/bank?msg={m.name} 반영완료 ({before:,}→{after:,}원)", status_code=302)
+    return RedirectResponse(f"/bank?status=자동매칭&msg={m.name} 반영완료 ({before:,}→{after:,}원)", status_code=302)
 
 @app.get("/bank/{txid}/preview")
 def bank_preview(txid: int, member_id: Optional[int] = None,
@@ -1888,7 +2333,7 @@ def bank_hold(txid: int, db: Session = Depends(get_db), user: User = Depends(req
     tx = db.query(BankTransaction).filter(BankTransaction.id == txid).first()
     if not tx: raise HTTPException(404)
     tx.match_status = "보류"; db.commit()
-    return RedirectResponse("/bank?msg=보류처리", status_code=302)
+    return RedirectResponse("/bank?status=자동매칭&msg=보류처리", status_code=302)
 
 
 # ── 통장매칭 초기화 ─────────────────────────────────────────────
@@ -1910,11 +2355,11 @@ def bank_reset_unapplied(db: Session = Depends(get_db), user: User = Depends(req
         except Exception:
             pass
 
-        return RedirectResponse("/bank?msg=" + quote(f"미반영 통장내역 {cnt}건 삭제완료"), status_code=302)
+        return RedirectResponse("/bank?status=자동매칭&msg=" + quote(f"미반영 통장내역 {cnt}건 삭제완료"), status_code=302)
 
     except Exception as e:
         db.rollback()
-        return RedirectResponse("/bank?msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
+        return RedirectResponse("/bank?status=자동매칭&msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
 
 
 @app.post("/bank/reset-match-status")
@@ -1945,11 +2390,11 @@ def bank_reset_match_status(db: Session = Depends(get_db), user: User = Depends(
         except Exception:
             pass
 
-        return RedirectResponse("/bank?msg=" + quote(f"미반영 {cnt}건 매칭상태 초기화완료"), status_code=302)
+        return RedirectResponse("/bank?status=자동매칭&msg=" + quote(f"미반영 {cnt}건 매칭상태 초기화완료"), status_code=302)
 
     except Exception as e:
         db.rollback()
-        return RedirectResponse("/bank?msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
+        return RedirectResponse("/bank?status=자동매칭&msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
 
 
 @app.post("/bank/reset-all")
@@ -1983,11 +2428,11 @@ def bank_reset_all(include_applied: str = Form(""),
         except Exception:
             pass
 
-        return RedirectResponse("/bank?msg=" + quote(f"{scope} 통장내역 {cnt}건 삭제완료"), status_code=302)
+        return RedirectResponse("/bank?status=자동매칭&msg=" + quote(f"{scope} 통장내역 {cnt}건 삭제완료"), status_code=302)
 
     except Exception as e:
         db.rollback()
-        return RedirectResponse("/bank?msg=" + quote("전체초기화 오류: " + str(e)[:100]), status_code=302)
+        return RedirectResponse("/bank?status=자동매칭&msg=" + quote("전체초기화 오류: " + str(e)[:100]), status_code=302)
 
 
 

@@ -1,3 +1,12 @@
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;">
+  <form method="post" action="/bank/apply-auto-all" style="display:inline;" onsubmit="return confirm('자동매칭된 미반영 건을 모두 반영할까요?');">
+    <button type="submit" class="btn btn-primary btn-sm">⚡ 자동매칭 전체반영</button>
+  </form>
+  <a class="btn btn-ghost btn-sm" href="/bank?status=자동매칭">자동매칭 탭</a>
+  <a class="btn btn-ghost btn-sm" href="/bank?status=미매칭">미매칭 탭</a>
+</div>
+
 {% extends "base.html" %}
 {% set active = "bank" %}
 {% block title %}통장매칭{% endblock %}
@@ -215,3 +224,21 @@ async function searchMember(txId, deposit) {
 }
 </script>
 {% endblock %}
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('form[action*="/bank/"][action*="/apply"]').forEach(function(form){
+    var action = form.getAttribute('action') || '';
+    var m = action.match(/\/bank\/(\d+)\/apply/);
+    if (!m) return;
+    if (form.parentElement && form.parentElement.querySelector('.manual-match-link')) return;
+    var a = document.createElement('a');
+    a.href = '/bank/' + m[1] + '/match';
+    a.textContent = '수동매칭';
+    a.className = 'btn btn-ghost btn-sm manual-match-link';
+    a.style.marginLeft = '6px';
+    form.insertAdjacentElement('afterend', a);
+  });
+});
+</script>
