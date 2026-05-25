@@ -177,6 +177,7 @@ def logout(request: Request):
 def dashboard(request: Request, db: Session = Depends(get_db),
               user: User = Depends(require_user)):
     # 대시보드는 미수금/대상자 숫자가 자주 바뀌므로 캐시를 쓰지 않고 매번 재계산
+    _invalidate_snap(db, "dashboard")
     snap = _build_dashboard_snap(db)
     _set_snap(db, "dashboard", snap)
 
@@ -210,20 +211,27 @@ def _clean_filter():
 def _arrears_full_filter():
     """
     미수금 명단/대시보드 전체 기준.
-    핵심: 실제 회원은 상태/미수금/차량번호/name_key 문제로 절대 제외하지 않는다.
-    합계행은 name_key와 vehicle_no가 명백히 합계/총계/소계일 때만 제외한다.
+    실제 회원은 상태/미수금/차량번호/name_key 문제로 제외하지 않는다.
+    합계/총계/소계/계/합산/인원수/입금금액 같은 진짜 합계행만 제외한다.
     """
-    return and_(
-        Member.id != None,
-        ~and_(
-            Member.name_key.in_(list(SUM_NAMES_DB)),
-            or_(
-                Member.vehicle_no == None,
-                Member.vehicle_no == "",
-                Member.vehicle_no.in_(list(SUM_NAMES_DB)),
-            )
+    sum_names = list(SUM_NAMES_DB)
+
+    exclude_sum_row = and_(
+        Member.name_key != None,
+        Member.name_key != "",
+        Member.name_key.in_(sum_names),
+        or_(
+            Member.vehicle_no == None,
+            Member.vehicle_no == "",
+            Member.vehicle_no.in_(sum_names),
         )
     )
+
+    return and_(
+        Member.id != None,
+        ~exclude_sum_row
+    )
+
 
 def _build_dashboard_snap(db: Session) -> dict:
     from datetime import date as _date
@@ -1480,28 +1488,38 @@ def bank_hold(txid: int, db: Session = Depends(get_db), user: User = Depends(req
 
 @app.post("/bank/reset-unapplied")
 def bank_reset_unapplied(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """미반영(applied=False) 통장내역만 삭제. 반영완료 건 보호."""
+    """미반영 통장내역만 삭제. applied False/NULL 대상. 반영완료 건 보호."""
+    from urllib.parse import quote
+
     try:
-        cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
-        db.query(BankTransaction).filter(BankTransaction.applied == False).delete(synchronize_session=False)
+        unapplied = or_(BankTransaction.applied == False, BankTransaction.applied == None)
+        cnt = db.query(BankTransaction).filter(unapplied).count()
+        db.query(BankTransaction).filter(unapplied).delete(synchronize_session=False)
         db.commit()
         _invalidate_snap(db, "dashboard")
+
         try:
             add_log(db, user.id, "통장초기화-미반영삭제", f"{cnt}건 삭제")
         except Exception:
             pass
-        return RedirectResponse(f"/bank?msg=미반영 통장내역 {cnt}건 삭제완료", status_code=302)
+
+        return RedirectResponse("/bank?msg=" + quote(f"미반영 통장내역 {cnt}건 삭제완료"), status_code=302)
+
     except Exception as e:
         db.rollback()
-        return RedirectResponse(f"/bank?msg=초기화 오류: {str(e)[:120]}", status_code=302)
+        return RedirectResponse("/bank?msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
 
 
 @app.post("/bank/reset-match-status")
 def bank_reset_match_status(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """미반영 건의 매칭상태만 초기화. 반영완료 건 보호."""
+    """미반영 건의 매칭상태만 초기화. 통장내역은 유지."""
+    from urllib.parse import quote
+
     try:
-        txs = db.query(BankTransaction).filter(BankTransaction.applied == False).all()
+        unapplied = or_(BankTransaction.applied == False, BankTransaction.applied == None)
+        txs = db.query(BankTransaction).filter(unapplied).all()
         cnt = len(txs)
+
         for tx in txs:
             tx.matched_member_id = None
             tx.match_status = "미매칭"
@@ -1511,16 +1529,20 @@ def bank_reset_match_status(db: Session = Depends(get_db), user: User = Depends(
             if hasattr(tx, "match_reason"):
                 tx.match_reason = ""
             db.add(tx)
+
         db.commit()
         _invalidate_snap(db, "dashboard")
+
         try:
             add_log(db, user.id, "통장초기화-매칭상태", f"{cnt}건 초기화")
         except Exception:
             pass
-        return RedirectResponse(f"/bank?msg=미반영 {cnt}건 매칭상태 초기화완료", status_code=302)
+
+        return RedirectResponse("/bank?msg=" + quote(f"미반영 {cnt}건 매칭상태 초기화완료"), status_code=302)
+
     except Exception as e:
         db.rollback()
-        return RedirectResponse(f"/bank?msg=초기화 오류: {str(e)[:120]}", status_code=302)
+        return RedirectResponse("/bank?msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
 
 
 @app.post("/bank/reset-all")
@@ -1528,9 +1550,11 @@ def bank_reset_all(include_applied: str = Form(""),
                    db: Session = Depends(get_db), user: User = Depends(require_user)):
     """
     통장내역 전체 초기화.
-    기본값: 반영완료 보호, applied=False만 삭제.
-    include_applied 체크 시 전체 삭제.
+    기본: 반영완료 보호, 미반영만 삭제.
+    체크 시: 반영완료 포함 전체 삭제.
     """
+    from urllib.parse import quote
+
     try:
         include_all = str(include_applied).lower() in ("yes", "on", "true", "1")
 
@@ -1539,8 +1563,9 @@ def bank_reset_all(include_applied: str = Form(""),
             db.query(BankTransaction).delete(synchronize_session=False)
             scope = "반영완료 포함 전체"
         else:
-            cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
-            db.query(BankTransaction).filter(BankTransaction.applied == False).delete(synchronize_session=False)
+            unapplied = or_(BankTransaction.applied == False, BankTransaction.applied == None)
+            cnt = db.query(BankTransaction).filter(unapplied).count()
+            db.query(BankTransaction).filter(unapplied).delete(synchronize_session=False)
             scope = "미반영"
 
         db.commit()
@@ -1551,11 +1576,11 @@ def bank_reset_all(include_applied: str = Form(""),
         except Exception:
             pass
 
-        return RedirectResponse(f"/bank?msg={scope} 통장내역 {cnt}건 삭제완료", status_code=302)
+        return RedirectResponse("/bank?msg=" + quote(f"{scope} 통장내역 {cnt}건 삭제완료"), status_code=302)
 
     except Exception as e:
         db.rollback()
-        return RedirectResponse(f"/bank?msg=전체초기화 오류: {str(e)[:120]}", status_code=302)
+        return RedirectResponse("/bank?msg=" + quote("전체초기화 오류: " + str(e)[:100]), status_code=302)
 
 
 
