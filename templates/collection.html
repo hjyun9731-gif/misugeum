@@ -8,8 +8,8 @@
 <div class="page-header">
   <span class="page-sub">{{ total_count }}명 · 총 <strong style="color:var(--red);">{{ fmt_amt(total) }}원</strong></span>
   <div class="flex-gap" style="margin-left:auto;">
-    <button type="button" class="btn btn-outline btn-sm" onclick="extractPhones()">번호추출</button>
-    <button type="button" class="btn btn-outline btn-sm" onclick="extractAddresses()">주소추출</button>
+    <a class="btn btn-outline btn-sm" href="/sms/export?export_type=phone">번호추출 엑셀</a>
+    <a class="btn btn-outline btn-sm" href="/sms/export?export_type=address">주소추출 엑셀</a>
     <button type="button" class="btn btn-ghost btn-sm" onclick="alert('기능 준비 중입니다')">선택 문자제외</button>
     <button type="button" class="btn btn-ghost btn-sm" onclick="alert('기능 준비 중입니다')">문자제외 해제</button>
   </div>
