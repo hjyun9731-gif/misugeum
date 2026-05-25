@@ -449,6 +449,100 @@ def to_work_queue(mid: int, process_type: str = Form("폐업"),
     add_log(db, user.id, "업무처리대기등록", f"{m.name}/{m.vehicle_no} → {process_type}")
     return RedirectResponse(f"/arrears?msg={m.name} 부과대수 관리으로 이동", status_code=302)
 
+
+
+# ── N월 입금추출 ─────────────────────────────────────────────
+@app.get("/payments/export")
+def export_monthly_payments(
+    year: int = None,
+    month: int = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    입금전표 입력용 N월 입금추출.
+    출력 컬럼: 지역 / 계정 / 차량번호 / 성명 / 입금액
+    """
+    from datetime import datetime
+    from io import BytesIO
+    from urllib.parse import quote
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    now = datetime.now()
+    y = int(year or now.year)
+    mth = int(month or now.month)
+
+    rows = (
+        db.query(Member, MonthlyLedger)
+        .join(MonthlyLedger, MonthlyLedger.member_id == Member.id)
+        .filter(MonthlyLedger.year == y)
+        .filter(MonthlyLedger.month == mth)
+        .filter(MonthlyLedger.paid_amount != None)
+        .filter(MonthlyLedger.paid_amount > 0)
+        .order_by(Member.region, Member.account, Member.vehicle_no, Member.name)
+        .all()
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{y}-{mth:02d} 입금"
+
+    headers = ["지역", "계정", "차량번호", "성명", "입금액"]
+    ws.append(headers)
+
+    for member, ledger in rows:
+        acc = member.account or ""
+        if acc == "관":
+            acc = "관리비"
+        elif acc == "협":
+            acc = "협회비"
+
+        ws.append([
+            member.region or "",
+            acc,
+            member.vehicle_no or "",
+            member.name or "",
+            int(ledger.paid_amount or 0),
+        ])
+
+    # 합계행
+    total_row = ws.max_row + 1
+    ws.cell(total_row, 4).value = "합계"
+    ws.cell(total_row, 5).value = f"=SUM(E2:E{total_row-1})"
+
+    header_fill = PatternFill("solid", fgColor="FCE7F3")
+    thin = Side(style="thin", color="E5E7EB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            if cell.row == 1:
+                cell.font = Font(bold=True, color="9D174D")
+                cell.fill = header_fill
+
+    for col in range(1, 6):
+        ws.column_dimensions[get_column_letter(col)].width = [14, 12, 18, 16, 14][col-1]
+
+    for r in range(2, ws.max_row + 1):
+        ws.cell(r, 5).number_format = '#,##0'
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = quote(f"{y}년_{mth:02d}월_입금추출.xlsx")
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
+    )
+
+
 # ── 회원 상세 ──────────────────────────────────────────────────────────────────
 @app.get("/member/{mid}", response_class=HTMLResponse)
 def member_detail(mid: int, request: Request, db: Session = Depends(get_db),
