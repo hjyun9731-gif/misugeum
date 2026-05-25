@@ -1476,93 +1476,88 @@ def bank_hold(txid: int, db: Session = Depends(get_db), user: User = Depends(req
     return RedirectResponse("/bank?msg=보류처리", status_code=302)
 
 
-# ── 통장매칭 초기화 ─────────────────────────────────────────────────────────
+# ── 통장매칭 초기화 ─────────────────────────────────────────────
+
 @app.post("/bank/reset-unapplied")
 def bank_reset_unapplied(db: Session = Depends(get_db), user: User = Depends(require_user)):
     """미반영(applied=False) 통장내역만 삭제. 반영완료 건 보호."""
-    cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
-    db.query(BankTransaction).filter(BankTransaction.applied == False).delete()
-    db.commit()
-    add_log(db, user.id, "통장초기화-미반영삭제", f"{cnt}건 삭제")
-    return RedirectResponse(f"/bank?msg=미반영 통장내역 {cnt}건 삭제완료", status_code=302)
+    try:
+        cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
+        db.query(BankTransaction).filter(BankTransaction.applied == False).delete(synchronize_session=False)
+        db.commit()
+        _invalidate_snap(db, "dashboard")
+        try:
+            add_log(db, user.id, "통장초기화-미반영삭제", f"{cnt}건 삭제")
+        except Exception:
+            pass
+        return RedirectResponse(f"/bank?msg=미반영 통장내역 {cnt}건 삭제완료", status_code=302)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(f"/bank?msg=초기화 오류: {str(e)[:120]}", status_code=302)
 
 
 @app.post("/bank/reset-match-status")
 def bank_reset_match_status(db: Session = Depends(get_db), user: User = Depends(require_user)):
     """미반영 건의 매칭상태만 초기화. 반영완료 건 보호."""
-    txs = db.query(BankTransaction).filter(BankTransaction.applied == False).all()
-    cnt = len(txs)
-    for tx in txs:
-        tx.matched_member_id = None
-        tx.match_status = "미매칭"
-        tx.match_score = 0
-        tx.match_reason = ""
-        tx.match_candidates_json = None
-    db.commit()
-    add_log(db, user.id, "통장초기화-매칭상태", f"{cnt}건 초기화")
-    return RedirectResponse(f"/bank?msg=미반영 {cnt}건 매칭상태 초기화완료", status_code=302)
+    try:
+        txs = db.query(BankTransaction).filter(BankTransaction.applied == False).all()
+        cnt = len(txs)
+        for tx in txs:
+            tx.matched_member_id = None
+            tx.match_status = "미매칭"
+            tx.match_candidates_json = ""
+            if hasattr(tx, "match_score"):
+                tx.match_score = 0
+            if hasattr(tx, "match_reason"):
+                tx.match_reason = ""
+            db.add(tx)
+        db.commit()
+        _invalidate_snap(db, "dashboard")
+        try:
+            add_log(db, user.id, "통장초기화-매칭상태", f"{cnt}건 초기화")
+        except Exception:
+            pass
+        return RedirectResponse(f"/bank?msg=미반영 {cnt}건 매칭상태 초기화완료", status_code=302)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(f"/bank?msg=초기화 오류: {str(e)[:120]}", status_code=302)
 
 
 @app.post("/bank/reset-all")
-def bank_reset_all(include_applied: bool = Form(False),
+def bank_reset_all(include_applied: str = Form(""),
                    db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """전체 통장내역 삭제. 기본: 반영완료 제외. include_applied=true이면 전부 삭제."""
-    if include_applied:
-        cnt = db.query(BankTransaction).count()
-        db.query(BankTransaction).delete()
-    else:
-        cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
-        db.query(BankTransaction).filter(BankTransaction.applied == False).delete()
-    db.commit()
-    scope = "반영완료 포함 전체" if include_applied else "미반영"
-    add_log(db, user.id, "통장초기화-전체", f"{scope} {cnt}건 삭제")
-    return RedirectResponse(f"/bank?msg={scope} 통장내역 {cnt}건 삭제완료", status_code=302)
+    """
+    통장내역 전체 초기화.
+    기본값: 반영완료 보호, applied=False만 삭제.
+    include_applied 체크 시 전체 삭제.
+    """
+    try:
+        include_all = str(include_applied).lower() in ("yes", "on", "true", "1")
 
-# ── 설정 ──────────────────────────────────────────────────────────────────────
-@app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, db: Session = Depends(get_db),
-                  user: User = Depends(require_user)):
-    users = db.query(User).all()
-    return templates.TemplateResponse(request, "settings.html", {
-        "request": request, "user": user, "users": users,
-        "msg": request.query_params.get("msg", ""),
-    })
+        if include_all:
+            cnt = db.query(BankTransaction).count()
+            db.query(BankTransaction).delete(synchronize_session=False)
+            scope = "반영완료 포함 전체"
+        else:
+            cnt = db.query(BankTransaction).filter(BankTransaction.applied == False).count()
+            db.query(BankTransaction).filter(BankTransaction.applied == False).delete(synchronize_session=False)
+            scope = "미반영"
 
-@app.post("/settings/pw")
-def settings_pw(old_pw: str = Form(""), new_pw: str = Form(""),
-                db: Session = Depends(get_db), user: User = Depends(require_user)):
-    if not verify_pw(old_pw, user.password_hash):
-        return RedirectResponse("/settings?msg=현재 비밀번호 틀림", status_code=302)
-    user.password_hash = hash_pw(new_pw); db.commit()
-    return RedirectResponse("/settings?msg=비밀번호 변경완료", status_code=302)
+        db.commit()
+        _invalidate_snap(db, "dashboard")
 
-@app.post("/settings/add-user")
-def add_user(username: str = Form(""), name: str = Form(""), password: str = Form(""),
-             db: Session = Depends(get_db), user: User = Depends(require_user)):
-    if db.query(User).filter(User.username == username).first():
-        return RedirectResponse("/settings?msg=이미 존재하는 아이디", status_code=302)
-    db.add(User(username=username, name=name, password_hash=hash_pw(password))); db.commit()
-    return RedirectResponse("/settings?msg=사용자 추가완료", status_code=302)
+        try:
+            add_log(db, user.id, "통장초기화-전체", f"{scope} {cnt}건 삭제")
+        except Exception:
+            pass
 
-@app.post("/settings/rebuild-snapshot")
-def rebuild_snap(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    _full_recalc(db)
-    snap = _build_dashboard_snap(db)
-    _set_snap(db, "dashboard", snap)
-    add_log(db, user.id, "스냅샷재구축", "전체")
-    return RedirectResponse("/settings?msg=스냅샷 재구축 완료", status_code=302)
+        return RedirectResponse(f"/bank?msg={scope} 통장내역 {cnt}건 삭제완료", status_code=302)
 
-@app.post("/settings/fix-negatives")
-def fix_negatives(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """음수 미수금 자동복구 — raw_data에서 재해석"""
-    fixed = 0
-    for m in db.query(Member).filter(Member.excel_arrears < 0).all():
-        m.is_overpay = True
-        fixed += 1
-    db.commit()
-    _full_recalc(db)
-    add_log(db, user.id, "음수미수금복구", f"{fixed}건")
-    return RedirectResponse(f"/settings?msg=음수미수금 {fixed}건 처리완료", status_code=302)
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(f"/bank?msg=전체초기화 오류: {str(e)[:120]}", status_code=302)
+
+
 
 @app.post("/admin/reset")
 def admin_reset(db: Session = Depends(get_db), user: User = Depends(require_user)):
