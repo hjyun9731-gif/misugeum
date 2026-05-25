@@ -301,3 +301,48 @@ def valid_person_row(row, colmap, mode) -> bool:
     if mode == "license":
         if not (name or vehicle_like(veh)): return False
     return True
+
+
+# FINAL MISUGEUM LENIENT UPLOAD PATCH
+_FINAL_SUM_NAMES = {"합계", "총계", "소계", "계", "합산", "인원수", "입금금액"}
+
+def _fx_s(v):
+    return "" if v is None else str(v).strip()
+
+def _fx_pick(row, keys):
+    if not isinstance(row, dict):
+        return ""
+    for k in keys:
+        if k in row and _fx_s(row.get(k)):
+            return _fx_s(row.get(k))
+    for rk, rv in row.items():
+        nk = _fx_s(rk).replace(" ", "")
+        for k in keys:
+            if k.replace(" ", "") in nk and _fx_s(rv):
+                return _fx_s(rv)
+    return ""
+
+def clean_name(v):
+    return _fx_s(v)
+
+def normalize_vehicle(v):
+    return _fx_s(v).replace(" ", "")
+
+def is_sum_row(name="", vehicle_no="", *args, **kwargs):
+    n = _fx_s(name).replace(" ", "")
+    v = _fx_s(vehicle_no).replace(" ", "")
+    return (n in _FINAL_SUM_NAMES and (not v or v in _FINAL_SUM_NAMES)) or (v in _FINAL_SUM_NAMES and (not n or n in _FINAL_SUM_NAMES))
+
+def valid_person_row(row, *args, **kwargs):
+    vals = list(row.values()) if isinstance(row, dict) else (list(row) if isinstance(row, (list, tuple)) else [])
+    if not any(_fx_s(v) for v in vals):
+        return False
+    name = _fx_pick(row, ["성명", "이름", "회원명", "대표자", "차주명", "name"])
+    vehicle = _fx_pick(row, ["차량번호", "차량 번호", "차번", "등록번호", "vehicle_no"])
+    amount = _fx_pick(row, ["미수금", "미수", "미납", "금액", "잔액", "arrears", "excel_arrears"])
+    account = _fx_pick(row, ["계정", "구분", "account"])
+    region = _fx_pick(row, ["지역", "시군", "region"])
+    if is_sum_row(name, vehicle):
+        return False
+    return bool(name or vehicle or amount or account or region)
+# END FINAL MISUGEUM LENIENT UPLOAD PATCH

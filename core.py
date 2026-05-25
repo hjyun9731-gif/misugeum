@@ -707,3 +707,12 @@ def parse_billing_file(xl_path: str, base_year: int, base_month: int) -> Dict:
         "sheets": processed_sheets,
         "parse_log": parse_log,
     }
+
+
+# FINAL MISUGEUM STRICT SUM PATCH
+def is_sum_row(name="", vehicle_no="", *args, **kwargs):
+    sums = {"합계", "총계", "소계", "계", "합산", "인원수", "입금금액"}
+    n = "" if name is None else str(name).strip().replace(" ", "")
+    v = "" if vehicle_no is None else str(vehicle_no).strip().replace(" ", "")
+    return (n in sums and (not v or v in sums)) or (v in sums and (not n or n in sums))
+# END FINAL MISUGEUM STRICT SUM PATCH
