@@ -176,11 +176,9 @@ def logout(request: Request):
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db),
               user: User = Depends(require_user)):
-    snap = _get_snap(db, "dashboard")
-    if not snap or "monthly_data" not in snap or "billing_data" not in snap:
-        _invalidate_snap(db, "dashboard")
-        snap = _build_dashboard_snap(db)
-        _set_snap(db, "dashboard", snap)
+    # 대시보드는 미수금/대상자 숫자가 자주 바뀌므로 캐시를 쓰지 않고 매번 재계산
+    snap = _build_dashboard_snap(db)
+    _set_snap(db, "dashboard", snap)
 
     return templates.TemplateResponse(request, "dashboard.html", {
         "request": request, "user": user, "snap": snap, "fmt_amt": fmt_amt,
@@ -210,10 +208,13 @@ def _clean_filter():
 
 
 def _arrears_full_filter():
-    """미수금 명단 전체보기용: 합계행만 제외, 상태/미수금/차량번호 NULL로 제외하지 않음"""
+    """미수금 명단/대시보드 전체 기준: 합계행만 제외, 상태/미수금/차량번호/이름공란으로 제외하지 않음"""
     return and_(
-        Member.name != None,
-        Member.name != "",
+        or_(
+            and_(Member.name != None, Member.name != ""),
+            and_(Member.vehicle_no != None, Member.vehicle_no != ""),
+            Member.excel_arrears != None,
+        ),
         or_(Member.vehicle_no == None, Member.vehicle_no == "", ~Member.vehicle_no.in_(list(SUM_NAMES_DB))),
         or_(Member.name_key == None, Member.name_key == "", ~Member.name_key.in_(list(SUM_NAMES_DB))),
     )
@@ -221,7 +222,7 @@ def _arrears_full_filter():
 def _build_dashboard_snap(db: Session) -> dict:
     from datetime import date as _date
     now = datetime.now()
-    cf = _clean_filter()
+    cf = _arrears_full_filter()
     total      = db.query(Member).filter(cf).count()
     total_arr  = db.query(func.sum(Member.excel_arrears)).filter(cf, Member.excel_arrears > 0).scalar() or 0
     overpay_sum= db.query(func.sum(Member.excel_arrears)).filter(cf, Member.excel_arrears < 0).scalar() or 0
