@@ -868,8 +868,12 @@ async def upload_legacy(request: Request, file: UploadFile = File(...),
             db.commit()
 
         # 재계산 (excel_arrears 동기화 + is_overpay 갱신)
-        for m_obj in db.query(Member).filter(Member.source_batch_id == batch.id).all():
-            _recalc_member(db, m_obj)
+        # 한 번에 Member 객체 전체를 오래 붙잡으면 reset/upload와 데드락이 날 수 있어 id만 짧게 조회
+        member_ids = [x[0] for x in db.query(Member.id).filter(Member.source_batch_id == batch.id).all()]
+        for mid in member_ids:
+            m_obj = db.get(Member, mid)
+            if m_obj:
+                _recalc_member(db, m_obj)
         db.commit()
         _invalidate_snap(db, "dashboard")
         batch.total_rows = db.query(RawImportRow).filter(RawImportRow.batch_id == batch.id).count()
