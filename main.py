@@ -2015,8 +2015,8 @@ def bank_manual_match_save(
     user: User = Depends(require_user)
 ):
     """
-    수동매칭 즉시 반영:
-    회원 선택 즉시 통장거래를 반영완료 처리하고 미수금에서 입금액 차감.
+    수동매칭 즉시 반영.
+    핵심: 같은 회원/같은 년월의 기존 원장이 있으면 새 줄을 만들지 않고 그 줄에 입금액을 반영한다.
     """
     from urllib.parse import quote
     from datetime import datetime
@@ -2091,17 +2091,39 @@ def bank_manual_match_save(
         year, month, paid_date = _get_date(tx)
         ledger_cols = set(MonthlyLedger.__table__.columns.keys())
 
-        exist = None
-        if "source_file" in ledger_cols and "source_row" in ledger_cols:
-            exist = (
-                db.query(MonthlyLedger)
-                .filter(MonthlyLedger.member_id == member.id)
-                .filter(MonthlyLedger.source_file == "통장반영")
-                .filter(MonthlyLedger.source_row == tx.id)
-                .first()
-            )
+        # 1) 같은 회원/같은 월의 기존 원장 찾기
+        ledger = (
+            db.query(MonthlyLedger)
+            .filter(MonthlyLedger.member_id == member.id)
+            .filter(MonthlyLedger.year == year)
+            .filter(MonthlyLedger.month == month)
+            .order_by(MonthlyLedger.charge_amount.desc(), MonthlyLedger.id.asc())
+            .first()
+        )
 
-        if not exist:
+        # 2) 기존 원장이 있으면 그 줄에 입금액 반영
+        if ledger:
+            old_paid = int(ledger.paid_amount or 0)
+            ledger.paid_amount = old_paid + amount
+            ledger.paid_date = paid_date
+
+            charge = int(ledger.charge_amount or 0)
+            carry = int(ledger.carry_over or 0)
+            total_due = carry + charge
+            ledger.arrears_amount = max(total_due - int(ledger.paid_amount or 0), 0)
+            if hasattr(ledger, "calc_arrears"):
+                ledger.calc_arrears = ledger.arrears_amount
+
+            # 추적용 메모
+            if hasattr(ledger, "raw_note"):
+                old_note = ledger.raw_note or ""
+                add_note = f" / 통장반영:{getattr(tx, 'memo', '') or ''}"
+                ledger.raw_note = (old_note + add_note)[-500:]
+
+            db.add(ledger)
+
+        # 3) 기존 원장이 없을 때만 새 원장 생성
+        else:
             kwargs = {
                 "member_id": member.id,
                 "batch_id": None,
@@ -2125,25 +2147,24 @@ def bank_manual_match_save(
             kwargs = {k: v for k, v in kwargs.items() if k in ledger_cols}
             db.add(MonthlyLedger(**kwargs))
 
-            before = int(member.excel_arrears or 0)
-            after = before - amount
-            member.excel_arrears = after
-            member.calc_arrears = after
-            member.arrears_diff = 0
-            member.is_overpay = after < 0
-
-            if hasattr(member, "last_paid_date"):
-                member.last_paid_date = paid_date
-
-            member.arrears_verified = True
-            member.verify_reason = ""
-            db.add(member)
-
+        # 4) 통장거래는 바로 반영완료
         tx.matched_member_id = member.id
         tx.match_status = "반영완료"
         tx.match_reason = f"수동매칭 즉시반영: {member.name}/{member.vehicle_no} / {amount}원"
         tx.applied = True
         db.add(tx)
+
+        # 5) 회원 미수금은 원장 기준으로 재계산
+        db.flush()
+        try:
+            _recalc_member(db, member)
+        except Exception:
+            # 재계산 실패 시 최소한 현재 미수금에서 차감
+            before = int(member.excel_arrears or 0)
+            member.excel_arrears = before - amount
+            member.calc_arrears = member.excel_arrears
+            member.is_overpay = member.excel_arrears < 0
+            db.add(member)
 
         db.commit()
         _invalidate_snap(db, "dashboard")
