@@ -3012,6 +3012,480 @@ def work_reflect_amount(wid: int, db: Session = Depends(get_db),
 
 
 # ── 부과대수 관리 ──────────────────────────────────────────────────────────────
+
+
+# ── 부과대수 관리 ─────────────────────────────────────────────
+BILLING_COUNT_ITEMS = ["협회가입", "양도", "타도", "폐지", "탈퇴", "택배신규", "관리비폐지", "70세"]
+
+def _billing_count_norm_text(v):
+    if v is None:
+        return ""
+    t = str(v).strip()
+    if t.lower() == "nan":
+        return ""
+    return t.replace("\n", " ").replace("\r", " ").strip()
+
+def _billing_count_int(v):
+    import re
+    try:
+        if v is None:
+            return 0
+        if isinstance(v, (int, float)):
+            return int(v)
+        t = str(v).replace(",", "").replace("대", "").replace("명", "").strip()
+        m = re.search(r"-?\d+", t)
+        return int(m.group(0)) if m else 0
+    except Exception:
+        return 0
+
+def _billing_count_item(v):
+    t = _billing_count_norm_text(v).replace(" ", "")
+    if not t:
+        return ""
+    if "협회가입원" in t or "협회가입" in t:
+        return "협회가입"
+    if "택배신규" in t:
+        return "택배신규"
+    if "관리비폐지" in t or "관리비폐업" in t:
+        return "관리비폐지"
+    if "70세" in t or "70세이상" in t:
+        return "70세"
+    if "양도" in t:
+        return "양도"
+    if "타도" in t:
+        return "타도"
+    if "탈퇴" in t:
+        return "탈퇴"
+    if "폐지" in t or "폐업" in t:
+        return "폐지"
+    return ""
+
+def _billing_count_sheet_year_month(sheet_name, default_year=None):
+    import re
+    now = datetime.now()
+    year = int(default_year or now.year)
+    month = now.month
+
+    m = re.search(r"(\d{1,2})월", str(sheet_name))
+    if m:
+        month = int(m.group(1))
+
+    y = re.search(r"\((\d{2,4})년\)", str(sheet_name))
+    if y:
+        yy = int(y.group(1))
+        year = 2000 + yy if yy < 100 else yy
+
+    return year, month
+
+def _billing_count_parse_xlsx(path, default_year=None):
+    """
+    [사용]부과대수 엑셀 파서.
+    최근 양식: 지역/차량번호/성명/.../입금액/항목/비고
+    과거 양식: 하단 요약문 일부 포함 가능.
+    """
+    import json
+    import re
+    from openpyxl import load_workbook
+
+    wb = load_workbook(path, data_only=True)
+    all_details = []
+    summary_by_month = {}
+
+    header_aliases = {
+        "region": ["지역", "시군", "시·군"],
+        "vehicle_no": ["차량번호", "자동차등록번호", "등록번호"],
+        "name": ["성명", "이름", "대표자"],
+        "resident_no": ["주민번호", "주민등록번호", "생년월일"],
+        "address": ["주소", "소재지"],
+        "permit_date": ["인가일자", "허가일자"],
+        "join_date": ["가입일자", "협회가입일"],
+        "cert_issue_date": ["자격증명발급일자", "자격증명 발급일자", "자격증명일자"],
+        "cert_no": ["자격증명발급번호", "자격증명 발급번호", "자격증명번호"],
+        "amount": ["입금액", "금액"],
+        "item": ["항목", "구분", "처리구분"],
+        "note": ["비고", "메모"],
+    }
+
+    def cell_text(v):
+        return _billing_count_norm_text(v)
+
+    def find_header(ws):
+        best_row = None
+        best_map = {}
+        max_scan = min(ws.max_row, 40)
+
+        for r in range(1, max_scan + 1):
+            vals = [cell_text(ws.cell(r, c).value) for c in range(1, ws.max_column + 1)]
+            joined = " ".join(vals)
+            score = 0
+            if "지역" in joined:
+                score += 1
+            if "차량번호" in joined or "등록번호" in joined:
+                score += 1
+            if "성명" in joined or "대표자" in joined:
+                score += 1
+            if "항목" in joined or "처리구분" in joined:
+                score += 1
+
+            if score >= 3:
+                colmap = {}
+                for idx, txt in enumerate(vals, start=1):
+                    key_txt = txt.replace(" ", "")
+                    for key, aliases in header_aliases.items():
+                        for a in aliases:
+                            if a.replace(" ", "") in key_txt:
+                                colmap[key] = idx
+                best_row = r
+                best_map = colmap
+                break
+
+        return best_row, best_map
+
+    def get(row, colmap, key):
+        c = colmap.get(key)
+        if not c:
+            return ""
+        return cell_text(row[c - 1])
+
+    for ws in wb.worksheets:
+        sheet_name = ws.title
+        year, month = _billing_count_sheet_year_month(sheet_name, default_year)
+        ym = (year, month)
+
+        if ym not in summary_by_month:
+            summary_by_month[ym] = {k: 0 for k in BILLING_COUNT_ITEMS}
+            summary_by_month[ym]["협회기본대수"] = 0
+            summary_by_month[ym]["총부과대수"] = 0
+            summary_by_month[ym]["택배관리"] = 0
+
+        header_row, colmap = find_header(ws)
+
+        # 1) 표 형태 상세행 파싱
+        if header_row:
+            for r in range(header_row + 1, ws.max_row + 1):
+                row = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
+
+                item = _billing_count_item(get(row, colmap, "item"))
+
+                # 항목 칸이 없거나 비어 있으면 행 전체에서 항목 찾기
+                if not item:
+                    row_text = " ".join(cell_text(x) for x in row)
+                    item = _billing_count_item(row_text)
+
+                if not item:
+                    continue
+
+                region = get(row, colmap, "region")
+                vehicle_no = get(row, colmap, "vehicle_no")
+                name = get(row, colmap, "name")
+
+                # 합계/설명행 제외
+                if any(x in (name + vehicle_no + region) for x in ["합계", "총계", "소계"]):
+                    continue
+
+                summary_by_month[ym][item] = summary_by_month[ym].get(item, 0) + 1
+
+                detail = {
+                    "year": year,
+                    "month": month,
+                    "item": item,
+                    "region": region,
+                    "vehicle_no": vehicle_no,
+                    "name": name,
+                    "resident_no": get(row, colmap, "resident_no"),
+                    "address": get(row, colmap, "address"),
+                    "permit_date": get(row, colmap, "permit_date"),
+                    "join_date": get(row, colmap, "join_date"),
+                    "cert_issue_date": get(row, colmap, "cert_issue_date"),
+                    "cert_no": get(row, colmap, "cert_no"),
+                    "amount": _billing_count_int(get(row, colmap, "amount")),
+                    "note": get(row, colmap, "note"),
+                    "source_sheet": sheet_name,
+                    "source_row": r,
+                    "raw_data": {str(i + 1): cell_text(v) for i, v in enumerate(row)},
+                }
+                all_details.append(detail)
+
+        # 2) 과거 양식 하단 요약문 보조 파싱
+        for r in range(1, ws.max_row + 1):
+            vals = [cell_text(ws.cell(r, c).value) for c in range(1, min(ws.max_column, 8) + 1)]
+            text = " ".join(x for x in vals if x)
+
+            if not text:
+                continue
+
+            # 예: "70세이상 139 + 33 - 4 = 168"
+            if "70세" in text:
+                nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
+                if nums:
+                    summary_by_month[ym]["70세"] = max(summary_by_month[ym].get("70세", 0), nums[-1])
+
+            # 예: "협회비 부과대수 1,106 + 8 - 6 = 1,108"
+            if "협회비" in text and "부과대수" in text:
+                nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
+                if nums:
+                    summary_by_month[ym]["협회기본대수"] = max(summary_by_month[ym].get("협회기본대수", 0), nums[-1])
+                    summary_by_month[ym]["총부과대수"] = max(summary_by_month[ym].get("총부과대수", 0), nums[-1])
+
+            if "택배" in text and ("관리" in text or "부과" in text):
+                nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
+                if nums:
+                    summary_by_month[ym]["택배관리"] = max(summary_by_month[ym].get("택배관리", 0), nums[-1])
+
+    return summary_by_month, all_details
+
+
+@app.get("/billing-counts", response_class=HTMLResponse)
+def billing_counts_page(
+    request: Request,
+    year: int = None,
+    month: int = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    now = datetime.now()
+    y = int(year or now.year)
+    m = int(month or now.month)
+
+    reports = (
+        db.query(BillingReport)
+        .order_by(BillingReport.year.desc(), BillingReport.month.desc())
+        .limit(24)
+        .all()
+    )
+
+    current = (
+        db.query(BillingReport)
+        .filter(BillingReport.year == y, BillingReport.month == m)
+        .first()
+    )
+
+    persons = []
+    if current:
+        persons = (
+            db.query(BillingPerson)
+            .filter(BillingPerson.billing_report_id == current.id)
+            .order_by(BillingPerson.process_type, BillingPerson.region, BillingPerson.name)
+            .limit(500)
+            .all()
+        )
+
+    return templates.TemplateResponse(request, "billing_counts.html", {
+        "request": request,
+        "user": user,
+        "year": y,
+        "month": m,
+        "reports": reports,
+        "current": current,
+        "persons": persons,
+        "fmt_amt": fmt_amt,
+        "msg": request.query_params.get("msg", ""),
+    })
+
+
+@app.post("/billing-counts/upload")
+async def billing_counts_upload(
+    file: UploadFile = File(...),
+    year: int = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    import tempfile, os, json
+    from urllib.parse import quote
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+
+    try:
+        with open(tmp_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        summary_by_month, details = _billing_count_parse_xlsx(tmp_path, year)
+
+        saved_reports = 0
+        saved_details = 0
+
+        # 월별 BillingReport 저장
+        for (yy, mm), counts in summary_by_month.items():
+            cnt_base = db.query(Member).filter(_clean_filter()).count()
+            cnt_delivery_db = db.query(Member).filter(_clean_filter(), Member.account.in_(["관", "택배"])).count()
+
+            r = (
+                db.query(BillingReport)
+                .filter(BillingReport.year == yy, BillingReport.month == mm)
+                .first()
+            )
+
+            if not r:
+                r = BillingReport(year=yy, month=mm, created_by=user.id)
+                db.add(r)
+                db.flush()
+
+            r.cnt_join = counts.get("협회가입", 0)
+            r.cnt_transfer = counts.get("양도", 0)
+            r.cnt_cross = counts.get("타도", 0)
+            r.cnt_close = counts.get("폐지", 0)
+            r.cnt_quit = counts.get("탈퇴", 0)
+            r.cnt_delivery_new = counts.get("택배신규", 0)
+            r.cnt_mgmt_close = counts.get("관리비폐지", 0)
+            r.cnt_age70 = counts.get("70세", 0)
+            r.cnt_base = counts.get("협회기본대수") or cnt_base
+            r.cnt_total = counts.get("총부과대수") or cnt_base
+            r.cnt_delivery = counts.get("택배관리") or cnt_delivery_db
+            r.source_file = file.filename
+            r.upload_type = "billing_counts"
+            r.raw_data = json.dumps(counts, ensure_ascii=False, default=str)[:65000]
+            db.add(r)
+            saved_reports += 1
+
+            # 해당 월 상세 기존 것 정리 후 재생성
+            db.query(BillingPerson).filter(
+                BillingPerson.billing_report_id == r.id,
+                BillingPerson.reflect_status == "부과대수상세",
+            ).delete(synchronize_session=False)
+
+            month_details = [d for d in details if d["year"] == yy and d["month"] == mm]
+
+            for d in month_details:
+                db.add(BillingPerson(
+                    billing_report_id=r.id,
+                    source_file=file.filename,
+                    source_sheet=d.get("source_sheet", ""),
+                    source_row=d.get("source_row", 0),
+                    raw_data=json.dumps(d.get("raw_data", {}), ensure_ascii=False),
+                    year=yy,
+                    month=mm,
+                    process_type=d.get("item", ""),
+                    account="",
+                    name=d.get("name", ""),
+                    vehicle_no=d.get("vehicle_no", ""),
+                    region=d.get("region", ""),
+                    from_status="",
+                    to_status="",
+                    reflect_status="부과대수상세",
+                ))
+                saved_details += 1
+
+        db.commit()
+
+        try:
+            add_log(db, user.id, "부과대수업로드", f"{file.filename}: 월 {saved_reports}개, 상세 {saved_details}건")
+        except Exception:
+            pass
+
+        msg = quote(f"부과대수 업로드 완료: 월 {saved_reports}개, 상세 {saved_details}건")
+        return RedirectResponse(f"/billing-counts?msg={msg}", status_code=302)
+
+    except Exception as e:
+        db.rollback()
+        msg = quote("부과대수 업로드 오류: " + str(e)[:180])
+        return RedirectResponse(f"/billing-counts?msg={msg}", status_code=302)
+
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+@app.get("/billing-counts/export")
+def billing_counts_export(
+    year: int = None,
+    month: int = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from io import BytesIO
+    from urllib.parse import quote
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    now = datetime.now()
+    y = int(year or now.year)
+    m = int(month or now.month)
+
+    r = (
+        db.query(BillingReport)
+        .filter(BillingReport.year == y, BillingReport.month == m)
+        .first()
+    )
+
+    if not r:
+        return RedirectResponse(f"/billing-counts?year={y}&month={m}&msg=해당 월 부과대수 자료가 없습니다", status_code=302)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{y}-{m:02d} 부과대수"
+
+    headers = [
+        "기준년월", "협회가입", "양도", "타도", "폐지", "탈퇴",
+        "택배신규", "관리비폐지", "70세",
+        "협회기본대수", "총부과대수", f"{m}월 택배관리", "원본파일"
+    ]
+    ws.append(headers)
+
+    ws.append([
+        f"{y}-{m:02d}",
+        r.cnt_join or 0,
+        r.cnt_transfer or 0,
+        r.cnt_cross or 0,
+        r.cnt_close or 0,
+        r.cnt_quit or 0,
+        r.cnt_delivery_new or 0,
+        r.cnt_mgmt_close or 0,
+        r.cnt_age70 or 0,
+        r.cnt_base or 0,
+        r.cnt_total or 0,
+        r.cnt_delivery or 0,
+        r.source_file or "",
+    ])
+
+    ws2 = wb.create_sheet("상세내역")
+    ws2.append(["항목", "지역", "차량번호", "성명", "원본시트", "원본행"])
+    persons = (
+        db.query(BillingPerson)
+        .filter(BillingPerson.billing_report_id == r.id)
+        .order_by(BillingPerson.process_type, BillingPerson.region, BillingPerson.name)
+        .all()
+    )
+    for p in persons:
+        ws2.append([
+            p.process_type or "",
+            p.region or "",
+            p.vehicle_no or "",
+            p.name or "",
+            p.source_sheet or "",
+            p.source_row or "",
+        ])
+
+    for sh in [ws, ws2]:
+        header_fill = PatternFill("solid", fgColor="FCE7F3")
+        thin = Side(style="thin", color="E5E7EB")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        for row in sh.iter_rows():
+            for cell in row:
+                cell.border = border
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                if cell.row == 1:
+                    cell.font = Font(bold=True, color="9D174D")
+                    cell.fill = header_fill
+        for col in range(1, sh.max_column + 1):
+            sh.column_dimensions[get_column_letter(col)].width = 16
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = quote(f"{y}년_{m:02d}월_부과대수.xlsx")
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
+    )
+
+
 @app.get("/billing-report", response_class=HTMLResponse)
 def billing_report_page(request: Request, year: Optional[int] = None, month: Optional[int] = None,
                          db: Session = Depends(get_db), user: User = Depends(require_user)):
