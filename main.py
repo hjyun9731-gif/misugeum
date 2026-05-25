@@ -208,15 +208,21 @@ def _clean_filter():
 
 
 def _arrears_full_filter():
-    """미수금 명단/대시보드 전체 기준: 합계행만 제외, 상태/미수금/차량번호/이름공란으로 제외하지 않음"""
+    """
+    미수금 명단/대시보드 전체 기준.
+    핵심: 실제 회원은 상태/미수금/차량번호/name_key 문제로 절대 제외하지 않는다.
+    합계행은 name_key와 vehicle_no가 명백히 합계/총계/소계일 때만 제외한다.
+    """
     return and_(
-        or_(
-            and_(Member.name != None, Member.name != ""),
-            and_(Member.vehicle_no != None, Member.vehicle_no != ""),
-            Member.excel_arrears != None,
-        ),
-        or_(Member.vehicle_no == None, Member.vehicle_no == "", ~Member.vehicle_no.in_(list(SUM_NAMES_DB))),
-        or_(Member.name_key == None, Member.name_key == "", ~Member.name_key.in_(list(SUM_NAMES_DB))),
+        Member.id != None,
+        ~and_(
+            Member.name_key.in_(list(SUM_NAMES_DB)),
+            or_(
+                Member.vehicle_no == None,
+                Member.vehicle_no == "",
+                Member.vehicle_no.in_(list(SUM_NAMES_DB)),
+            )
+        )
     )
 
 def _build_dashboard_snap(db: Session) -> dict:
