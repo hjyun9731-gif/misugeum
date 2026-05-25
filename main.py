@@ -583,11 +583,12 @@ def _guess_name_from_raw_row(db: Session, batch_id: int, src_sheet: str, src_row
 
 def _get_name_from_col_e(db: Session, batch_id: int, src_sheet: str, src_row: int, current_name: str = ""):
     """
-    미수금 원본 엑셀 기준 성명은 E열.
-    parse_ledger_sheet가 성명을 못 읽으면 RawImportRow의 E열(index 4)을 강제로 성명으로 사용한다.
+    미수금 원본에서 성명 보정.
+    기존 name이 비어 있으면 raw row에서 이름 후보를 찾는다.
+    단, '이체' 같은 거래구분/메모값은 절대 성명으로 쓰지 않는다.
     """
-    if current_name and str(current_name).strip():
-        return current_name
+    if current_name and str(current_name).strip() and str(current_name).strip() not in ("이체", "입금", "출금"):
+        return str(current_name).strip().replace(" ", "")
 
     import json as _json
     raw = (db.query(RawImportRow)
@@ -596,20 +597,51 @@ def _get_name_from_col_e(db: Session, batch_id: int, src_sheet: str, src_row: in
                      RawImportRow.source_row == src_row)
              .first())
     if not raw or not raw.raw_data:
-        return current_name or ""
+        return ""
 
     try:
         vals = _json.loads(raw.raw_data)
     except Exception:
-        return current_name or ""
+        return ""
 
-    # E열 = 5번째 컬럼 = index 4
-    if len(vals) >= 5:
-        name = str(vals[4] or "").strip()
-        name = name.replace(" ", "")
-        return name
+    bad_words = {
+        "이체","입금","출금","현금","카드","대체","자동이체",
+        "관리비","협회비","택배","협","관",
+        "강릉시","춘천시","원주시","동해시","태백시","속초시","삼척시",
+        "홍천군","횡성군","영월군","평창군","정선군","철원군","화천군","양구군","인제군","고성군","양양군",
+        "합계","총계","소계","계","합산","인원수","입금금액","미수금","잔액",
+        "차량번호","성명","이름","지역","전화번호","연락처","비고"
+    }
 
-    return current_name or ""
+    candidates = []
+
+    for v in vals:
+        t = str(v or "").strip().replace(" ", "")
+        if not t:
+            continue
+        if t in bad_words:
+            continue
+        if len(t) < 2 or len(t) > 25:
+            continue
+        if re.search(r"\d", t):
+            continue
+
+        # 일반 한글 성명
+        if re.fullmatch(r"[가-힣]{2,8}", t):
+            candidates.append(t)
+            continue
+
+        # 외국인 영문명
+        if re.fullmatch(r"[A-Za-z]{3,25}", t):
+            candidates.append(t)
+            continue
+
+        # 업체명/법인명
+        if ("㈜" in t or "(주)" in t or "주식회사" in t or "협동조합" in t) and len(t) <= 25:
+            candidates.append(t)
+            continue
+
+    return candidates[0] if candidates else ""
 
 
 def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_file, src_sheet, src_row, force_create=False):
