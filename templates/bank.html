@@ -94,7 +94,7 @@
           {% if tx.applied %}<span class="badge b-ok">✓ 반영완료</span>
           {% elif tx.match_status == '자동매칭' %}<span class="badge b-blue">⚡ 자동매칭</span>
           {% elif tx.match_status == '확인필요' %}<span class="badge b-warn">⚠ 확인필요</span>
-          {% elif tx.match_status == '<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm 미매칭수동매칭">수동매칭</a>' %}<span class="badge b-gray">보류</span>
+          {% elif tx.match_status == '<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm 미매칭수동매칭">수동매칭</a>' %}<span class="badge b-gray"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a></span>
           {% else %}<span class="badge b-gray">미매칭</span>{% endif %}
         </td>
         <td class="text-sm nowrap">
@@ -115,7 +115,7 @@
           <button class="btn btn-warn btn-sm" onclick="toggleExpand(this.closest('tr').nextElementSibling?.previousElementSibling || document.getElementById('btx-{{ tx.id }}'))">후보선택</button>
           {% endif %}
           <form method="post" action="/bank/{{ tx.id }}/hold" style="display:inline;">
-            <button type="submit" class="btn btn-ghost btn-sm">보류</button>
+            <button type="submit" class="btn btn-ghost btn-sm"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a></button>
           </form>
           {% endif %}
         </td>
@@ -274,12 +274,12 @@ document.addEventListener('DOMContentLoaded', function () {
     form.insertAdjacentElement('afterend', a);
   });
 
-  // 2) 처리칸이 보류인 미매칭 행에도 수동매칭 버튼 붙이기
+  // 2) 처리칸이 <a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>인 미매칭 행에도 수동매칭 버튼 붙이기
   document.querySelectorAll('tr').forEach(function(tr){
     if (tr.querySelector('.manual-match-link')) return;
 
     var text = tr.innerText || '';
-    if (!text.includes('미매칭') || !text.includes('보류')) return;
+    if (!text.includes('미매칭') || !text.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>')) return;
 
     // 행 안의 펼침/상세 링크나 data에서 id 찾기
     var html = tr.innerHTML || '';
@@ -302,7 +302,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!cells.length) return;
 
     var last = cells[cells.length - 1];
-    if (!last.innerText.includes('보류')) return;
+    if (!last.innerText.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>')) return;
 
     last.innerHTML = '<a href="/bank/' + tid + '/match" class="btn btn-ghost btn-sm manual-match-link">수동매칭</a>';
   });
