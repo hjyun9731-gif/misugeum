@@ -1599,13 +1599,59 @@ def settings_page(request: Request,
 
 @app.post("/admin/reset")
 def admin_reset(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    for tbl in [CollectionTarget, BankTransaction, BillingPerson, WorkQueue,
-                MemberStatusEvent, MonthlyLedger, RawImportRow,
-                LicenseRecord, Member, UploadBatch, Snapshot, BillingReport]:
-        db.query(tbl).delete(synchronize_session=False)
-    db.commit()
-    add_log(db, user.id, "데이터초기화", "전체")
-    return RedirectResponse("/upload?msg=초기화완료", status_code=302)
+    """
+    설정 > 전체 초기화.
+    관리자 계정(User)은 보존하고, 업무 데이터만 삭제.
+    FK 오류 방지를 위해 자식 테이블부터 삭제하고,
+    오류가 나도 Internal Server Error 대신 설정 화면으로 메시지 반환.
+    """
+    from urllib.parse import quote
+    try:
+        # 자식/연관 테이블 먼저 삭제
+        tables = [
+            CollectionTarget,
+            BankTransaction,
+            BillingPerson,
+            WorkQueue,
+            MemberStatusEvent,
+            MonthlyLedger,
+            RawImportRow,
+            LicenseRecord,
+            Member,
+            UploadBatch,
+            Snapshot,
+            BillingReport,
+        ]
+
+        deleted_total = 0
+        for tbl in tables:
+            try:
+                cnt = db.query(tbl).count()
+                db.query(tbl).delete(synchronize_session=False)
+                deleted_total += cnt
+            except Exception:
+                # 특정 테이블이 없거나 관계 문제 있으면 rollback 후 다시 예외 전달
+                db.rollback()
+                raise
+
+        db.commit()
+
+        try:
+            add_log(db, user.id, "데이터초기화", f"업무데이터 전체 삭제 {deleted_total}건")
+        except Exception:
+            pass
+
+        return RedirectResponse(
+            "/settings?msg=" + quote(f"전체 초기화 완료: {deleted_total}건 삭제"),
+            status_code=302
+        )
+
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(
+            "/settings?msg=" + quote("전체초기화 오류: " + str(e)[:160]),
+            status_code=302
+        )
 
 
 @app.get("/member/new", response_class=HTMLResponse)
