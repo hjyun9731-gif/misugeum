@@ -894,55 +894,217 @@ async def upload_license(request: Request, file: UploadFile = File(...),
     tmpdir = Path(tempfile.mkdtemp())
     try:
         dest = tmpdir / (file.filename or "license.xlsx")
-        with open(dest, "wb") as f: shutil.copyfileobj(file.file, f)
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
         if dest.stat().st_size == 0:
             return RedirectResponse("/upload?msg=파일이 비어 있습니다", status_code=302)
 
-        # 전체자명단은 utils/excel_parser 사용
-        from utils.excel_parser import (read_excel_sheets, valid_person_row, choose,
-                                         get_region as _gr, clean_name as _cn,
-                                         normalize_vehicle as _nv)
+        from utils.excel_parser import (
+            read_excel_sheets, choose,
+            get_region as _gr, clean_name as _cn,
+            normalize_vehicle as _nv
+        )
+
         db.query(LicenseRecord).delete(synchronize_session=False)
         db.query(UploadBatch).filter(UploadBatch.data_type == "license").delete(synchronize_session=False)
         db.commit()
+
         batch = UploadBatch(file_name=file.filename, data_type="license", created_by=user.id)
-        db.add(batch); db.commit(); db.refresh(batch)
-        try: sheets = read_excel_sheets(str(dest))
+        db.add(batch)
+        db.commit()
+        db.refresh(batch)
+
+        try:
+            sheets = read_excel_sheets(str(dest))
         except ValueError as e:
             return RedirectResponse(f"/upload?msg={e}", status_code=302)
+
+        GANGWON_REGIONS = [
+            "춘천시","강릉시","원주시","동해시","태백시","속초시","삼척시",
+            "홍천군","횡성군","영월군","평창군","정선군","철원군","화천군",
+            "양구군","인제군","고성군","양양군"
+        ]
+
+        SUM_WORDS = {"합계","총계","소계","계","합산","인원수","입금금액","성명","이름","차량번호","지역"}
+
+        def _txt(v):
+            if v is None:
+                return ""
+            try:
+                if str(v).lower() == "nan":
+                    return ""
+            except Exception:
+                pass
+            return str(v).strip()
+
+        def _row_values(row):
+            return [_txt(v) for v in list(row.values)]
+
+        def _by_header(row, aliases):
+            for col, val in row.items():
+                c = _txt(col).replace(" ", "")
+                for a in aliases:
+                    if a.replace(" ", "") in c:
+                        return _txt(val)
+            return ""
+
+        def _fallback_region(row):
+            v = _by_header(row, ["지역", "관할", "시군", "시·군"])
+            if v:
+                for r in GANGWON_REGIONS:
+                    if r in v:
+                        return r
+                return v
+            for v in _row_values(row):
+                for r in GANGWON_REGIONS:
+                    if r in v:
+                        return r
+            return ""
+
+        def _fallback_vehicle(row):
+            v = _by_header(row, ["차량번호", "자동차등록번호", "등록번호", "차번", "차량"])
+            if v:
+                return v
+
+            for v in _row_values(row):
+                t = v.replace(" ", "")
+                if not t:
+                    continue
+                if any(x in t for x in ["배", "바", "아", "자"]):
+                    if any(ch.isdigit() for ch in t):
+                        return v
+                if re.fullmatch(r"\d{2,3}[- ]?\d{4}", t):
+                    return v
+            return ""
+
+        def _fallback_name(row):
+            v = _by_header(row, ["성명", "대표자", "이름", "성 명", "차주명", "소유자"])
+            v = _cn(v)
+            if v and v not in SUM_WORDS and not any(ch.isdigit() for ch in v):
+                return v
+
+            bad = set(GANGWON_REGIONS) | SUM_WORDS | {
+                "협회비","관리비","택배","주소","전화번호","휴대폰","핸드폰",
+                "면허번호","자격증명","인가일자","가입일자"
+            }
+
+            for v in _row_values(row):
+                t = _cn(v)
+                if not t:
+                    continue
+                if t in bad:
+                    continue
+                if any(ch.isdigit() for ch in t):
+                    continue
+                if len(t) < 2 or len(t) > 25:
+                    continue
+                if re.fullmatch(r"[가-힣]{2,8}", t):
+                    return t
+                if "㈜" in t or "(주)" in t or "주식회사" in t or "협동조합" in t:
+                    return t
+            return ""
+
+        def _field(row, colmap, key, aliases):
+            try:
+                v = choose(row, colmap, key)
+                if _txt(v):
+                    return _txt(v)
+            except Exception:
+                pass
+            return _by_header(row, aliases)
+
         saved = 0
+        skipped = 0
+
         for sname, df, hrow, colmap in sheets:
             for idx, row in df.iterrows():
-                if not valid_person_row(row, colmap, "license"): continue
-                nm_  = _cn(choose(row, colmap, "name"))
-                veh_ = choose(row, colmap, "vehicle_no")
+                vals = _row_values(row)
+                if not any(vals):
+                    continue
+
+                nm_ = _cn(_field(row, colmap, "name", ["성명", "대표자", "이름", "차주명", "소유자"]))
+                veh_ = _field(row, colmap, "vehicle_no", ["차량번호", "자동차등록번호", "등록번호", "차번"])
+
+                if not nm_:
+                    nm_ = _fallback_name(row)
+                if not veh_:
+                    veh_ = _fallback_vehicle(row)
+
+                region_ = _field(row, colmap, "region", ["지역", "관할", "시군", "시·군"])
+                if not region_:
+                    region_ = _fallback_region(row)
+
+                # 진짜 합계/헤더행 제외
+                if (nm_ in SUM_WORDS) or (veh_ in SUM_WORDS):
+                    skipped += 1
+                    continue
+
+                # 이름/차량번호 둘 다 없으면 제외
+                if not nm_ and not veh_:
+                    skipped += 1
+                    continue
+
+                mobile_ = _field(row, colmap, "mobile", ["휴대폰", "핸드폰", "휴대전화", "연락처"])
+                phone_ = _field(row, colmap, "phone", ["전화번호", "일반전화"])
+                address_ = _field(row, colmap, "address", ["주소", "소재지"])
+                official_address_ = _field(row, colmap, "official_address", ["공문주소", "공식주소", "주소"])
+                resident_no_ = _field(row, colmap, "resident_no", ["주민등록번호", "생년월일", "법인번호"])
+                join_date_ = _field(row, colmap, "join_date", ["가입일자", "협회가입일"])
+                permit_date_ = _field(row, colmap, "permit_date", ["인가일자", "허가일자"])
+                cert_issue_date_ = _field(row, colmap, "cert_issue_date", ["자격증명발급일자", "자격증명일자"])
+                cert_no_ = _field(row, colmap, "cert_no", ["자격증명발급번호", "자격증명번호"])
+                note_ = _field(row, colmap, "note", ["비고", "메모"])
+
                 db.add(LicenseRecord(
-                    batch_id=batch.id, source_file=file.filename, source_sheet=sname,
-                    region=_gr(row,colmap), name=nm_, name_key=norm_name(nm_),
-                    vehicle_no=veh_, vehicle_key=_nv(veh_) if veh_ else "",
-                    resident_no=choose(row,colmap,"resident_no"),
-                    mobile=choose(row,colmap,"mobile"), phone=choose(row,colmap,"phone"),
-                    address=choose(row,colmap,"address"),
-                    official_address=choose(row,colmap,"official_address"),
-                    join_date_raw=choose(row,colmap,"join_date"),
-                    permit_date_raw=choose(row,colmap,"permit_date"),
-                    cert_issue_date_raw=choose(row,colmap,"cert_issue_date"),
-                    cert_no=choose(row,colmap,"cert_no"),
-                    note=choose(row,colmap,"note"),
+                    batch_id=batch.id,
+                    source_file=file.filename,
+                    source_sheet=sname,
+                    region=region_,
+                    name=nm_,
+                    name_key=norm_name(nm_),
+                    vehicle_no=veh_,
+                    vehicle_key=_nv(veh_) if veh_ else "",
+                    resident_no=resident_no_,
+                    mobile=mobile_,
+                    phone=phone_,
+                    address=address_,
+                    official_address=official_address_,
+                    join_date_raw=join_date_,
+                    permit_date_raw=permit_date_,
+                    cert_issue_date_raw=cert_issue_date_,
+                    cert_no=cert_no_,
+                    note=note_,
                 ))
                 saved += 1
-        batch.saved_rows = saved; db.commit()
+
+            db.flush()
+
+        batch.saved_rows = saved
+        batch.warn_rows = skipped
+        db.commit()
+
         _reconcile_license(db)
         _full_recalc(db)
-        add_log(db, user.id, "전체자업로드", f"{file.filename}: {saved}건")
+
+        try:
+            add_log(db, user.id, "전체자업로드", f"{file.filename}: {saved}건 저장, 제외 {skipped}건")
+        except Exception:
+            pass
+
         msg = f"전체자명단 {saved}건 저장, 대조완료"
+        if skipped:
+            msg += f" (제외 {skipped}건)"
+
     except Exception as e:
-        msg = f"오류: {e}"
+        db.rollback()
+        msg = f"오류: {str(e)[:200]}"
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
     return RedirectResponse(f"/upload?msg={msg}", status_code=302)
 
-# ── 전체자 대조 ────────────────────────────────────────────────────────────────
+
 def _reconcile_license(db: Session):
     """
     전체자명단 ↔ 미수금명단 대조.
