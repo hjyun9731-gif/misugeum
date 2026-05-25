@@ -1700,112 +1700,217 @@ def collection_generate(db: Session = Depends(get_db), user: User = Depends(requ
 @app.post("/bank/apply-auto-all")
 def bank_apply_auto_all(db: Session = Depends(get_db), user: User = Depends(require_user)):
     """
-    자동매칭된 통장내역을 한 번에 반영.
-    대상: match_status='자동매칭', matched_member_id 존재, applied False/NULL.
+    자동매칭된 통장내역을 한 번에 실제 반영.
+    - match_status='자동매칭'
+    - matched_member_id 존재
+    - applied False/NULL
+    - Member.excel_arrears에서 입금액 차감
     """
     from urllib.parse import quote
     from datetime import datetime
+    import json as _json
+    import re as _re
+
+    def _num(v):
+        try:
+            if v is None:
+                return 0
+            if isinstance(v, (int, float)):
+                return int(v)
+            t = str(v).replace(",", "").replace("원", "").strip()
+            m = _re.search(r"-?\d+", t)
+            return int(m.group(0)) if m else 0
+        except Exception:
+            return 0
+
+    def _get_tx_amount(tx):
+        # 프로젝트마다 금액 필드명이 다를 수 있어서 후보를 전부 확인
+        for attr in ["amount", "deposit_amount", "in_amount", "paid_amount", "txn_amount", "money"]:
+            if hasattr(tx, attr):
+                v = _num(getattr(tx, attr))
+                if v:
+                    return abs(v)
+
+        # raw_data나 memo에 금액이 들어간 경우 대비
+        for attr in ["raw_data", "memo", "description"]:
+            if hasattr(tx, attr):
+                t = str(getattr(tx, attr) or "")
+                nums = [_num(x) for x in _re.findall(r"\d[\d,]*", t)]
+                nums = [x for x in nums if x > 0]
+                if nums:
+                    return max(nums)
+        return 0
+
+    def _get_paid_date(tx):
+        raw_date = getattr(tx, "txn_date", None) or getattr(tx, "date", None) or getattr(tx, "paid_date", None)
+        y = datetime.now().year
+        mth = datetime.now().month
+        pdate = ""
+
+        if raw_date:
+            try:
+                if hasattr(raw_date, "year"):
+                    y = raw_date.year
+                    mth = raw_date.month
+                    pdate = raw_date.isoformat()[:10]
+                else:
+                    dt = datetime.fromisoformat(str(raw_date)[:10])
+                    y = dt.year
+                    mth = dt.month
+                    pdate = dt.date().isoformat()
+            except Exception:
+                pdate = str(raw_date)[:10]
+
+        return y, mth, pdate
+
+    def _find_member_from_tx(tx):
+        mid = getattr(tx, "matched_member_id", None)
+        if mid:
+            m = db.query(Member).filter(Member.id == mid).first()
+            if m:
+                return m
+
+        # matched_member_id가 꼬였을 경우 후보 JSON 첫 번째 id 사용
+        raw = getattr(tx, "match_candidates_json", "") or ""
+        try:
+            data = _json.loads(raw) if raw else []
+            if isinstance(data, dict):
+                data = data.get("candidates", [])
+            if isinstance(data, list):
+                for c in data:
+                    cid = c.get("id") or c.get("member_id") if isinstance(c, dict) else None
+                    if cid:
+                        m = db.query(Member).filter(Member.id == int(cid)).first()
+                        if m:
+                            tx.matched_member_id = m.id
+                            return m
+        except Exception:
+            pass
+
+        return None
 
     try:
         targets = (
             db.query(BankTransaction)
             .filter(BankTransaction.match_status == "자동매칭")
-            .filter(BankTransaction.matched_member_id != None)
             .filter(or_(BankTransaction.applied == False, BankTransaction.applied == None))
             .order_by(BankTransaction.txn_date, BankTransaction.id)
             .all()
         )
 
         applied_cnt = 0
-        skipped_cnt = 0
+        already_cnt = 0
+        no_member_cnt = 0
+        no_amount_cnt = 0
+        error_cnt = 0
+
+        ledger_cols = set(MonthlyLedger.__table__.columns.keys())
 
         for tx in targets:
-            m = db.query(Member).filter(Member.id == tx.matched_member_id).first()
-            if not m:
-                skipped_cnt += 1
-                continue
+            try:
+                member = _find_member_from_tx(tx)
+                if not member:
+                    no_member_cnt += 1
+                    continue
 
-            amount = int(getattr(tx, "amount", 0) or 0)
-            if amount <= 0:
-                skipped_cnt += 1
-                continue
+                amount = _get_tx_amount(tx)
+                if amount <= 0:
+                    no_amount_cnt += 1
+                    continue
 
-            y = datetime.now().year
-            mo = datetime.now().month
-            pdate = ""
+                y, mth, paid_date = _get_paid_date(tx)
 
-            raw_date = getattr(tx, "txn_date", None)
-            if raw_date:
+                # 같은 통장거래가 이미 반영된 경우: 중복 생성하지 않고 완료 처리
+                exist = None
+                if "source_file" in ledger_cols and "source_row" in ledger_cols:
+                    exist = (
+                        db.query(MonthlyLedger)
+                        .filter(MonthlyLedger.member_id == member.id)
+                        .filter(MonthlyLedger.source_file == "통장반영")
+                        .filter(MonthlyLedger.source_row == tx.id)
+                        .first()
+                    )
+
+                if exist:
+                    tx.applied = True
+                    tx.match_status = "반영완료"
+                    db.add(tx)
+                    already_cnt += 1
+                    continue
+
+                # 원장 기록 생성
+                kwargs = {
+                    "member_id": member.id,
+                    "batch_id": None,
+                    "source_file": "통장반영",
+                    "source_sheet": "자동매칭",
+                    "source_row": tx.id,
+                    "raw_vehicle_no": member.vehicle_no or "",
+                    "raw_name": member.name or "",
+                    "raw_region": member.region or "",
+                    "raw_account": member.account or "",
+                    "raw_note": getattr(tx, "memo", "") or "",
+                    "year": y,
+                    "month": mth,
+                    "carry_over": 0,
+                    "charge_amount": 0,
+                    "paid_amount": amount,
+                    "arrears_amount": 0,
+                    "paid_date": paid_date,
+                    "calc_arrears": 0,
+                }
+                kwargs = {k: v for k, v in kwargs.items() if k in ledger_cols}
+                db.add(MonthlyLedger(**kwargs))
+
+                # 실제 미수금 차감
+                before = int(member.excel_arrears or 0)
+                after = before - amount
+                member.excel_arrears = after
+                member.calc_arrears = after
+                member.arrears_diff = 0
+                member.is_overpay = after < 0
+
+                if hasattr(member, "last_paid_date"):
+                    member.last_paid_date = paid_date
+
                 try:
-                    if hasattr(raw_date, "year"):
-                        y = raw_date.year
-                        mo = raw_date.month
-                        pdate = raw_date.isoformat()[:10]
-                    else:
-                        dt = datetime.fromisoformat(str(raw_date)[:10])
-                        y = dt.year
-                        mo = dt.month
-                        pdate = dt.date().isoformat()
+                    member.arrears_verified = True
+                    member.verify_reason = ""
                 except Exception:
-                    pdate = str(raw_date)[:10]
+                    pass
 
-            exist = (
-                db.query(MonthlyLedger)
-                .filter(MonthlyLedger.member_id == m.id)
-                .filter(MonthlyLedger.source_file == "통장반영")
-                .filter(MonthlyLedger.source_row == tx.id)
-                .first()
-            )
-
-            if exist:
                 tx.applied = True
                 tx.match_status = "반영완료"
+                db.add(member)
                 db.add(tx)
-                skipped_cnt += 1
-                continue
 
-            db.add(MonthlyLedger(
-                member_id=m.id,
-                batch_id=None,
-                source_file="통장반영",
-                source_sheet="자동매칭",
-                source_row=tx.id,
-                raw_vehicle_no=m.vehicle_no or "",
-                raw_name=m.name or "",
-                raw_region=m.region or "",
-                raw_account=m.account or "",
-                raw_note=getattr(tx, "memo", "") or "",
-                year=y,
-                month=mo,
-                carry_over=0,
-                charge_amount=0,
-                paid_amount=amount,
-                arrears_amount=0,
-                paid_date=pdate,
-                calc_arrears=0,
-            ))
+                applied_cnt += 1
 
-            tx.applied = True
-            tx.match_status = "반영완료"
-            db.add(tx)
-
-            try:
-                _recalc_member(db, m)
             except Exception:
-                pass
-
-            applied_cnt += 1
+                error_cnt += 1
+                continue
 
         db.commit()
         _invalidate_snap(db, "dashboard")
 
         try:
-            add_log(db, user.id, "자동매칭전체반영", f"{applied_cnt}건 반영, {skipped_cnt}건 보류")
+            add_log(
+                db,
+                user.id,
+                "자동매칭전체반영",
+                f"반영 {applied_cnt}건 / 이미반영 {already_cnt}건 / 회원없음 {no_member_cnt}건 / 금액없음 {no_amount_cnt}건 / 오류 {error_cnt}건"
+            )
         except Exception:
             pass
 
-        msg = quote(f"자동매칭 {applied_cnt}건 전체 반영완료 / 보류 {skipped_cnt}건")
-        return RedirectResponse(f"/bank?status=자동매칭&msg={msg}", status_code=302)
+        msg = (
+            f"자동매칭 반영 {applied_cnt}건 완료"
+            f" / 이미반영 {already_cnt}건"
+            f" / 회원없음 {no_member_cnt}건"
+            f" / 금액없음 {no_amount_cnt}건"
+            f" / 오류 {error_cnt}건"
+        )
+        return RedirectResponse("/bank?status=자동매칭&msg=" + quote(msg), status_code=302)
 
     except Exception as e:
         db.rollback()
@@ -1813,7 +1918,6 @@ def bank_apply_auto_all(db: Session = Depends(get_db), user: User = Depends(requ
         return RedirectResponse(f"/bank?status=자동매칭&msg={msg}", status_code=302)
 
 
-# ── 미매칭 수동매칭 화면 ─────────────────────────────────────
 @app.get("/bank/{tid}/match", response_class=HTMLResponse)
 def bank_manual_match_page(
     tid: int,
