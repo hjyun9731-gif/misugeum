@@ -1584,6 +1584,19 @@ def bank_reset_all(include_applied: str = Form(""),
 
 
 
+
+
+# ── 설정 ─────────────────────────────────────────────────────
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request,
+                  db: Session = Depends(get_db),
+                  user: User = Depends(require_user)):
+    return templates.TemplateResponse(request, "settings.html", {
+        "request": request,
+        "user": user,
+    })
+
+
 @app.post("/admin/reset")
 def admin_reset(db: Session = Depends(get_db), user: User = Depends(require_user)):
     for tbl in [CollectionTarget, BankTransaction, BillingPerson, WorkQueue,
