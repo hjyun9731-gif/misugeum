@@ -525,6 +525,61 @@ def upload_page(request: Request, db: Session = Depends(get_db),
         "msg": request.query_params.get("msg", ""),
     })
 
+
+def _guess_name_from_raw_row(db: Session, batch_id: int, src_sheet: str, src_row: int, current_name: str = ""):
+    """
+    parse_ledger_sheet가 성명을 못 읽은 경우 RawImportRow 원본 행에서 이름 후보를 찾는다.
+    차량번호/지역/계정/금액/합계행 단어는 제외하고, 한글 2~8자 또는 업체명 후보를 사용한다.
+    """
+    if current_name and str(current_name).strip():
+        return current_name
+
+    import re, json as _json
+    raw = (db.query(RawImportRow)
+             .filter(RawImportRow.batch_id == batch_id,
+                     RawImportRow.source_sheet == src_sheet,
+                     RawImportRow.source_row == src_row)
+             .first())
+    if not raw or not raw.raw_data:
+        return current_name or ""
+
+    try:
+        vals = _json.loads(raw.raw_data)
+    except Exception:
+        return current_name or ""
+
+    bad_words = {
+        "강릉시","춘천시","원주시","동해시","태백시","속초시","삼척시",
+        "홍천군","횡성군","영월군","평창군","정선군","철원군","화천군","양구군","인제군","고성군","양양군",
+        "협회비","관리비","택배","협","관","합계","총계","소계","계","입금금액","미수금","잔액",
+        "차량번호","성명","이름","지역","전화번호","연락처"
+    }
+
+    candidates = []
+    for v in vals:
+        t = str(v or "").strip()
+        if not t:
+            continue
+        t = t.replace(" ", "")
+
+        if t in bad_words:
+            continue
+        if re.search(r"\d", t):
+            continue
+        if len(t) < 2 or len(t) > 20:
+            continue
+
+        # 일반 성명, 외국인 영문명, 법인/업체명 허용
+        if re.fullmatch(r"[가-힣]{2,8}", t):
+            candidates.append(t)
+        elif re.search(r"[㈜주식회사협동조합]", t) and len(t) <= 20:
+            candidates.append(t)
+        elif re.fullmatch(r"[A-Za-z]{3,20}", t):
+            candidates.append(t)
+
+    return candidates[0] if candidates else (current_name or "")
+
+
 def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_file, src_sheet, src_row, force_create=False):
     from core import is_sum_row
     if is_sum_row(name, veh): return None, "sum_row"
@@ -655,6 +710,7 @@ async def upload_legacy(request: Request, file: UploadFile = File(...),
             if stype == "ledger":
                 parsed = parse_ledger_sheet(raw, sname, file_year)
                 for veh,name,region,account,note,carry,monthly,src_row in parsed:
+                    name = _guess_name_from_raw_row(db, batch.id, sname, src_row, name)
                     m, how = _find_or_create_member(db, veh, name, region, account, note,
                                                     batch.id, file.filename, sname, src_row, force_create=True)
                     if m is None: warns.append(f"{sname}/{src_row}: 중복후보"); continue
