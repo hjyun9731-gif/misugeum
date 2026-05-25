@@ -525,7 +525,7 @@ def upload_page(request: Request, db: Session = Depends(get_db),
         "msg": request.query_params.get("msg", ""),
     })
 
-def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_file, src_sheet, src_row):
+def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_file, src_sheet, src_row, force_create=False):
     from core import is_sum_row
     if is_sum_row(name, veh): return None, "sum_row"
     vkey = norm_vehicle(veh) if veh else ""
@@ -534,17 +534,20 @@ def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_f
     acc  = "관" if ("관" in (account or "") or "관리" in (account or "")) else "협"
     is_auto = False  # 자동이체는 전용통장 업로드 후에만 확정
 
-    if vkey and nkey:
-        m = db.query(Member).filter(Member.vehicle_key == vkey, Member.name_key == nkey).first()
-        if m: return m, "exact"
-    if vkey:
-        cs = db.query(Member).filter(Member.vehicle_key == vkey).all()
-        if len(cs) == 1: return cs[0], "vehicle"
-        if len(cs) > 1:  return None, "dup_vehicle"
-    if nkey and reg:
-        cs = db.query(Member).filter(Member.name_key == nkey, Member.region == reg, Member.account == acc).all()
-        if len(cs) == 1: return cs[0], "name_region"
-        if len(cs) > 1:  return None, "dup_name"
+    # 미수금 원장 업로드에서는 엑셀 원본 행을 그대로 보존해야 한다.
+    # 차량번호/성명 중복이어도 같은 사람으로 병합하지 않고 새 Member로 저장한다.
+    if not force_create:
+        if vkey and nkey:
+            m = db.query(Member).filter(Member.vehicle_key == vkey, Member.name_key == nkey).first()
+            if m: return m, "exact"
+        if vkey:
+            cs = db.query(Member).filter(Member.vehicle_key == vkey).all()
+            if len(cs) == 1: return cs[0], "vehicle"
+            if len(cs) > 1:  return None, "dup_vehicle"
+        if nkey and reg:
+            cs = db.query(Member).filter(Member.name_key == nkey, Member.region == reg, Member.account == acc).all()
+            if len(cs) == 1: return cs[0], "name_region"
+            if len(cs) > 1:  return None, "dup_name"
 
     m = Member(vehicle_no=veh, vehicle_key=vkey, name=name, name_key=nkey,
                region=reg, account=acc, note=note, is_auto_transfer=is_auto,
@@ -653,7 +656,7 @@ async def upload_legacy(request: Request, file: UploadFile = File(...),
                 parsed = parse_ledger_sheet(raw, sname, file_year)
                 for veh,name,region,account,note,carry,monthly,src_row in parsed:
                     m, how = _find_or_create_member(db, veh, name, region, account, note,
-                                                    batch.id, file.filename, sname, src_row)
+                                                    batch.id, file.filename, sname, src_row, force_create=True)
                     if m is None: warns.append(f"{sname}/{src_row}: 중복후보"); continue
                     if how == "created": nm += 1
 
