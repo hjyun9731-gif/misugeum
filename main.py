@@ -644,6 +644,44 @@ def _get_name_from_col_e(db: Session, batch_id: int, src_sheet: str, src_row: in
     return candidates[0] if candidates else ""
 
 
+
+def _get_name_from_excel_col_e(db: Session, batch_id: int, src_sheet: str, src_row: int, current_name: str = ""):
+    """
+    [사용]미수금2026 원본 기준:
+    A 지역 / B 계정 / C 비고 또는 구분 / D 차량번호 / E 성명.
+    name이 비었거나 '이체' 같은 구분값이면 E열(index 4)을 성명으로 사용한다.
+    """
+    import json as _json
+
+    bad = {"", "이체", "입금", "출금", "현금", "자동이체", "협회비", "관리비", "택배", "협", "관"}
+
+    cur = str(current_name or "").strip().replace(" ", "")
+    if cur and cur not in bad:
+        return cur
+
+    raw = (db.query(RawImportRow)
+             .filter(RawImportRow.batch_id == batch_id,
+                     RawImportRow.source_sheet == src_sheet,
+                     RawImportRow.source_row == src_row)
+             .first())
+
+    if not raw or not raw.raw_data:
+        return "" if cur in bad else cur
+
+    try:
+        vals = _json.loads(raw.raw_data)
+    except Exception:
+        return "" if cur in bad else cur
+
+    if len(vals) >= 5:
+        name = str(vals[4] or "").strip().replace(" ", "")
+        if name not in bad:
+            return name
+
+    return "" if cur in bad else cur
+
+
+
 def _find_or_create_member(db, veh, name, region, account, note, batch_id, src_file, src_sheet, src_row, force_create=False):
     from core import is_sum_row
     if is_sum_row(name, veh): return None, "sum_row"
