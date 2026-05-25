@@ -548,38 +548,17 @@ def export_monthly_payments(
 # ── 명단 추가: /member/{mid} 충돌 방지용 /member_add ─────────────
 @app.get("/member_add", response_class=HTMLResponse)
 def member_add_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    html = """
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <title>명단 추가</title>
-      <link rel="stylesheet" href="/static/style.css">
-    </head>
-    <body style="padding:24px;background:#fafafa;">
-      <div style="max-width:760px;margin:0 auto;background:white;border:1px solid #eee;border-radius:18px;padding:24px;">
-        <h2>명단 추가</h2>
-        <form method="post" action="/member_add">
-          <p>지역<br><input name="region" placeholder="예: 강릉시" style="width:100%;padding:10px;"></p>
-          <p>계정<br>
-            <select name="account" style="width:100%;padding:10px;">
-              <option value="관리비">관리비</option>
-              <option value="협회비">협회비</option>
-            </select>
-          </p>
-          <p>차량번호<br><input name="vehicle_no" style="width:100%;padding:10px;"></p>
-          <p>성명<br><input name="name" style="width:100%;padding:10px;"></p>
-          <p>연락처<br><input name="mobile" style="width:100%;padding:10px;"></p>
-          <p>현재미수금<br><input name="excel_arrears" placeholder="예: 5000" style="width:100%;padding:10px;"></p>
-          <p>주소<br><input name="address" style="width:100%;padding:10px;"></p>
-          <p>비고<br><textarea name="note" rows="3" style="width:100%;padding:10px;"></textarea></p>
-          <button type="submit">저장</button>
-          <a href="/arrears">취소</a>
-        </form>
-      </div>
-    </body>
-    </html>
-    """
-    return HTMLResponse(html)
+    regions = [
+        "춘천시","강릉시","원주시","동해시","태백시","속초시","삼척시",
+        "홍천군","횡성군","영월군","평창군","정선군","철원군","화천군",
+        "양구군","인제군","고성군","양양군"
+    ]
+    return templates.TemplateResponse(request, "add_member.html", {
+        "request": request,
+        "user": user,
+        "regions": regions,
+        "m": None,
+    })
 
 
 @app.post("/member_add")
