@@ -812,7 +812,7 @@ async def upload_legacy(request: Request, file: UploadFile = File(...),
             if stype == "ledger":
                 parsed = parse_ledger_sheet(raw, sname, file_year)
                 for veh,name,region,account,note,carry,monthly,src_row in parsed:
-                    name = _guess_name_from_raw_row(db, batch.id, sname, src_row, name)
+                    name = _get_name_from_excel_col_e(db, batch.id, sname, src_row, name)
                     m, how = _find_or_create_member(db, veh, name, region, account, note,
                                                     batch.id, file.filename, sname, src_row, force_create=True)
                     if m is None: warns.append(f"{sname}/{src_row}: 중복후보"); continue
