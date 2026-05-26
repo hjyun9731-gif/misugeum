@@ -4197,15 +4197,12 @@ def bank_mark_income(
     SUSP = "\uac00\uc218\uae08"        # ???
     DONE = "\ubc18\uc601\uc644\ub8cc"  # ????
 
-    # ????? ????? ???, ???? ?? ????? ??
     raw_kind = str(kind or "").strip().lower()
 
     if raw_kind in ["misc", "misc_income"]:
         new_status = MISC
     elif raw_kind in ["suspense", "temporary", "deposit"]:
         new_status = SUSP
-    elif kind in [MISC, SUSP]:
-        new_status = kind
     else:
         new_status = SUSP
 
@@ -4213,7 +4210,6 @@ def bank_mark_income(
     if not tx:
         raise HTTPException(404)
 
-    # ????? ??
     if str(getattr(tx, "match_status", "") or "") == DONE:
         return RedirectResponse(
             "/bank?msg=" + quote("?? ????? ??? ??? ? ???/????? ???? ???."),
