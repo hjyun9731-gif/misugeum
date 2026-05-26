@@ -5,9 +5,9 @@
 
 {% block content %}
 <style>
-.mark-wrap{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
-.mark-card{background:#fff;border:1px solid #f2d7e3;border-radius:18px;box-shadow:0 8px 22px rgba(255,79,147,.08);padding:20px}
-.mark-title{font-size:22px;font-weight:900;margin-bottom:12px;color:#2d2230}
+.edit-wrap{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.edit-card{background:#fff;border:1px solid #f2d7e3;border-radius:18px;box-shadow:0 8px 22px rgba(255,79,147,.08);padding:20px}
+.edit-title{font-size:22px;font-weight:900;margin-bottom:12px;color:#2d2230}
 .info-grid{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;margin:12px 0}
 .info-box{background:#fff7fb;border:1px solid #f6d6e5;border-radius:14px;padding:12px}
 .info-box small{display:block;color:#8b7282;margin-bottom:4px}
@@ -23,14 +23,23 @@
 .btn-gray{border:0;border-radius:12px;padding:10px 16px;background:#7d7080;color:#fff!important;font-weight:900;text-decoration:none}
 </style>
 
-<div class="mark-wrap">
-  <div class="mark-card">
-    <div class="mark-title">&#xC785;&#xAE08; &#xBD84;&#xB958; &#xC218;&#xC815;</div>
+<div class="edit-wrap">
+  <div class="edit-card">
+    <div class="edit-title">&#xC785;&#xAE08; &#xBD84;&#xB958; &#xC218;&#xC815;</div>
 
     <div class="info-grid">
-      <div class="info-box"><small>&#xC785;&#xAE08;&#xC77C;&#xC790;</small><b>{{ tx.txn_date or tx.date or tx.paid_date or "-" }}</b></div>
-      <div class="info-box"><small>&#xC785;&#xAE08;&#xC561;</small><b>{{ fmt_amt(tx.deposit_amount or tx.amount or 0) }}&#xC6D0;</b></div>
-      <div class="info-box"><small>&#xD604;&#xC7AC;&#xC0C1;&#xD0DC;</small><b>{{ tx.match_status or "-" }}</b></div>
+      <div class="info-box">
+        <small>&#xC785;&#xAE08;&#xC77C;&#xC790;</small>
+        <b>{{ tx.txn_date or tx.date or tx.paid_date or "-" }}</b>
+      </div>
+      <div class="info-box">
+        <small>&#xC785;&#xAE08;&#xC561;</small>
+        <b>{{ fmt_amt(tx.deposit_amount or tx.amount or 0) }}&#xC6D0;</b>
+      </div>
+      <div class="info-box">
+        <small>&#xD604;&#xC7AC;&#xC0C1;&#xD0DC;</small>
+        <b>{{ tx.match_status or "-" }}</b>
+      </div>
     </div>
 
     <div class="info-box">
@@ -40,11 +49,11 @@
 
     <div class="info-box" style="margin-top:10px;">
       <small>&#xAE30;&#xC874; &#xC0AC;&#xC720;</small>
-      <b>{{ income_reason_display(tx.match_reason) or "-" }}</b>
+      <b>{{ tx.match_reason or "-" }}</b>
     </div>
   </div>
 
-  <div class="mark-card">
+  <div class="edit-card">
     <form method="post" action="/income-ledger/{{ tx.id }}/edit">
       <div class="form-grid">
         <div class="field">
@@ -57,12 +66,12 @@
 
         <div class="field">
           <label>&#xC0AC;&#xC720;</label>
-          <input type="text" name="reason" placeholder="&#xC608;: &#xC790;&#xACA9;&#xC99D;&#xBA85; &#xBC1C;&#xAE09;, &#xB300;&#xD3D0;&#xCC28;, &#xC608;&#xAE08;&#xC774;&#xC790;, &#xAC00;&#xC785;&#xBE44;">
+          <input type="text" name="reason" placeholder="&#xC608;: &#xC790;&#xACA9;&#xC99D;&#xBA85;, &#xB300;&#xD3D0;&#xCC28;, &#xC608;&#xAE08;&#xC774;&#xC790;">
         </div>
 
         <div class="field">
           <label>&#xAD00;&#xB828; &#xCC28;&#xB7C9;&#xBC88;&#xD638;</label>
-          <input type="text" name="related_vehicle_no" placeholder="&#xC608;: &#xAC15;&#xC6D0;80&#xBC30;1234 &#xB610;&#xB294; 1234">
+          <input type="text" name="related_vehicle_no" placeholder="&#xC608;: 87&#xC790;2816">
         </div>
 
         <div class="field">
@@ -78,7 +87,7 @@
 
       <div class="actions">
         <button class="btn-pink" type="submit">&#xC218;&#xC815; &#xC800;&#xC7A5;</button>
-        <a class="btn-gray" href="/income-ledger?kind={{ tx.match_status }}">&#xBAA9;&#xB85D;&#xC73C;&#xB85C; &#xB3CC;&#xC544;&#xAC00;&#xAE30;</a>
+        <a class="btn-gray" href="/income-ledger?kind={{ tx.match_status }}">&#xBAA9;&#xB85D;&#xC73C;&#xB85C;</a>
         <a class="btn-gray" href="/bank">&#xD1B5;&#xC7A5;&#xB9E4;&#xCE6D;&#xC73C;&#xB85C;</a>
       </div>
     </form>

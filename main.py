@@ -4310,77 +4310,6 @@ def income_ledger_export(
 
 
 
-@app.get("/income-ledger/{tid}/edit", response_class=HTMLResponse)
-def income_ledger_edit_form(
-    tid: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user)
-):
-    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
-    if not tx:
-        raise HTTPException(404)
-
-    MISC = "\uc7a1\uc218\uc785"
-    SUSP = "\uac00\uc218\uae08"
-
-    kind_code = "misc" if str(getattr(tx, "match_status", "") or "") == MISC else "suspense"
-
-    return templates.TemplateResponse(request, "income_edit_form.html", {
-        "request": request,
-        "user": user,
-        "tx": tx,
-        "kind_code": kind_code,
-        "fmt_amt": fmt_amt,
-    })
-
-
-@app.post("/income-ledger/{tid}/edit")
-def income_ledger_edit_save(
-    tid: int,
-    kind: str = Form(...),
-    reason: str = Form(""),
-    related_vehicle_no: str = Form(""),
-    related_name: str = Form(""),
-    note: str = Form(""),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user)
-):
-    from urllib.parse import quote
-
-    MISC = "\uc7a1\uc218\uc785"
-    SUSP = "\uac00\uc218\uae08"
-
-    raw_kind = str(kind or "").strip().lower()
-    new_status = MISC if raw_kind in ["misc", "misc_income"] else SUSP
-
-    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
-    if not tx:
-        raise HTTPException(404)
-
-    parts = []
-    if reason:
-        parts.append("\ube44\uace0: " + reason.strip())
-    if related_vehicle_no:
-        parts.append("\uc218\ub3d9\ubd84\ub958: " + related_vehicle_no.strip())
-    if related_name:
-        parts.append("\uc218\ub3d9\ubd84\ub958: " + related_name.strip())
-    if note:
-        parts.append("\ube44\uace0: " + note.strip())
-
-    tx.match_status = new_status
-    tx.matched_member_id = None
-    tx.match_reason = "\uc218\ub3d9\ubd84\ub958 \uc218\uc815: " + new_status
-    if parts:
-        tx.match_reason += " / " + " / ".join(parts)
-
-    db.add(tx)
-    db.commit()
-
-    return RedirectResponse(
-        "/income-ledger?kind=" + quote(new_status),
-        status_code=302
-    )
 
 
 @app.post("/billing-counts/generate-next-arrears")
@@ -5387,4 +5316,81 @@ async def bank_apply_payment_safe(
 
     referer = request.headers.get("referer") or "/bank"
     return RedirectResponse(referer, status_code=302)
+
+
+@app.get("/income-ledger/{tid}/edit", response_class=HTMLResponse)
+def income_ledger_edit_form(
+    tid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    MISC = "\uc7a1\uc218\uc785"        # ???
+    SUSP = "\uac00\uc218\uae08"        # ???
+
+    current_status = str(getattr(tx, "match_status", "") or "")
+    kind_code = "misc" if current_status == MISC else "suspense"
+
+    return templates.TemplateResponse(request, "income_edit_form.html", {
+        "request": request,
+        "user": user,
+        "tx": tx,
+        "kind_code": kind_code,
+        "fmt_amt": fmt_amt,
+    })
+
+
+@app.post("/income-ledger/{tid}/edit")
+def income_ledger_edit_save(
+    tid: int,
+    kind: str = Form(...),
+    reason: str = Form(""),
+    related_vehicle_no: str = Form(""),
+    related_name: str = Form(""),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    MISC = "\uc7a1\uc218\uc785"        # ???
+    SUSP = "\uac00\uc218\uae08"        # ???
+
+    raw_kind = str(kind or "").strip().lower()
+    new_status = MISC if raw_kind in ["misc", "misc_income"] else SUSP
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    parts = []
+    if reason:
+        parts.append("\uc0ac\uc720: " + reason.strip())              # ??
+    if related_vehicle_no:
+        parts.append("\uad00\ub828\ucc28\ub7c9: " + related_vehicle_no.strip())  # ????
+    if related_name:
+        parts.append("\uad00\ub828\uc131\uba85: " + related_name.strip())        # ????
+    if note:
+        parts.append("\ube44\uace0: " + note.strip())                # ??
+
+    tx.match_status = new_status
+    tx.matched_member_id = None
+
+    base_reason = "\uc218\ub3d9\ubd84\ub958 \uc218\uc815: " + new_status  # ???? ??
+    if parts:
+        base_reason += " / " + " / ".join(parts)
+
+    tx.match_reason = base_reason
+
+    db.add(tx)
+    db.commit()
+
+    return RedirectResponse(
+        "/income-ledger?kind=" + quote(new_status),
+        status_code=302
+    )
 
