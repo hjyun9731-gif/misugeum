@@ -5394,3 +5394,162 @@ def income_ledger_edit_save(
         status_code=302
     )
 
+
+def _ensure_pending_board_table(db):
+    from sqlalchemy import text
+    dialect = getattr(getattr(db, "bind", None), "dialect", None)
+    name = getattr(dialect, "name", "")
+
+    if name == "postgresql":
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS bank_income_pending_queue (
+                id SERIAL PRIMARY KEY,
+                bank_transaction_id INTEGER,
+                process_type VARCHAR(50),
+                income_kind VARCHAR(50),
+                txn_date VARCHAR(20),
+                amount INTEGER,
+                memo TEXT,
+                related_vehicle_no VARCHAR(100),
+                related_name VARCHAR(100),
+                reason TEXT,
+                note TEXT,
+                status VARCHAR(50) DEFAULT '????',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+    else:
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS bank_income_pending_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bank_transaction_id INTEGER,
+                process_type VARCHAR(50),
+                income_kind VARCHAR(50),
+                txn_date VARCHAR(20),
+                amount INTEGER,
+                memo TEXT,
+                related_vehicle_no VARCHAR(100),
+                related_name VARCHAR(100),
+                reason TEXT,
+                note TEXT,
+                status VARCHAR(50) DEFAULT '????',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
+
+@app.get("/work", response_class=HTMLResponse)
+@app.get("/work/pending-board", response_class=HTMLResponse)
+def pending_board_page(
+    request: Request,
+    tab: str = "??",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import text
+
+    _ensure_pending_board_table(db)
+
+    rows = db.execute(text("""
+        SELECT *
+        FROM bank_income_pending_queue
+        ORDER BY id DESC
+    """)).mappings().all()
+
+    rows = [dict(r) for r in rows]
+
+    tabs = ["??", "????", "???", "???", "????"]
+
+    def row_text(r):
+        return " ".join(str(r.get(k) or "") for k in [
+            "status", "process_type", "income_kind", "txn_date", "amount",
+            "memo", "related_vehicle_no", "related_name", "reason", "note"
+        ])
+
+    counts = {}
+    for t in tabs:
+        if t == "??":
+            counts[t] = len(rows)
+        else:
+            counts[t] = sum(1 for r in rows if t in row_text(r))
+
+    filtered = rows
+
+    if tab and tab != "??":
+        filtered = [r for r in filtered if tab in row_text(r)]
+
+    if q:
+        filtered = [r for r in filtered if q in row_text(r)]
+
+    return templates.TemplateResponse(request, "pending_board.html", {
+        "request": request,
+        "user": user,
+        "rows": filtered,
+        "tabs": tabs,
+        "tab": tab,
+        "q": q,
+        "counts": counts,
+        "fmt_amt": fmt_amt,
+    })
+
+
+@app.get("/work/pending-board/add", response_class=HTMLResponse)
+def pending_board_add_form(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    return templates.TemplateResponse(request, "pending_board_add.html", {
+        "request": request,
+        "user": user,
+    })
+
+
+@app.post("/work/pending-board/add")
+def pending_board_add_save(
+    income_kind: str = Form(...),
+    txn_date: str = Form(""),
+    amount: int = Form(0),
+    memo: str = Form(""),
+    related_vehicle_no: str = Form(""),
+    related_name: str = Form(""),
+    reason: str = Form(""),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import text
+    from urllib.parse import quote
+
+    _ensure_pending_board_table(db)
+
+    allowed = ["????-???", "????-???"]
+    if income_kind not in allowed:
+        income_kind = "????-???"
+
+    db.execute(text("""
+        INSERT INTO bank_income_pending_queue
+        (bank_transaction_id, process_type, income_kind, txn_date, amount, memo,
+         related_vehicle_no, related_name, reason, note, status)
+        VALUES
+        (NULL, '????', :income_kind, :txn_date, :amount, :memo,
+         :related_vehicle_no, :related_name, :reason, :note, '????')
+    """), {
+        "income_kind": income_kind,
+        "txn_date": txn_date,
+        "amount": int(amount or 0),
+        "memo": memo,
+        "related_vehicle_no": related_vehicle_no,
+        "related_name": related_name,
+        "reason": reason,
+        "note": note,
+    })
+
+    db.commit()
+
+    return RedirectResponse(
+        "/work?tab=" + quote("????"),
+        status_code=302
+    )
+
