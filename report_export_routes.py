@@ -926,3 +926,259 @@ def rematch_deposit_name_last4():
             "message": repr(e),
         }
 
+
+
+
+# =========================================================
+# ???? ???? ??? v2
+# - DB ???? ??? '????'? ???? ?? ???/????? ??
+# - ????? ?? + ???? ?4??? ?? ??? ???? ??
+# =========================================================
+def _find_confirm_needed_transaction_source(db):
+    from sqlalchemy import inspect, text as sql_text
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    status_words = ["????", "?"]
+    memo_candidates = ["????", "??", "????", "???", "memo", "description", "sender", "depositor", "payer_name"]
+    amount_candidates = ["???", "??", "amount", "deposit_amount", "paid_amount"]
+    status_candidates = ["??", "????", "status", "match_status", "matching_status"]
+
+    best = None
+
+    for t in tables:
+        try:
+            cols = [c["name"] for c in inspector.get_columns(t)]
+            if not cols:
+                continue
+
+            memo_col = _find_col(cols, memo_candidates)
+            amount_col = _find_col(cols, amount_candidates)
+
+            # ??/?? ??? ??? ?? ???? ???? ??
+            if not memo_col:
+                continue
+
+            # ?? ?? ?? ???? ???? ??
+            possible_status_cols = []
+            for c in cols:
+                cn = _norm_col(c)
+                if any(_norm_col(x) in cn for x in status_candidates):
+                    possible_status_cols.append(c)
+
+            # ??? ??? ?? ??? ?? ??? ??
+            if not possible_status_cols:
+                possible_status_cols = cols
+
+            for status_col in possible_status_cols:
+                try:
+                    q = sql_text(
+                        'SELECT COUNT(*) AS cnt FROM "' + t + '" '
+                        'WHERE CAST("' + status_col + '" AS TEXT) LIKE :kw1 '
+                        'OR CAST("' + status_col + '" AS TEXT) LIKE :kw2'
+                    )
+                    cnt = db.execute(q, {"kw1": "%????%", "kw2": "%?%"}).scalar() or 0
+
+                    if cnt > 0:
+                        if best is None or cnt > best["count"]:
+                            best = {
+                                "table": t,
+                                "status_col": status_col,
+                                "memo_col": memo_col,
+                                "amount_col": amount_col,
+                                "count": int(cnt),
+                                "columns": cols,
+                            }
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print("WARN: confirm source scan skipped", t, repr(e))
+            continue
+
+    return best
+
+
+def _rematch_confirm_needed_name_last4_v2(db):
+    from sqlalchemy import inspect, text as sql_text
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    source = _find_confirm_needed_transaction_source(db)
+
+    if not source:
+        return {
+            "status": "error",
+            "message": "DB?? ????? ???? ?? ???/??? ?? ?????.",
+            "checked": 0,
+            "updated": 0,
+            "examples": [],
+        }
+
+    tx_table = source["table"]
+    col_status = source["status_col"]
+    col_memo = source["memo_col"]
+    col_amount = source["amount_col"]
+
+    tx_cols = source["columns"]
+
+    tx_pk = None
+    try:
+        pk_cols = inspector.get_pk_constraint(tx_table).get("constrained_columns") or []
+        if pk_cols:
+            tx_pk = pk_cols[0]
+    except Exception:
+        pass
+
+    if not tx_pk:
+        tx_pk = _find_col(tx_cols, ["id", "transaction_id", "bank_transaction_id", "payment_id"])
+
+    if not tx_pk:
+        raise Exception(f"{tx_table} primary key not found")
+
+    col_target = _find_col(tx_cols, ["????", "??", "matched_target", "match_target"])
+    col_reason = _find_col(tx_cols, ["??", "????", "reason", "match_reason"])
+
+    # ?? ?? ??
+    member_candidates = []
+
+    for t in tables:
+        if t == tx_table:
+            continue
+
+        try:
+            cols = [c["name"] for c in inspector.get_columns(t)]
+            col_name = _find_col(cols, ["??", "??", "???", "name", "member_name", "owner_name"])
+            col_vehicle = _find_col(cols, ["????", "?? ??", "vehicle_number", "car_number", "car_no", "plate_number"])
+            col_account = _find_col(cols, ["??", "??", "????", "account", "account_type", "category", "fee_type"])
+
+            if not col_name or not col_vehicle:
+                continue
+
+            q = sql_text(
+                'SELECT "' + col_name + '" AS name, "' + col_vehicle + '" AS vehicle'
+                + (', "' + col_account + '" AS account' if col_account else ', NULL AS account')
+                + ' FROM "' + t + '"'
+            )
+
+            for r in db.execute(q).mappings().all():
+                name = _safe_str(r.get("name"))
+                vehicle = _safe_str(r.get("vehicle"))
+                last4 = _vehicle_last4(vehicle)
+
+                if name and last4:
+                    member_candidates.append({
+                        "name": name,
+                        "vehicle": vehicle,
+                        "last4": last4,
+                        "account": _safe_str(r.get("account")),
+                        "table": t,
+                    })
+
+        except Exception as e:
+            print("WARN: member candidate table skipped", t, repr(e))
+            continue
+
+    # ?? ?? ??
+    unique = {}
+    for c in member_candidates:
+        unique[(c["name"], c["vehicle"], c["last4"], c["account"])] = c
+    member_candidates = list(unique.values())
+
+    # ?? ???? ?? ??
+    q = sql_text(
+        'SELECT * FROM "' + tx_table + '" '
+        'WHERE CAST("' + col_status + '" AS TEXT) LIKE :kw1 '
+        'OR CAST("' + col_status + '" AS TEXT) LIKE :kw2'
+    )
+    tx_rows = db.execute(q, {"kw1": "%????%", "kw2": "%?%"}).mappings().all()
+
+    updated = 0
+    skipped_none = 0
+    skipped_multi = 0
+    examples = []
+
+    for row in tx_rows:
+        row = dict(row)
+        memo = _compact_text(row.get(col_memo))
+
+        matched = []
+        for c in member_candidates:
+            name_c = _compact_text(c["name"])
+            last4 = c["last4"]
+
+            if name_c and last4 and name_c in memo and last4 in memo:
+                matched.append(c)
+
+        # ? 1??? ???? ??? ?? ??
+        if len(matched) == 1:
+            c = matched[0]
+
+            set_parts = ['"' + col_status + '" = :new_status']
+            params = {
+                "new_status": "????",
+                "pk": row.get(tx_pk),
+            }
+
+            if col_target:
+                set_parts.append('"' + col_target + '" = :target')
+                params["target"] = f'{c["name"]} {c["vehicle"]}'.strip()
+
+            if col_reason:
+                old_reason = _safe_str(row.get(col_reason))
+                set_parts.append('"' + col_reason + '" = :reason')
+                params["reason"] = (old_reason + ", " if old_reason else "") + "??+?????4????"
+
+            update_q = sql_text(
+                'UPDATE "' + tx_table + '" SET '
+                + ", ".join(set_parts)
+                + ' WHERE "' + tx_pk + '" = :pk'
+            )
+
+            db.execute(update_q, params)
+            updated += 1
+
+            if len(examples) < 30:
+                examples.append({
+                    "memo": _safe_str(row.get(col_memo)),
+                    "matched": f'{c["name"]} {c["vehicle"]}',
+                    "amount": _safe_str(row.get(col_amount)) if col_amount else "",
+                })
+
+        elif len(matched) > 1:
+            skipped_multi += 1
+        else:
+            skipped_none += 1
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "source_table": tx_table,
+        "status_col": col_status,
+        "memo_col": col_memo,
+        "checked": len(tx_rows),
+        "updated": updated,
+        "skipped_none": skipped_none,
+        "skipped_multi": skipped_multi,
+        "examples": examples,
+    }
+
+
+@router.get("/deposit/rematch-name-last4-v2")
+def rematch_deposit_name_last4_v2():
+    try:
+        db_gen = _get_db()
+        db = next(db_gen)
+        return _rematch_confirm_needed_name_last4_v2(db)
+    except Exception as e:
+        print("ERROR: rematch v2 failed:", repr(e))
+        return {
+            "status": "error",
+            "message": repr(e),
+        }
+
