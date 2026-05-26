@@ -96,10 +96,11 @@ def _find_col(columns, candidates):
     return None
 
 
-def _get_tables_and_rows(db):
+def _get_tables_and_rows(db, mode="all", limit=3000):
     """
-    DB 테이블 구조를 모르는 상태에서도 최대한 읽어오게 설계.
-    SQLAlchemy Session 기준.
+    DB 전체를 무작정 다 읽으면 Railway에서 500/timeout이 날 수 있어서
+    mode에 따라 필요한 테이블만 제한적으로 읽음.
+    mode="deposit"이면 입금/통장/거래/납부 관련 테이블만 읽음.
     """
     if db is None:
         return []
@@ -111,24 +112,37 @@ def _get_tables_and_rows(db):
         tables = inspector.get_table_names()
         result = []
 
+        deposit_words = [
+            "payment", "deposit", "bank", "transaction", "paid", "pay",
+            "입금", "통장", "거래", "수납", "납부"
+        ]
+
         for t in tables:
             try:
-                cols = [c["name"] for c in inspector.get_columns(t)]
-                if not cols:
-                    continue
-
-                # 너무 시스템성 테이블은 제외
                 low_t = t.lower()
                 if low_t.startswith("alembic"):
                     continue
 
-                sql = text(f'SELECT * FROM "{t}"')
+                cols = [c["name"] for c in inspector.get_columns(t)]
+                if not cols:
+                    continue
+
+                joined_cols = " ".join(cols).lower()
+
+                if mode == "deposit":
+                    if not any(w in low_t or w in joined_cols for w in deposit_words):
+                        continue
+
+                # 너무 많은 데이터를 한 번에 엑셀화하지 않도록 제한
+                sql = text(f'SELECT * FROM "{t}" LIMIT {int(limit)}')
                 rows = db.execute(sql).mappings().all()
                 result.append({"table": t, "columns": cols, "rows": [dict(r) for r in rows]})
-            except Exception:
+            except Exception as e:
+                print("WARN: table read skipped", t, e)
                 continue
         return result
-    except Exception:
+    except Exception as e:
+        print("WARN: get tables failed", e)
         return []
 
 
@@ -432,7 +446,7 @@ def export_billing_count_excel(
 ):
     db_gen = _get_db()
     db = next(db_gen)
-    tables = _get_tables_and_rows(db)
+    tables = _get_tables_and_rows(db, mode="all", limit=5000)
     wb = _billing_count_workbook(year, month, tables)
     filename = f"{year}년_{month:02d}월_부과대수.xlsx"
     return _excel_response(wb, filename)
@@ -445,7 +459,7 @@ def export_deposit_excel(
 ):
     db_gen = _get_db()
     db = next(db_gen)
-    tables = _get_tables_and_rows(db)
+    tables = _get_tables_and_rows(db, mode="deposit", limit=5000)
     wb = _deposit_workbook(year, month, tables)
     filename = f"{year}년_{month:02d}월_입금추출.xlsx"
     return _excel_response(wb, filename)
