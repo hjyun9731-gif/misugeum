@@ -1182,3 +1182,161 @@ def rematch_deposit_name_last4_v2():
             "message": repr(e),
         }
 
+
+
+
+# =========================================================
+# ???? ??? v3
+# - ??? ???? 81? ?? ?? ??
+# - ????? ????+??????? ?? ???????+????? ?? ??? ????
+# - ?: ???1780, ???2970, 1347???, ??80?1629???
+# =========================================================
+def _memo_has_korean_name_with_tail_number(memo):
+    memo = _compact_text(memo)
+
+    # ?? 2~5? + ?? 3~4??
+    # ?: ???1780, ???304, ???1756
+    if re.search(r"[?-?]{2,5}\d{3,4}", memo):
+        return True
+
+    # ?? 3~4?? + ?? 2~5?
+    # ?: 1347???, 1442???
+    if re.search(r"\d{3,4}[?-?]{2,5}", memo):
+        return True
+
+    # ???? ?? + ??
+    # ?: ??80?1629???, ??81?2589?
+    if re.search(r"[?-?]{2}\d{2}[?-?]\d{3,4}[?-?]{1,5}", memo):
+        return True
+
+    return False
+
+
+def _rematch_confirm_needed_by_visible_memo_pattern(db):
+    from sqlalchemy import inspect, text as sql_text
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    # ?? ????? ???? ???/?? ????? v2 ?? ???
+    source = _find_confirm_needed_transaction_source(db)
+
+    if not source:
+        return {
+            "status": "error",
+            "message": "????? ???? ?? ???/??? ?? ?????.",
+            "checked": 0,
+            "updated": 0,
+            "examples": [],
+        }
+
+    tx_table = source["table"]
+    col_status = source["status_col"]
+    col_memo = source["memo_col"]
+    col_amount = source["amount_col"]
+    tx_cols = source["columns"]
+
+    tx_pk = None
+    try:
+        pk_cols = inspector.get_pk_constraint(tx_table).get("constrained_columns") or []
+        if pk_cols:
+            tx_pk = pk_cols[0]
+    except Exception:
+        pass
+
+    if not tx_pk:
+        tx_pk = _find_col(tx_cols, ["id", "transaction_id", "bank_transaction_id", "payment_id"])
+
+    if not tx_pk:
+        raise Exception(f"{tx_table} primary key not found")
+
+    col_reason = _find_col(tx_cols, ["??", "????", "reason", "match_reason"])
+
+    q = sql_text(
+        'SELECT * FROM "' + tx_table + '" '
+        'WHERE CAST("' + col_status + '" AS TEXT) LIKE :kw1 '
+        'OR CAST("' + col_status + '" AS TEXT) LIKE :kw2'
+    )
+
+    rows = db.execute(q, {"kw1": "%????%", "kw2": "%?%"}).mappings().all()
+
+    checked = len(rows)
+    updated = 0
+    skipped = 0
+    examples = []
+
+    for row in rows:
+        row = dict(row)
+        memo = _safe_str(row.get(col_memo))
+        reason = _safe_str(row.get(col_reason)) if col_reason else ""
+
+        # ????? ?? ? ? ???,
+        # ??? ??+??? ??? ??? ????
+        # ???? ??? ?? ??? ?? ????
+        can_update = False
+
+        if "????" in reason and _memo_has_korean_name_with_tail_number(memo):
+            can_update = True
+
+        if "?????????" in reason and _memo_has_korean_name_with_tail_number(memo):
+            can_update = True
+
+        if not can_update:
+            skipped += 1
+            continue
+
+        set_parts = ['"' + col_status + '" = :new_status']
+        params = {
+            "new_status": "????",
+            "pk": row.get(tx_pk),
+        }
+
+        if col_reason:
+            old_reason = _safe_str(row.get(col_reason))
+            set_parts.append('"' + col_reason + '" = :reason')
+            params["reason"] = (old_reason + ", " if old_reason else "") + "??? ??+??????? ????"
+
+        update_q = sql_text(
+            'UPDATE "' + tx_table + '" SET '
+            + ", ".join(set_parts)
+            + ' WHERE "' + tx_pk + '" = :pk'
+        )
+
+        db.execute(update_q, params)
+        updated += 1
+
+        if len(examples) < 50:
+            examples.append({
+                "memo": memo,
+                "amount": _safe_str(row.get(col_amount)) if col_amount else "",
+                "reason": reason,
+            })
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "source_table": tx_table,
+        "status_col": col_status,
+        "memo_col": col_memo,
+        "checked": checked,
+        "updated": updated,
+        "skipped": skipped,
+        "examples": examples,
+    }
+
+
+@router.get("/deposit/rematch-visible-pattern")
+def rematch_deposit_visible_pattern():
+    try:
+        db_gen = _get_db()
+        db = next(db_gen)
+        return _rematch_confirm_needed_by_visible_memo_pattern(db)
+    except Exception as e:
+        print("ERROR: rematch visible pattern failed:", repr(e))
+        return {
+            "status": "error",
+            "message": repr(e),
+        }
+
