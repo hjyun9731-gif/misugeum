@@ -13,91 +13,6 @@
 
 
 
-<script id="income-mark-buttons">
-document.addEventListener("DOMContentLoaded", function(){
-  const MISC = "\uC7A1\uC218\uC785";   // ???
-  const SUSP = "\uAC00\uC218\uAE08";   // ???
-  const DONE = "\uBC18\uC601\uC644\uB8CC"; // ????
-
-  function findTransactionId(row){
-    const els = row.querySelectorAll("a, form, button");
-    for(const el of els){
-      const href = el.getAttribute("href") || "";
-      const action = el.getAttribute("action") || "";
-      const onclick = el.getAttribute("onclick") || "";
-      const combined = href + " " + action + " " + onclick;
-
-      let m = combined.match(/\/bank\/(\d+)\/match/);
-      if(m) return m[1];
-
-      m = combined.match(/\/bank\/(\d+)\/manual-match/);
-      if(m) return m[1];
-
-      m = combined.match(/bank\/(\d+)/);
-      if(m) return m[1];
-    }
-    return null;
-  }
-
-  function makeBtn(id, kind, label, bg){
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = "/bank/" + id + "/mark-income";
-    form.style.display = "inline";
-    form.style.margin = "0 0 0 4px";
-
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = "kind";
-    input.value = kind;
-
-    const btn = document.createElement("button");
-    btn.type = "submit";
-    btn.textContent = label;
-    btn.title = label + "?? ???";
-    btn.style.border = "0";
-    btn.style.borderRadius = "9px";
-    btn.style.padding = "6px 9px";
-    btn.style.fontWeight = "800";
-    btn.style.cursor = "pointer";
-    btn.style.background = bg;
-    btn.style.color = "#fff";
-    btn.style.fontSize = "12px";
-    btn.style.boxShadow = "0 3px 8px rgba(0,0,0,.12)";
-
-    form.appendChild(input);
-    form.appendChild(btn);
-    return form;
-  }
-
-  document.querySelectorAll("table tbody tr").forEach(function(row){
-    if(row.querySelector(".income-mark-box")) return;
-
-    const rowText = row.innerText || "";
-    if(rowText.indexOf(DONE) >= 0) return;
-
-    const id = findTransactionId(row);
-    if(!id) return;
-
-    const cells = row.querySelectorAll("td");
-    if(!cells.length) return;
-
-    const lastCell = cells[cells.length - 1];
-
-    const box = document.createElement("span");
-    box.className = "income-mark-box";
-    box.style.display = "inline-flex";
-    box.style.gap = "4px";
-    box.style.marginLeft = "6px";
-    box.style.verticalAlign = "middle";
-    box.appendChild(makeBtn(id, MISC, "\uC7A1\uC218\uC785", "#7c3aed"));
-    box.appendChild(makeBtn(id, SUSP, "\uAC00\uC218\uAE08", "#0ea5e9"));
-
-    lastCell.appendChild(box);
-  });
-});
-</script>
-
 {% endblock %}
 {% block page_title %}통장매칭{% endblock %}
 {% block content %}
@@ -189,7 +104,27 @@ document.addEventListener("DOMContentLoaded", function(){
           {% if tx.applied %}<span class="badge b-ok">✓ 반영완료</span>
           {% elif tx.match_status == '자동매칭' %}<span class="badge b-blue">⚡ 자동매칭</span>
           {% elif tx.match_status == '확인필요' %}<span class="badge b-warn">⚠ 확인필요</span>
-          {% elif tx.match_status == '<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm 미매칭수동매칭">수동매칭</a>' %}<span class="badge b-gray"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a></span>
+          {% elif tx.match_status == '<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm 미매칭수동매칭">수동매칭</a>
+<span class="income-action-buttons" style="display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle;">
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#7c3aed;color:#fff;font-size:12px;">???</button>
+  </form>
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#0ea5e9;color:#fff;font-size:12px;">???</button>
+  </form>
+</span>' %}<span class="badge b-gray"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>
+<span class="income-action-buttons" style="display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle;">
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#7c3aed;color:#fff;font-size:12px;">???</button>
+  </form>
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#0ea5e9;color:#fff;font-size:12px;">???</button>
+  </form>
+</span></span>
           {% else %}<span class="badge b-gray">미매칭</span>{% endif %}
         </td>
         <td class="text-sm nowrap">
@@ -210,7 +145,17 @@ document.addEventListener("DOMContentLoaded", function(){
           <button class="btn btn-warn btn-sm" onclick="toggleExpand(this.closest('tr').nextElementSibling?.previousElementSibling || document.getElementById('btx-{{ tx.id }}'))">후보선택</button>
           {% endif %}
           <form method="post" action="/bank/{{ tx.id }}/hold" style="display:inline;">
-            <button type="submit" class="btn btn-ghost btn-sm"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a></button>
+            <button type="submit" class="btn btn-ghost btn-sm"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>
+<span class="income-action-buttons" style="display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle;">
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#7c3aed;color:#fff;font-size:12px;">???</button>
+  </form>
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#0ea5e9;color:#fff;font-size:12px;">???</button>
+  </form>
+</span></button>
           </form>
           {% endif %}
         </td>
@@ -369,12 +314,32 @@ document.addEventListener('DOMContentLoaded', function () {
     form.insertAdjacentElement('afterend', a);
   });
 
-  // 2) 처리칸이 <a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>인 미매칭 행에도 수동매칭 버튼 붙이기
+  // 2) 처리칸이 <a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>
+<span class="income-action-buttons" style="display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle;">
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#7c3aed;color:#fff;font-size:12px;">???</button>
+  </form>
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#0ea5e9;color:#fff;font-size:12px;">???</button>
+  </form>
+</span>인 미매칭 행에도 수동매칭 버튼 붙이기
   document.querySelectorAll('tr').forEach(function(tr){
     if (tr.querySelector('.manual-match-link')) return;
 
     var text = tr.innerText || '';
-    if (!text.includes('미매칭') || !text.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>')) return;
+    if (!text.includes('미매칭') || !text.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>
+<span class="income-action-buttons" style="display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle;">
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#7c3aed;color:#fff;font-size:12px;">???</button>
+  </form>
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#0ea5e9;color:#fff;font-size:12px;">???</button>
+  </form>
+</span>')) return;
 
     // 행 안의 펼침/상세 링크나 data에서 id 찾기
     var html = tr.innerHTML || '';
@@ -397,7 +362,17 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!cells.length) return;
 
     var last = cells[cells.length - 1];
-    if (!last.innerText.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>')) return;
+    if (!last.innerText.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>
+<span class="income-action-buttons" style="display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle;">
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#7c3aed;color:#fff;font-size:12px;">???</button>
+  </form>
+  <form method="post" action="/bank/{{ tx.id }}/mark-income" style="display:inline;margin:0;">
+    <input type="hidden" name="kind" value="???">
+    <button type="submit" style="border:0;border-radius:9px;padding:6px 9px;font-weight:800;cursor:pointer;background:#0ea5e9;color:#fff;font-size:12px;">???</button>
+  </form>
+</span>')) return;
 
     last.innerHTML = '<a href="/bank/' + tid + '/match" class="btn btn-ghost btn-sm manual-match-link">수동매칭</a>';
   });
