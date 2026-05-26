@@ -2214,95 +2214,96 @@ def bank_manual_match_page(
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
+    import re as _re
+    from sqlalchemy import or_, func
+
     tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
     if not tx:
         raise HTTPException(404)
 
-    members = []
+    def _compact(v):
+        return _re.sub(r"\\s+", "", str(v or "")).strip()
+
+    def _digits(v):
+        return _re.sub(r"\\D", "", str(v or ""))
+
+    def _last4(v):
+        d = _digits(v)
+        return d[-4:] if len(d) >= 4 else d
+
+    search_text = q or getattr(tx, "memo", "") or ""
+    search_compact = _compact(search_text)
+    search_digits = _digits(search_text)
+    search_last4 = search_digits[-4:] if len(search_digits) >= 4 else search_digits
+
+    stop_words = {
+        "??","??","??","??","??","???","??",
+        "??","??","??","??","??","??","??","???"
+    }
+
+    name_tokens = [
+        x for x in _re.findall(r"[?-?]{2,5}", search_compact)
+        if x not in stop_words
+    ]
+
+    base = (
+        db.query(Member)
+        .filter(Member.name != None, Member.name != "")
+        .filter(Member.vehicle_no != None, Member.vehicle_no != "")
+    )
+
+    try:
+        base = base.filter(~Member.name_key.in_(list(SUM_NAMES_DB)))
+        base = base.filter(~Member.vehicle_no.in_(list(SUM_NAMES_DB)))
+    except Exception:
+        pass
+
+    filters = []
+
     if q:
         like = f"%{q}%"
-        digits = "".join(ch for ch in q if ch.isdigit())
-        filters = [
-            Member.name.ilike(like),
-            Member.vehicle_no.ilike(like),
-            Member.mobile.ilike(like),
-        ]
-        if digits:
-            filters.append(Member.vehicle_no.ilike(f"%{digits[-4:]}%"))
+        filters.append(Member.name.ilike(like))
+        filters.append(Member.vehicle_no.ilike(like))
 
-        members = (
-            db.query(Member)
-            .filter(or_(*filters))
-            .filter(
-                Member.name != None,
-                Member.name != "",
-                Member.vehicle_no != None,
-                Member.vehicle_no != "",
-                ~Member.name_key.in_(list(SUM_NAMES_DB)),
-                ~Member.vehicle_no.in_(list(SUM_NAMES_DB)),
-            )
-            .order_by(Member.region, Member.name, Member.vehicle_no)
-            .limit(80)
-            .all()
-        )
+    for nt in name_tokens:
+        filters.append(func.replace(Member.name, " ", "").ilike(f"%{nt}%"))
 
-    rows = ""
-    for m in members:
-        rows += f"""
-        <tr>
-          <td>{m.region or ""}</td>
-          <td>{m.account or ""}</td>
-          <td>{m.vehicle_no or ""}</td>
-          <td><b>{m.name or ""}</b></td>
-          <td>{int(m.excel_arrears or 0):,}원</td>
-          <td>
-            <form method="post" action="/bank/{tid}/manual-match" style="margin:0;">
-              <input type="hidden" name="member_id" value="{m.id}">
-              <button type="submit">이 사람으로 매칭</button>
-            </form>
-          </td>
-        </tr>
-        """
+    if search_last4 and len(search_last4) >= 3:
+        filters.append(Member.vehicle_no.ilike(f"%{search_last4}%"))
 
-    html = f"""
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <title>수동매칭</title>
-      <link rel="stylesheet" href="/static/style.css">
-    
-</head>
-    <body style="padding:24px;background:#fafafa;">
-      <div style="background:white;border:1px solid #eee;border-radius:18px;padding:20px;margin-bottom:16px;">
-        <h2>미매칭 수동매칭</h2>
-        <p><b>입금일자:</b> {getattr(tx, "txn_date", "") or ""}</p>
-        <p><b>입금액:</b> {int(getattr(tx, "amount", 0) or 0):,}원</p>
-        <p><b>이체메모:</b> {getattr(tx, "memo", "") or ""}</p>
+    if filters:
+        base = base.filter(or_(*filters))
 
-        <form method="get" action="/bank/{tid}/match">
-          <input name="q" value="{q or ""}" placeholder="성명, 차량번호, 뒷자리 4자리 검색" style="padding:10px;width:320px;">
-          <button type="submit">검색</button>
-          <a href="/bank?status=미매칭">돌아가기</a>
-        </form>
-      </div>
+    raw_members = base.limit(500).all()
 
-      <div style="background:white;border:1px solid #eee;border-radius:18px;padding:20px;">
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr>
-              <th>지역</th><th>계정</th><th>차량번호</th><th>성명</th><th>현재미수금</th><th>처리</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows if rows else '<tr><td colspan="6" style="text-align:center;padding:20px;">검색어를 입력해서 매칭할 회원을 찾으세요.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </body>
-    </html>
-    """
-    return HTMLResponse(html)
+    def _score(m):
+        score = 0
+        nm = _compact(m.name)
+        veh = str(m.vehicle_no or "")
+        l4 = _last4(veh)
 
+        if nm and nm in search_compact:
+            score += 80
+        if l4 and l4 in search_digits:
+            score += 60
+        if nm and l4 and nm in search_compact and l4 in search_digits:
+            score += 200
+        return score
+
+    members = sorted(
+        raw_members,
+        key=lambda m: (-_score(m), m.region or "", m.name or "", m.vehicle_no or "")
+    )[:100]
+
+    return templates.TemplateResponse(request, "bank_manual_match.html", {
+        "request": request,
+        "user": user,
+        "tx": tx,
+        "members": members,
+        "q": q,
+        "fmt_amt": fmt_amt,
+        "fmt_acc": fmt_acc,
+    })
 
 @app.post("/bank/{tid}/manual-match")
 def bank_manual_match_save(
