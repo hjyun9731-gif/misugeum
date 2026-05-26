@@ -37,14 +37,14 @@
 
 <div class="tabs">
   {% for t, label in [
-  ('','??'),
-  ('????','????'),
-  ('????','????'),
-  ('???','???'),
-  ('????','????'),
-  ('???','???'),
-  ('???','???'),
-  ('??','??')
+  ('','전체'),
+  ('자동매칭','자동매칭'),
+  ('확인필요','확인필요'),
+  ('미매칭','미매칭'),
+  ('반영완료','반영완료'),
+  ('잡수입','잡수입'),
+  ('가수금','가수금'),
+  ('제외','제외')
 ] %}
   <a href="/bank?status={{ t }}" class="tab-btn {% if status==t %}active{% endif %}">
     {{ label }} <span class="tab-cnt {% if counts.get(label,0)>0 %}has{% endif %}">{{ counts.get(label, counts.get('전체',0) if not t else 0) }}</span>
