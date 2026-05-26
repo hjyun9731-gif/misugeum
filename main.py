@@ -2865,15 +2865,7 @@ def bank_page(request: Request, status: str = "", q: str = "",
         try: tx._candidates = _json.loads(tx.match_candidates_json) if tx.match_candidates_json else []
         except: tx._candidates = []
 
-        status_tabs = [
-        "자동매칭",
-        "확인필요",
-        "미매칭",
-        "반영완료",
-        "잡수입",
-        "가수금",
-        "제외",
-    ]
+        status_tabs = ["전체", "반영대기", "협회비", "관리비", "반영완료"]
     counts = {
         s: db.query(BankTransaction).filter(BankTransaction.match_status == s).count()
         for s in status_tabs
@@ -5442,7 +5434,7 @@ def _ensure_pending_board_table(db):
 @app.get("/work/pending-board", response_class=HTMLResponse)
 def pending_board_page(
     request: Request,
-    tab: str = "??",
+    tab: str = "전체",
     q: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
@@ -5451,15 +5443,46 @@ def pending_board_page(
 
     _ensure_pending_board_table(db)
 
-    rows = db.execute(text("""
-        SELECT *
-        FROM bank_income_pending_queue
-        ORDER BY id DESC
-    """)).mappings().all()
+    # bank_income_pending_queue 항목
+    try:
+        raw_queue = db.execute(text("""
+            SELECT *
+            FROM bank_income_pending_queue
+            ORDER BY id DESC
+        """)).mappings().all()
+        queue_rows = [dict(r, row_type="queue") for r in raw_queue]
+    except Exception:
+        queue_rows = []
 
-    rows = [dict(r) for r in rows]
+    # WorkQueue (부과대수 업로드 항목)
+    try:
+        wq_items = db.query(WorkQueue).order_by(WorkQueue.id.desc()).all()
+        wq_rows = []
+        for w in wq_items:
+            m = db.query(Member).filter(Member.id == w.member_id).first() if w.member_id else None
+            wq_rows.append({
+                "row_type": "wq",
+                "status": getattr(w, "status", "") or "",
+                "process_type": getattr(w, "process_type", "") or "",
+                "income_kind": getattr(w, "process_type", "") or "",
+                "txn_date": None,
+                "event_date": getattr(w, "event_date_raw", "") or "",
+                "amount": None,
+                "memo": "",
+                "related_vehicle_no": getattr(m, "vehicle_no", "") if m else "",
+                "related_name": getattr(m, "name", "") if m else "",
+                "vehicle_no": getattr(m, "vehicle_no", "") if m else "",
+                "member_name": getattr(m, "name", "") if m else "",
+                "reason": getattr(w, "reason", "") or "",
+                "note": "",
+                "id": getattr(w, "id", 0),
+            })
+    except Exception:
+        wq_rows = []
 
-    tabs = ["??", "????", "???", "???", "????"]
+    rows = queue_rows + wq_rows
+
+    tabs = ["전체", "반영대기", "협회비", "관리비", "반영완료"]
 
     def row_text(r):
         return " ".join(str(r.get(k) or "") for k in [
@@ -5469,14 +5492,14 @@ def pending_board_page(
 
     counts = {}
     for t in tabs:
-        if t == "??":
+        if t == "전체":
             counts[t] = len(rows)
         else:
             counts[t] = sum(1 for r in rows if t in row_text(r))
 
     filtered = rows
 
-    if tab and tab != "??":
+    if tab and tab != "전체":
         filtered = [r for r in filtered if tab in row_text(r)]
 
     if q:

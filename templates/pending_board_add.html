@@ -2,24 +2,31 @@
 {% block title %}&#xBC18;&#xC601;&#xB300;&#xAE30; &#xCD94;&#xAC00;{% endblock %}
 {% block page_title %}&#xBC18;&#xC601;&#xB300;&#xAE30; &#xCD94;&#xAC00;{% endblock %}
 {% block content %}
-<div style="max-width:900px;margin:0 auto;background:#fff;border:1px solid #f2d7e3;border-radius:18px;padding:20px;">
-<form method="post" action="/work/pending-board/add">
-  <p><b>??</b></p>
-  <select name="income_kind" style="width:100%;height:42px;">
-    <option value="????-???">???? - ???</option>
-    <option value="????-???">???? - ???</option>
-  </select>
-  <p><b>???</b></p><input name="txn_date" style="width:100%;height:38px;">
-  <p><b>??</b></p><input type="number" name="amount" style="width:100%;height:38px;">
-  <p><b>????</b></p><input name="memo" style="width:100%;height:38px;">
-  <p><b>????</b></p><input name="related_vehicle_no" style="width:100%;height:38px;">
-  <p><b>??</b></p><input name="related_name" style="width:100%;height:38px;">
-  <p><b>??</b></p><input name="reason" style="width:100%;height:38px;">
-  <p><b>??</b></p><textarea name="note" style="width:100%;height:90px;"></textarea>
-  <div style="margin-top:14px;">
-    <button type="submit" style="background:#ff5b9e;color:#fff;border:0;border-radius:12px;padding:10px 16px;font-weight:900;">??</button>
-    <a href="/work" style="background:#7d7080;color:#fff;border-radius:12px;padding:10px 16px;text-decoration:none;font-weight:900;">????</a>
-  </div>
-</form>
+<div style="max-width:900px;margin:0 auto;background:#fff;border:1px solid #f2d7e3;border-radius:18px;padding:24px;">
+  <form method="post" action="/work/pending-board/add">
+    <p><b>&#xAD6C;&#xBD84;</b></p>
+    <select name="income_kind" style="width:100%;height:42px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
+      <option value="&#xBC18;&#xC601;&#xB300;&#xAE30;-&#xD611;&#xD68C;&#xBE44;">&#xBC18;&#xC601;&#xB300;&#xAE30; - &#xD611;&#xD68C;&#xBE44;</option>
+      <option value="&#xBC18;&#xC601;&#xB300;&#xAE30;-&#xAD00;&#xB9AC;&#xBE44;">&#xBC18;&#xC601;&#xB300;&#xAE30; - &#xAD00;&#xB9AC;&#xBE44;</option>
+    </select>
+    <p><b>&#xC785;&#xAE08;&#xC77C;</b></p>
+    <input name="txn_date" style="width:100%;height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;" placeholder="2026-05-26">
+    <p><b>&#xAE08;&#xC561;</b></p>
+    <input type="number" name="amount" style="width:100%;height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
+    <p><b>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</b></p>
+    <input name="memo" style="width:100%;height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
+    <p><b>&#xCC28;&#xB7C9;&#xBC88;&#xD638;</b></p>
+    <input name="related_vehicle_no" style="width:100%;height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
+    <p><b>&#xC131;&#xBA85;</b></p>
+    <input name="related_name" style="width:100%;height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
+    <p><b>&#xC0AC;&#xC720;</b></p>
+    <input name="reason" style="width:100%;height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
+    <p><b>&#xBE44;&#xACE0;</b></p>
+    <textarea name="note" style="width:100%;height:90px;border:1px solid #e9c9d8;border-radius:12px;padding:10px 12px;"></textarea>
+    <div style="margin-top:14px;display:flex;gap:8px;">
+      <button type="submit" style="border:0;border-radius:12px;padding:10px 18px;background:#ff5b9e;color:#fff;font-weight:900;cursor:pointer;">&#xC800;&#xC7A5;</button>
+      <a href="/work" style="border:0;border-radius:12px;padding:10px 18px;background:#7d7080;color:#fff;font-weight:900;text-decoration:none;">&#xBAA9;&#xB85D;&#xC73C;&#xB85C;</a>
+    </div>
+  </form>
 </div>
 {% endblock %}

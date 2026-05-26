@@ -1,8 +1,6 @@
 {% extends "base.html" %}
-
 {% block title %}&#xCC98;&#xB9AC; &#xB300;&#xAE30;&#xBAA9;&#xB85D;{% endblock %}
 {% block page_title %}&#xCC98;&#xB9AC; &#xB300;&#xAE30;&#xBAA9;&#xB85D;{% endblock %}
-
 {% block content %}
 <style>
 .pb-card{background:#fff;border:1px solid #f2d7e3;border-radius:18px;box-shadow:0 8px 22px rgba(255,79,147,.08);padding:18px;margin-bottom:14px}
@@ -17,17 +15,16 @@
 .tbl td{padding:11px 12px;border-bottom:1px solid #f5e3eb}
 .money{text-align:right;color:#e33162;font-weight:900}
 .empty{padding:50px;text-align:center;color:#8b7282}
+.tag-wq{display:inline-block;background:#fff0f6;border:1px solid #ffc0d9;border-radius:8px;padding:2px 8px;font-size:12px;color:#c0457a;margin-right:4px}
 </style>
-
-<div class="pb-card">
+<div class="pb-card" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
   <a class="btn-pink" href="/work/pending-board/add">&#xCD94;&#xAC00;</a>
-  <form method="get" style="display:inline-flex;gap:8px;margin-left:8px;">
+  <form method="get" style="display:inline-flex;gap:8px;">
     <input type="hidden" name="tab" value="{{ tab }}">
-    <input name="q" value="{{ q }}" placeholder="??" style="height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
-    <button class="btn-gray" type="submit">??</button>
+    <input name="q" value="{{ q }}" placeholder="&#xAC80;&#xC0C9;" style="height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
+    <button class="btn-gray" type="submit">&#xAC80;&#xC0C9;</button>
   </form>
 </div>
-
 <div class="tabs">
 {% for t in tabs %}
   <a class="tab {% if tab == t %}active{% endif %}" href="/work?tab={{ t }}">
@@ -35,33 +32,35 @@
   </a>
 {% endfor %}
 </div>
-
 <div class="pb-card">
 {% if rows %}
 <table class="tbl">
   <thead>
     <tr>
-      <th>??</th>
-      <th>??</th>
-      <th>???</th>
-      <th>??</th>
-      <th>????</th>
-      <th>????</th>
-      <th>??</th>
-      <th>??</th>
-      <th>??</th>
+      <th>&#xC0C1;&#xD0DC;</th>
+      <th>&#xAD6C;&#xBD84;</th>
+      <th>&#xC785;&#xAE08;&#xC77C;</th>
+      <th>&#xAE08;&#xC561;</th>
+      <th>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</th>
+      <th>&#xCC28;&#xB7C9;&#xBC88;&#xD638;</th>
+      <th>&#xC131;&#xBA85;</th>
+      <th>&#xC0AC;&#xC720;</th>
+      <th>&#xBE44;&#xACE0;</th>
     </tr>
   </thead>
   <tbody>
   {% for r in rows %}
     <tr>
       <td>{{ r.status or "" }}</td>
-      <td><b>{{ r.income_kind or r.process_type or "" }}</b></td>
-      <td>{{ r.txn_date or "" }}</td>
-      <td class="money">{{ fmt_amt(r.amount or 0) }}?</td>
+      <td>
+        {% if r.row_type == "wq" %}<span class="tag-wq">&#xBD80;&#xACFC;</span>{% endif %}
+        <b>{{ r.income_kind or r.process_type or "" }}</b>
+      </td>
+      <td>{{ r.txn_date or r.event_date or "" }}</td>
+      <td class="money">{% if r.amount %}{{ fmt_amt(r.amount) }}&#xC6D0;{% endif %}</td>
       <td>{{ r.memo or "" }}</td>
-      <td>{{ r.related_vehicle_no or "" }}</td>
-      <td>{{ r.related_name or "" }}</td>
+      <td>{{ r.related_vehicle_no or r.vehicle_no or "" }}</td>
+      <td>{{ r.related_name or r.member_name or "" }}</td>
       <td>{{ r.reason or "" }}</td>
       <td>{{ r.note or "" }}</td>
     </tr>
@@ -69,7 +68,7 @@
   </tbody>
 </table>
 {% else %}
-  <div class="empty">?? ??? ????.</div>
+  <div class="empty">&#xD574;&#xB2F9; &#xD56D;&#xBAA9;&#xC774; &#xC5C6;&#xC2B5;&#xB2C8;&#xB2E4;.</div>
 {% endif %}
 </div>
 {% endblock %}
