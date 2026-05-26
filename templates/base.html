@@ -41,6 +41,11 @@
     <a href="/billing-report" class="sidebar-item {% if active=='billing' %}active{% endif %}">
       <span class="si-icon">📊</span> 부과대수 관리
     </a>
+<a class="side-item {% if request.url.path.startswith('/income-ledger') %}active{% endif %}" href="/income-ledger">
+  <span class="si-icon">??</span>
+  <span>&#xC7A1;&#xC218;&#xC785; &#xAC00;&#xC218;&#xAE08;</span>
+</a>
+
     <a href="/work" class="sidebar-item {% if active=='work' %}active{% endif %}">
       <span class="si-icon">⚙️</span> 처리 대기목록
     </a>
@@ -63,12 +68,6 @@
     <a href="/logout" class="sidebar-item">
       <span class="si-icon">🚪</span> 로그아웃
     </a>
-    <a href="/billing-counts">부과대수</a>
-<a class="side-item {% if request.url.path.startswith('/income-ledger') %}active{% endif %}" href="/income-ledger">
-  <span class="si-icon">??</span>
-  <span>&#xC7A1;&#xC218;&#xC785; &#xAC00;&#xC218;&#xAE08;</span>
-</a>
-
 </nav>
 </aside>
 
