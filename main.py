@@ -2233,6 +2233,14 @@ def bank_manual_match_page(
         members = (
             db.query(Member)
             .filter(or_(*filters))
+            .filter(
+                Member.name != None,
+                Member.name != "",
+                Member.vehicle_no != None,
+                Member.vehicle_no != "",
+                ~Member.name_key.in_(list(SUM_NAMES_DB)),
+                ~Member.vehicle_no.in_(list(SUM_NAMES_DB)),
+            )
             .order_by(Member.region, Member.name, Member.vehicle_no)
             .limit(80)
             .all()
