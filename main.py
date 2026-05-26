@@ -4184,10 +4184,44 @@ def income_ledger_export(
     )
 
 
+@app.get("/bank/{tid}/mark-income", response_class=HTMLResponse)
+def bank_mark_income_form(
+    tid: int,
+    request: Request,
+    kind: str = "misc",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    MISC = "\uc7a1\uc218\uc785"        # ???
+    SUSP = "\uac00\uc218\uae08"        # ???
+
+    raw_kind = str(kind or "").strip().lower()
+    if raw_kind in ["misc", "misc_income", MISC]:
+        selected_kind = MISC
+    else:
+        selected_kind = SUSP
+
+    return templates.TemplateResponse(request, "income_mark_form.html", {
+        "request": request,
+        "user": user,
+        "tx": tx,
+        "kind": selected_kind,
+        "fmt_amt": fmt_amt,
+    })
+
+
 @app.post("/bank/{tid}/mark-income")
-def bank_mark_income(
+def bank_mark_income_save(
     tid: int,
     kind: str = Form(...),
+    reason: str = Form(""),
+    related_vehicle_no: str = Form(""),
+    related_name: str = Form(""),
+    note: str = Form(""),
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
@@ -4199,9 +4233,9 @@ def bank_mark_income(
 
     raw_kind = str(kind or "").strip().lower()
 
-    if raw_kind in ["misc", "misc_income"]:
+    if raw_kind in ["misc", "misc_income", MISC]:
         new_status = MISC
-    elif raw_kind in ["suspense", "temporary", "deposit"]:
+    elif raw_kind in ["suspense", "temporary", "deposit", SUSP]:
         new_status = SUSP
     else:
         new_status = SUSP
@@ -4216,10 +4250,24 @@ def bank_mark_income(
             status_code=302
         )
 
+    parts = []
+    if reason:
+        parts.append("??: " + reason.strip())
+    if related_vehicle_no:
+        parts.append("????: " + related_vehicle_no.strip())
+    if related_name:
+        parts.append("????: " + related_name.strip())
+    if note:
+        parts.append("??: " + note.strip())
+
     old_reason = getattr(tx, "match_reason", "") or ""
+    add_reason = "????: " + new_status
+    if parts:
+        add_reason += " / " + " / ".join(parts)
+
     tx.match_status = new_status
     tx.matched_member_id = None
-    tx.match_reason = (old_reason + ", " if old_reason else "") + "????: " + new_status
+    tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
 
     db.add(tx)
     db.commit()

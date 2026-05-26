@@ -234,39 +234,27 @@ async function searchMember(txId, deposit) {
 }
 </script>
 
+
 <script id="income-mark-buttons">
 (function(){
   const labelMisc = String.fromCharCode(0xC7A1,0xC218,0xC785); // ???
   const labelSusp = String.fromCharCode(0xAC00,0xC218,0xAE08); // ???
 
-  function makeBtn(id, kindValue, label, bg){
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = "/bank/" + id + "/mark-income";
-    form.style.display = "inline";
-    form.style.margin = "0 0 0 4px";
-
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = "kind";
-    input.value = kindValue;
-
-    const btn = document.createElement("button");
-    btn.type = "submit";
-    btn.textContent = label;
-    btn.style.border = "0";
-    btn.style.borderRadius = "9px";
-    btn.style.padding = "6px 9px";
-    btn.style.fontWeight = "800";
-    btn.style.cursor = "pointer";
-    btn.style.background = bg;
-    btn.style.color = "#fff";
-    btn.style.fontSize = "12px";
-    btn.style.boxShadow = "0 3px 8px rgba(0,0,0,.12)";
-
-    form.appendChild(input);
-    form.appendChild(btn);
-    return form;
+  function makeLink(id, kindValue, label, bg){
+    const a = document.createElement("a");
+    a.href = "/bank/" + id + "/mark-income?kind=" + kindValue;
+    a.textContent = label;
+    a.style.border = "0";
+    a.style.borderRadius = "9px";
+    a.style.padding = "6px 9px";
+    a.style.fontWeight = "800";
+    a.style.cursor = "pointer";
+    a.style.background = bg;
+    a.style.color = "#fff";
+    a.style.fontSize = "12px";
+    a.style.textDecoration = "none";
+    a.style.boxShadow = "0 3px 8px rgba(0,0,0,.12)";
+    return a;
   }
 
   function installIncomeButtons(){
@@ -288,8 +276,8 @@ async function searchMember(txId, deposit) {
       box.style.marginLeft = "6px";
       box.style.verticalAlign = "middle";
 
-      box.appendChild(makeBtn(id, "misc", labelMisc, "#7c3aed"));
-      box.appendChild(makeBtn(id, "suspense", labelSusp, "#0ea5e9"));
+      box.appendChild(makeLink(id, "misc", labelMisc, "#7c3aed"));
+      box.appendChild(makeLink(id, "suspense", labelSusp, "#0ea5e9"));
 
       lastCell.appendChild(box);
     });
