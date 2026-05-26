@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}&#xBC18;&#xC601;&#xB300;&#xAE30; &#xCD94;&#xAC00;{% endblock %}
+{% block page_title %}&#xBC18;&#xC601;&#xB300;&#xAE30; &#xCD94;&#xAC00;{% endblock %}
+
+{% block content %}
+<style>
+.add-wrap{max-width:980px;margin:0 auto}
+.add-card{background:#fff;border:1px solid #f2d7e3;border-radius:18px;box-shadow:0 8px 22px rgba(255,79,147,.08);padding:20px}
+.add-title{font-size:22px;font-weight:900;margin-bottom:14px;color:#2d2230}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-weight:800;color:#5d4b62}
+.field input,.field textarea,.field select{border:1px solid #e9c9d8;border-radius:12px;padding:10px 12px;font-size:14px}
+.field textarea{min-height:90px;resize:vertical}
+.full{grid-column:1 / -1}
+.actions{display:flex;gap:8px;margin-top:16px}
+.btn-pink{border:0;border-radius:12px;padding:10px 16px;background:#ff5b9e;color:#fff!important;font-weight:900;text-decoration:none;cursor:pointer}
+.btn-gray{border:0;border-radius:12px;padding:10px 16px;background:#7d7080;color:#fff!important;font-weight:900;text-decoration:none}
+</style>
+
+<div class="add-wrap">
+  <div class="add-card">
+    <div class="add-title">&#xBC18;&#xC601;&#xB300;&#xAE30; &#xC218;&#xB3D9; &#xCD94;&#xAC00;</div>
+
+    <form method="post" action="/work/pending-income/add">
+      <div class="form-grid">
+        <div class="field">
+          <label>&#xAD6C;&#xBD84;</label>
+          <select name="income_kind">
+            <option value="????-???">&#xBC18;&#xC601;&#xB300;&#xAE30; - &#xD611;&#xD68C;&#xBE44;</option>
+            <option value="????-???">&#xBC18;&#xC601;&#xB300;&#xAE30; - &#xAD00;&#xB9AC;&#xBE44;</option>
+            <option value="????-???">&#xBC18;&#xC601;&#xB300;&#xAE30; - &#xAC00;&#xC785;&#xBE44;</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>&#xC785;&#xAE08;&#xC77C;</label>
+          <input type="text" name="txn_date" placeholder="2026-05-26">
+        </div>
+
+        <div class="field">
+          <label>&#xAE08;&#xC561;</label>
+          <input type="number" name="amount" placeholder="10000">
+        </div>
+
+        <div class="field">
+          <label>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</label>
+          <input type="text" name="memo" placeholder="???? ?? ????">
+        </div>
+
+        <div class="field">
+          <label>&#xAD00;&#xB828; &#xCC28;&#xB7C9;&#xBC88;&#xD638;</label>
+          <input type="text" name="related_vehicle_no" placeholder="??80?1234 ?? 1234">
+        </div>
+
+        <div class="field">
+          <label>&#xAD00;&#xB828; &#xC131;&#xBA85;</label>
+          <input type="text" name="related_name" placeholder="??">
+        </div>
+
+        <div class="field">
+          <label>&#xC0AC;&#xC720;</label>
+          <input type="text" name="reason" placeholder="??? ?? ?? / ??? ?? ?? / ??? ??">
+        </div>
+
+        <div class="field full">
+          <label>&#xBE44;&#xACE0;</label>
+          <textarea name="note" placeholder="?? ??"></textarea>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn-pink" type="submit">&#xC800;&#xC7A5;</button>
+        <a class="btn-gray" href="/work/pending-income">&#xBAA9;&#xB85D;&#xC73C;&#xB85C;</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

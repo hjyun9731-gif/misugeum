@@ -72,7 +72,10 @@
           <td>{{ tx_memo(tx) }}</td>
           <td>{{ kind }}</td>
           <td>{{ tx.match_reason or "" }}</td>
-          <td><a class="btn-gray" href="/income-ledger/{{ tx.id }}/edit">&#xC218;&#xC815;</a></td>
+          <td><a class="btn-gray" href="/income-ledger/{{ tx.id }}/edit">&#xC218;&#xC815;</a>
+            <form method="post" action="/income-ledger/{{ tx.id }}/delete" style="display:inline;margin-left:6px;" onsubmit="return confirm('??????');">
+              <button type="submit" class="btn-pink" style="background:#ef4444;">&#xC0AD;&#xC81C;</button>
+            </form></td>
         </tr>
         {% endfor %}
       </tbody>

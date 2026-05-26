@@ -4700,6 +4700,39 @@ def bank_mark_income_save(
     )
 
 
+# =========================================================
+# ???/??? ??: ???? ??? ??? ????? ???
+# =========================================================
+@app.post("/income-ledger/{tid}/delete")
+def income_ledger_delete(
+    tid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    UNMATCHED = "\ubbf8\ub9e4\uce6d"  # ???
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    tx.match_status = UNMATCHED
+    tx.matched_member_id = None
+    tx.match_reason = "???/??? ?? ?? - ????? ??"
+
+    db.add(tx)
+    db.commit()
+
+    return RedirectResponse(
+        "/bank?status=" + quote(UNMATCHED) + "&msg=" + quote("???/??? ??? ???? ????? ??????."),
+        status_code=302
+    )
+
+
+# =========================================================
+# ???? ??: ???? ? ? ????? ??
+# =========================================================
 @app.post("/bank/{tid}/delete")
 def bank_transaction_delete(
     tid: int,
@@ -4714,10 +4747,9 @@ def bank_transaction_delete(
     if not tx:
         raise HTTPException(404)
 
-    # ???? ??
     if getattr(tx, "applied", False) or str(getattr(tx, "match_status", "") or "") == DONE:
         return RedirectResponse(
-            "/bank?msg=" + quote("????? ????? ??? ? ????. ?? ????/???? ?????."),
+            "/bank?msg=" + quote("????? ????? ??? ? ????."),
             status_code=302
         )
 
@@ -4726,6 +4758,202 @@ def bank_transaction_delete(
 
     return RedirectResponse(
         "/bank?msg=" + quote("????? ??????."),
+        status_code=302
+    )
+
+
+def _ensure_pending_income_table(db):
+    from sqlalchemy import text
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS bank_income_pending_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bank_transaction_id INTEGER,
+            process_type VARCHAR(50),
+            income_kind VARCHAR(50),
+            txn_date VARCHAR(20),
+            amount INTEGER,
+            memo TEXT,
+            related_vehicle_no VARCHAR(100),
+            related_name VARCHAR(100),
+            reason TEXT,
+            note TEXT,
+            status VARCHAR(50) DEFAULT '????',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+
+
+# =========================================================
+# ?????? - ???? ?? ??
+# =========================================================
+@app.get("/work/pending-income", response_class=HTMLResponse)
+def pending_income_page(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import text
+
+    _ensure_pending_income_table(db)
+
+    where = []
+    params = {}
+
+    if q:
+        where.append("""
+            (
+                memo LIKE :q OR
+                related_vehicle_no LIKE :q OR
+                related_name LIKE :q OR
+                reason LIKE :q OR
+                note LIKE :q OR
+                income_kind LIKE :q
+            )
+        """)
+        params["q"] = f"%{q}%"
+
+    if status:
+        where.append("status = :status")
+        params["status"] = status
+
+    sql = """
+        SELECT *
+        FROM bank_income_pending_queue
+    """
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC"
+
+    rows = db.execute(text(sql), params).mappings().all()
+
+    return templates.TemplateResponse(request, "pending_income.html", {
+        "request": request,
+        "user": user,
+        "rows": rows,
+        "q": q,
+        "status": status,
+        "fmt_amt": fmt_amt,
+    })
+
+
+# =========================================================
+# ?????? - ???? ?? ?? ??
+# =========================================================
+@app.get("/work/pending-income/add", response_class=HTMLResponse)
+def pending_income_add_form(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    return templates.TemplateResponse(request, "pending_income_add.html", {
+        "request": request,
+        "user": user,
+    })
+
+
+@app.post("/work/pending-income/add")
+def pending_income_add_save(
+    income_kind: str = Form(...),
+    txn_date: str = Form(""),
+    amount: int = Form(0),
+    memo: str = Form(""),
+    related_vehicle_no: str = Form(""),
+    related_name: str = Form(""),
+    reason: str = Form(""),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    from sqlalchemy import text
+
+    _ensure_pending_income_table(db)
+
+    allowed = [
+        "????-???",
+        "????-???",
+        "????-???",
+    ]
+    if income_kind not in allowed:
+        income_kind = "????-???"
+
+    db.execute(text("""
+        INSERT INTO bank_income_pending_queue
+        (bank_transaction_id, process_type, income_kind, txn_date, amount, memo,
+         related_vehicle_no, related_name, reason, note, status)
+        VALUES
+        (NULL, '????', :income_kind, :txn_date, :amount, :memo,
+         :related_vehicle_no, :related_name, :reason, :note, '????')
+    """), {
+        "income_kind": income_kind,
+        "txn_date": txn_date,
+        "amount": int(amount or 0),
+        "memo": memo,
+        "related_vehicle_no": related_vehicle_no,
+        "related_name": related_name,
+        "reason": reason,
+        "note": note,
+    })
+
+    db.commit()
+
+    return RedirectResponse(
+        "/work/pending-income?msg=" + quote("???? ??? ??????."),
+        status_code=302
+    )
+
+
+# =========================================================
+# ?????? - ???? ??
+# =========================================================
+@app.post("/work/pending-income/{pid}/delete")
+def pending_income_delete(
+    pid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    from sqlalchemy import text
+
+    _ensure_pending_income_table(db)
+
+    db.execute(text("DELETE FROM bank_income_pending_queue WHERE id = :id"), {"id": pid})
+    db.commit()
+
+    return RedirectResponse(
+        "/work/pending-income?msg=" + quote("???? ??? ??????."),
+        status_code=302
+    )
+
+
+# =========================================================
+# ?????? - ???? ??
+# ??? ??? ????? ??.
+# ?? ???/??? ??? ?? ??? ?? ???? Member ?? ?? ??? ?.
+# =========================================================
+@app.post("/work/pending-income/{pid}/apply")
+def pending_income_apply(
+    pid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    from sqlalchemy import text
+
+    _ensure_pending_income_table(db)
+
+    db.execute(text("""
+        UPDATE bank_income_pending_queue
+        SET status = '????'
+        WHERE id = :id
+    """), {"id": pid})
+
+    db.commit()
+
+    return RedirectResponse(
+        "/work/pending-income?status=????&msg=" + quote("???? ??????."),
         status_code=302
     )
 
