@@ -864,22 +864,188 @@ def _make_monthly_deposit_export_workbook_v4(rows):
 
 
 
+
+def _find_monthly_deposit_export_rows_v5(db, year, month):
+    """
+    Monthly deposit export.
+    Uses unicode escapes for Korean labels so Excel headers never become ????.
+    """
+    from sqlalchemy import inspect, text as sql_text
+
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+    NAME = "\uc774\ub984"                 # ??
+    ACCOUNT = "\uacc4\uc815"              # ??
+    AMOUNT = "\uae08\uc561"               # ??
+
+    ym = f"{year}-{month:02d}"
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    recent_candidates = [
+        "\ucd5c\uadfc\uc785\uae08\uc77c",              # ?????
+        "\ucd5c\uadfc \uc785\uae08\uc77c",             # ?? ???
+        "\ub9c8\uc9c0\ub9c9\uc785\uae08\uc77c",        # ??????
+        "\ub9c8\uc9c0\ub9c9 \uc785\uae08\uc77c",       # ??? ???
+        "\ucd5c\uadfc\ub0a9\ubd80\uc77c",              # ?????
+        "\ucd5c\uadfc \ub0a9\ubd80\uc77c",             # ?? ???
+        "last_payment_date", "recent_payment_date", "latest_payment_date",
+        "last_paid_at", "last_deposit_date", "recent_deposit_date",
+        "paid_at", "payment_date"
+    ]
+
+    vehicle_candidates = [
+        "\ucc28\ub7c9\ubc88\ud638", "\ucc28\ub7c9 \ubc88\ud638",
+        "vehicle_number", "vehicle_no", "car_number", "car_no", "plate_number"
+    ]
+
+    name_candidates = [
+        "\uc131\uba85", "\uc774\ub984", "\ud68c\uc6d0\uba85",
+        "name", "member_name", "owner_name", "person_name"
+    ]
+
+    account_candidates = [
+        "\uacc4\uc815", "\uad6c\ubd84", "\ud68c\ube44\uad6c\ubd84",
+        "account", "account_type", "category", "fee_type", "dues_type"
+    ]
+
+    amount_candidates = [
+        "\uae08\uc561", "\uc785\uae08\uc561", "\ub0a9\ubd80\uae08\uc561",
+        "\ucd5c\uadfc\uc785\uae08\uc561", "\ucd5c\uadfc \uc785\uae08\uc561",
+        "\ucd5c\uadfc\ub0a9\ubd80\uae08\uc561", "\ucd5c\uadfc \ub0a9\ubd80\uae08\uc561",
+        "amount", "payment_amount", "paid_amount", "deposit_amount",
+        "last_payment_amount", "recent_payment_amount", "last_paid_amount"
+    ]
+
+    candidates = []
+
+    for table in tables:
+        try:
+            cols = [c["name"] for c in inspector.get_columns(table)]
+            if not cols:
+                continue
+
+            col_recent = _find_col(cols, recent_candidates)
+            if not col_recent:
+                continue
+
+            col_vehicle = _find_col(cols, vehicle_candidates)
+            col_name = _find_col(cols, name_candidates)
+            col_account = _find_col(cols, account_candidates)
+            col_amount = _find_col(cols, amount_candidates)
+
+            if not col_vehicle and not col_name:
+                continue
+
+            q_count = sql_text(
+                'SELECT COUNT(*) FROM "' + table + '" '
+                'WHERE CAST("' + col_recent + '" AS TEXT) LIKE :ym'
+            )
+            cnt = db.execute(q_count, {"ym": ym + "%"}).scalar() or 0
+
+            if int(cnt) <= 0:
+                continue
+
+            candidates.append({
+                "table": table,
+                "count": int(cnt),
+                "recent": col_recent,
+                "vehicle": col_vehicle,
+                "name": col_name,
+                "account": col_account,
+                "amount": col_amount,
+            })
+
+        except Exception as e:
+            print("WARN: deposit v5 scan skipped", table, repr(e))
+            continue
+
+    if not candidates:
+        return [], {
+            "source_table": "",
+            "recent_col": "",
+            "count": 0,
+            "message": f"{ym} data not found"
+        }
+
+    # Choose the table with the largest monthly payer count.
+    candidates.sort(key=lambda x: x["count"], reverse=True)
+    src = candidates[0]
+
+    q_rows = sql_text(
+        'SELECT * FROM "' + src["table"] + '" '
+        'WHERE CAST("' + src["recent"] + '" AS TEXT) LIKE :ym '
+        'ORDER BY CAST("' + src["recent"] + '" AS TEXT) ASC'
+    )
+
+    db_rows = db.execute(q_rows, {"ym": ym + "%"}).mappings().all()
+
+    rows = []
+    for row in db_rows:
+        row = dict(row)
+        rows.append({
+            VEHICLE: _safe_str(row.get(src["vehicle"])) if src["vehicle"] else "",
+            NAME: _safe_str(row.get(src["name"])) if src["name"] else "",
+            ACCOUNT: _safe_str(row.get(src["account"])) if src["account"] else "",
+            AMOUNT: _safe_str(row.get(src["amount"])) if src["amount"] else "",
+        })
+
+    return rows, {
+        "source_table": src["table"],
+        "recent_col": src["recent"],
+        "count": len(rows),
+        "all_candidates": candidates[:10],
+    }
+
+
+def _make_monthly_deposit_export_workbook_v5(rows):
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+    NAME = "\uc774\ub984"                 # ??
+    ACCOUNT = "\uacc4\uc815"              # ??
+    AMOUNT = "\uae08\uc561"               # ??
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "deposit_export"
+
+    headers = [VEHICLE, NAME, ACCOUNT, AMOUNT]
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            r.get(VEHICLE, ""),
+            r.get(NAME, ""),
+            r.get(ACCOUNT, ""),
+            r.get(AMOUNT, ""),
+        ])
+
+    _style_sheet(ws)
+
+    # N? ???? ?? ??? ??
+    ws.column_dimensions["A"].width = 18  # ????
+    ws.column_dimensions["B"].width = 16  # ??
+    ws.column_dimensions["C"].width = 14  # ??
+    ws.column_dimensions["D"].width = 14  # ??
+
+    return wb
+
+
+
 @router.get("/deposit/export")
 def export_deposit_excel(
-    year: int = Query(..., description="????"),
-    month: int = Query(..., ge=1, le=12, description="???")
+    year: int = Query(..., description="year"),
+    month: int = Query(..., ge=1, le=12, description="month")
 ):
     try:
         db_gen = _get_db()
         db = next(db_gen)
 
-        rows, meta = _find_monthly_deposit_export_rows_v4(db, year, month)
-        wb = _make_monthly_deposit_export_workbook_v4(rows)
+        rows, meta = _find_monthly_deposit_export_rows_v5(db, year, month)
+        wb = _make_monthly_deposit_export_workbook_v5(rows)
 
-        # ??? ??? ?? ??. ?? ????? ? ? ???? ???.
         ws_debug = wb.create_sheet(title="debug_source")
-        ws_debug.append(["??", "?"])
-        ws_debug.append(["???", f"{year}-{month:02d}"])
+        ws_debug.append(["item", "value"])
+        ws_debug.append(["month", f"{year}-{month:02d}"])
         ws_debug.append(["source_table", meta.get("source_table", "")])
         ws_debug.append(["recent_col", meta.get("recent_col", "")])
         ws_debug.append(["count", meta.get("count", 0)])
@@ -889,7 +1055,7 @@ def export_deposit_excel(
 
         ws_debug.sheet_state = "hidden"
 
-        filename = f"{year}?_{month:02d}?_????.xlsx"
+        filename = f"{year}_{month:02d}_deposit_export.xlsx"
         return _excel_response(wb, filename)
 
     except Exception as e:
