@@ -61,6 +61,7 @@
           <th>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</th>
           <th>&#xD604;&#xC7AC; &#xAD6C;&#xBD84;</th>
           <th>&#xC0AC;&#xC720;</th>
+          <th>&#xCC98;&#xB9AC;</th>
         </tr>
       </thead>
       <tbody>
@@ -71,6 +72,7 @@
           <td>{{ tx_memo(tx) }}</td>
           <td>{{ kind }}</td>
           <td>{{ tx.match_reason or "" }}</td>
+          <td><a class="btn-gray" href="/income-ledger/{{ tx.id }}/edit">&#xC218;&#xC815;</a></td>
         </tr>
         {% endfor %}
       </tbody>

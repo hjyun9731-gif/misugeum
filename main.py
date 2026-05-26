@@ -4271,3 +4271,331 @@ def bank_mark_income_save(
         status_code=302
     )
 
+
+@app.get("/income-ledger/{tid}/edit", response_class=HTMLResponse)
+def income_ledger_edit_form(
+    tid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    MISC = "\uc7a1\uc218\uc785"
+    SUSP = "\uac00\uc218\uae08"
+
+    kind_code = "misc" if str(getattr(tx, "match_status", "") or "") == MISC else "suspense"
+
+    return templates.TemplateResponse(request, "income_edit_form.html", {
+        "request": request,
+        "user": user,
+        "tx": tx,
+        "kind_code": kind_code,
+        "fmt_amt": fmt_amt,
+    })
+
+
+@app.post("/income-ledger/{tid}/edit")
+def income_ledger_edit_save(
+    tid: int,
+    kind: str = Form(...),
+    reason: str = Form(""),
+    related_vehicle_no: str = Form(""),
+    related_name: str = Form(""),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    MISC = "\uc7a1\uc218\uc785"
+    SUSP = "\uac00\uc218\uae08"
+
+    raw_kind = str(kind or "").strip().lower()
+    new_status = MISC if raw_kind in ["misc", "misc_income"] else SUSP
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    parts = []
+    if reason:
+        parts.append("??: " + reason.strip())
+    if related_vehicle_no:
+        parts.append("????: " + related_vehicle_no.strip())
+    if related_name:
+        parts.append("????: " + related_name.strip())
+    if note:
+        parts.append("??: " + note.strip())
+
+    tx.match_status = new_status
+    tx.matched_member_id = None
+    tx.match_reason = "???? ??: " + new_status
+    if parts:
+        tx.match_reason += " / " + " / ".join(parts)
+
+    db.add(tx)
+    db.commit()
+
+    return RedirectResponse(
+        "/income-ledger?kind=" + quote(new_status),
+        status_code=302
+    )
+
+
+@app.post("/billing-counts/generate-next-arrears")
+def generate_next_month_arrears_from_billing_counts(
+    year: int = Form(...),
+    month: int = Form(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    from sqlalchemy import text
+    import datetime as _dt
+    import re as _re
+
+    FEE_ASSOC = 10000
+    FEE_MGMT = 5000
+
+    ACC_ASSOC = "\ud611\ud68c\ube44"   # ???
+    ACC_MGMT = "\uad00\ub9ac\ube44"    # ???
+
+    # ??? ??
+    if month == 12:
+        bill_year = year + 1
+        bill_month = 1
+    else:
+        bill_year = year
+        bill_month = month + 1
+
+    # ?? ?? ??? ???
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS billing_generated_arrears (
+            member_id INTEGER NOT NULL,
+            bill_year INTEGER NOT NULL,
+            bill_month INTEGER NOT NULL,
+            account VARCHAR(50) NOT NULL,
+            amount INTEGER NOT NULL,
+            source_year INTEGER NOT NULL,
+            source_month INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (member_id, bill_year, bill_month, account)
+        )
+    """))
+
+    def _s(v):
+        return str(v or "").strip()
+
+    def _compact(v):
+        return _re.sub(r"\s+", "", _s(v))
+
+    def _get(m, names):
+        for n in names:
+            if hasattr(m, n):
+                v = getattr(m, n)
+                if v not in [None, ""]:
+                    return v
+        return None
+
+    def _parse_date(v):
+        if not v:
+            return None
+        if isinstance(v, _dt.datetime):
+            return v.date()
+        if isinstance(v, _dt.date):
+            return v
+        s = str(v).strip()
+        m = _re.search(r"(\d{4})[-./?\s]*(\d{1,2})[-./?\s]*(\d{1,2})?", s)
+        if not m:
+            return None
+        y = int(m.group(1))
+        mo = int(m.group(2))
+        d = int(m.group(3) or 1)
+        try:
+            return _dt.date(y, mo, d)
+        except Exception:
+            return None
+
+    def _next_month_ym(d):
+        if not d:
+            return None
+        if d.month == 12:
+            return (d.year + 1, 1)
+        return (d.year, d.month + 1)
+
+    def _ym_le(a, b):
+        return a[0] < b[0] or (a[0] == b[0] and a[1] <= b[1])
+
+    def _vehicle(m):
+        return _s(_get(m, [
+            "vehicle_no", "vehicle_number", "car_no", "plate_number",
+            "car_number", "truck_no"
+        ]))
+
+    def _account(m):
+        return _s(_get(m, ["account", "account_type", "fee_type", "acct"]))
+
+    def _status_text(m):
+        parts = []
+        for n in [
+            "status", "member_status", "process_type", "process_status",
+            "note", "memo", "remark", "remarks", "bigo", "description"
+        ]:
+            if hasattr(m, n):
+                v = getattr(m, n)
+                if v:
+                    parts.append(str(v))
+        return _compact(" ".join(parts))
+
+    def _is_excluded(m):
+        txt = _status_text(m)
+        bad_words = [
+            "\ud3d0\uc5c5",  # ??
+            "\ud3d0\uc9c0",  # ??
+            "\uc591\ub3c4",  # ??
+            "\uc774\uad00",  # ??
+            "\ud0c8\ud1f4",  # ??
+            "\uc0ac\ub9dd",  # ??
+            "\uc911\uc9c0",  # ??
+        ]
+        return any(w in txt for w in bad_words)
+
+    def _is_delivery_vehicle(m):
+        veh = _vehicle(m)
+        return "\ubc30" in veh  # ?
+
+    def _delivery_charge_allowed(m):
+        # ??? ???? + ???????? ? ? ??? ????? ??
+        approval = _parse_date(_get(m, [
+            "approval_date", "authorized_date", "permit_date",
+            "approval_dt", "inga_date"
+        ]))
+        cert = _parse_date(_get(m, [
+            "certificate_issue_date", "cert_issue_date", "license_issue_date",
+            "qualification_issue_date", "jagyeok_date"
+        ]))
+
+        # ?? ??? ?? ? ?? ?? DB? ??? ?? ??
+        has_approval_col = any(hasattr(m, n) for n in [
+            "approval_date", "authorized_date", "permit_date", "approval_dt", "inga_date"
+        ])
+        has_cert_col = any(hasattr(m, n) for n in [
+            "certificate_issue_date", "cert_issue_date", "license_issue_date",
+            "qualification_issue_date", "jagyeok_date"
+        ])
+
+        if not has_approval_col and not has_cert_col:
+            return True
+
+        if not approval or not cert:
+            return False
+
+        start_base = approval if approval >= cert else cert
+        start_ym = _next_month_ym(start_base)
+        target_ym = (bill_year, bill_month)
+        return _ym_le(start_ym, target_ym)
+
+    def _target_account_and_amount(m):
+        acc = _account(m)
+        acc_c = _compact(acc)
+
+        if "\ud611" in acc_c:  # ?
+            return ACC_ASSOC, FEE_ASSOC
+
+        if "\uad00" in acc_c:  # ?
+            return ACC_MGMT, FEE_MGMT
+
+        return None, 0
+
+    members = db.query(Member).all()
+
+    created_assoc = 0
+    created_mgmt = 0
+    skipped_duplicate = 0
+    skipped_excluded = 0
+    skipped_no_account = 0
+    skipped_delivery_wait = 0
+    total_amount = 0
+
+    for m in members:
+        if _is_excluded(m):
+            skipped_excluded += 1
+            continue
+
+        if _is_delivery_vehicle(m) and not _delivery_charge_allowed(m):
+            skipped_delivery_wait += 1
+            continue
+
+        account, amount = _target_account_and_amount(m)
+        if not account or amount <= 0:
+            skipped_no_account += 1
+            continue
+
+        exists = db.execute(text("""
+            SELECT 1
+            FROM billing_generated_arrears
+            WHERE member_id = :member_id
+              AND bill_year = :bill_year
+              AND bill_month = :bill_month
+              AND account = :account
+        """), {
+            "member_id": m.id,
+            "bill_year": bill_year,
+            "bill_month": bill_month,
+            "account": account,
+        }).first()
+
+        if exists:
+            skipped_duplicate += 1
+            continue
+
+        db.execute(text("""
+            INSERT INTO billing_generated_arrears
+            (member_id, bill_year, bill_month, account, amount, source_year, source_month)
+            VALUES
+            (:member_id, :bill_year, :bill_month, :account, :amount, :source_year, :source_month)
+        """), {
+            "member_id": m.id,
+            "bill_year": bill_year,
+            "bill_month": bill_month,
+            "account": account,
+            "amount": amount,
+            "source_year": year,
+            "source_month": month,
+        })
+
+        # /arrears ?????? ?? ????? Member.excel_arrears ??
+        old_arr = getattr(m, "excel_arrears", 0) or 0
+        try:
+            old_arr = int(old_arr)
+        except Exception:
+            old_arr = 0
+
+        m.excel_arrears = old_arr + amount
+
+        if account == ACC_ASSOC:
+            created_assoc += 1
+        else:
+            created_mgmt += 1
+
+        total_amount += amount
+        db.add(m)
+
+    db.commit()
+
+    msg = (
+        f"{bill_year}\ub144 {bill_month}\uc6d4 \ubbf8\uc218\uae08 \uc0dd\uc131 \uc644\ub8cc / "
+        f"\ud611\ud68c\ube44 {created_assoc}\uac74 / "
+        f"\uad00\ub9ac\ube44 {created_mgmt}\uac74 / "
+        f"\uc911\ubcf5\uc81c\uc678 {skipped_duplicate}\uac74 / "
+        f"\uc0dd\uc131\uae08\uc561 {total_amount:,}\uc6d0"
+    )
+
+    return RedirectResponse(
+        f"/billing-counts?year={year}&month={month}&msg=" + quote(msg),
+        status_code=302
+    )
+
