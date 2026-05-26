@@ -715,6 +715,155 @@ def _make_simple_deposit_workbook(year, month, rows):
 
 
 
+
+def _find_monthly_deposit_export_rows_v4(db, year, month):
+    """
+    N? ???? ?? ??:
+    - ?????/?????? ?? ??? ?? ???? ?? ??
+    - YYYY-MM?? ???? ? ??? ?? ?? ???? ??
+    - ??? '?? ???? 624?'? ?? ??? ?? ?? ??
+    - ??? ???? / ?? / ?? / ?? 4??
+    """
+    from sqlalchemy import inspect, text as sql_text
+
+    ym = f"{year}-{month:02d}"
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    recent_candidates = [
+        "?????", "?? ???",
+        "??????", "??? ???",
+        "?????", "?? ???",
+        "last_payment_date", "recent_payment_date", "latest_payment_date",
+        "last_paid_at", "last_deposit_date", "recent_deposit_date",
+        "paid_at", "payment_date"
+    ]
+
+    vehicle_candidates = [
+        "????", "?? ??",
+        "vehicle_number", "vehicle_no", "car_number", "car_no", "plate_number"
+    ]
+
+    name_candidates = [
+        "??", "??", "???",
+        "name", "member_name", "owner_name", "person_name"
+    ]
+
+    account_candidates = [
+        "??", "??", "????",
+        "account", "account_type", "category", "fee_type", "dues_type"
+    ]
+
+    amount_candidates = [
+        "??", "???", "????", "?????", "?? ???",
+        "??????", "?? ????",
+        "amount", "payment_amount", "paid_amount", "deposit_amount",
+        "last_payment_amount", "recent_payment_amount", "last_paid_amount"
+    ]
+
+    candidates = []
+
+    for table in tables:
+        try:
+            cols = [c["name"] for c in inspector.get_columns(table)]
+            if not cols:
+                continue
+
+            col_recent = _find_col(cols, recent_candidates)
+            if not col_recent:
+                continue
+
+            col_vehicle = _find_col(cols, vehicle_candidates)
+            col_name = _find_col(cols, name_candidates)
+            col_account = _find_col(cols, account_candidates)
+            col_amount = _find_col(cols, amount_candidates)
+
+            if not col_vehicle and not col_name:
+                continue
+
+            q_count = sql_text(
+                'SELECT COUNT(*) FROM "' + table + '" '
+                'WHERE CAST("' + col_recent + '" AS TEXT) LIKE :ym'
+            )
+            cnt = db.execute(q_count, {"ym": ym + "%"}).scalar() or 0
+
+            if int(cnt) <= 0:
+                continue
+
+            candidates.append({
+                "table": table,
+                "count": int(cnt),
+                "recent": col_recent,
+                "vehicle": col_vehicle,
+                "name": col_name,
+                "account": col_account,
+                "amount": col_amount,
+            })
+
+        except Exception as e:
+            print("WARN: deposit v4 scan skipped", table, repr(e))
+            continue
+
+    if not candidates:
+        return [], {
+            "source_table": "",
+            "recent_col": "",
+            "count": 0,
+            "message": f"{ym} ????? ??? ??"
+        }
+
+    # ??: ??? ?? ????? ??? ?? ??? ?? ?? ???? ??
+    candidates.sort(key=lambda x: x["count"], reverse=True)
+    src = candidates[0]
+
+    q_rows = sql_text(
+        'SELECT * FROM "' + src["table"] + '" '
+        'WHERE CAST("' + src["recent"] + '" AS TEXT) LIKE :ym '
+        'ORDER BY CAST("' + src["recent"] + '" AS TEXT) ASC'
+    )
+
+    db_rows = db.execute(q_rows, {"ym": ym + "%"}).mappings().all()
+
+    rows = []
+    for row in db_rows:
+        row = dict(row)
+        rows.append({
+            "????": _safe_str(row.get(src["vehicle"])) if src["vehicle"] else "",
+            "??": _safe_str(row.get(src["name"])) if src["name"] else "",
+            "??": _safe_str(row.get(src["account"])) if src["account"] else "",
+            "??": _safe_str(row.get(src["amount"])) if src["amount"] else "",
+        })
+
+    return rows, {
+        "source_table": src["table"],
+        "recent_col": src["recent"],
+        "count": len(rows),
+        "all_candidates": candidates[:10],
+    }
+
+
+def _make_monthly_deposit_export_workbook_v4(rows):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "deposit_export"
+
+    headers = ["????", "??", "??", "??"]
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            r.get("????", ""),
+            r.get("??", ""),
+            r.get("??", ""),
+            r.get("??", ""),
+        ])
+
+    _style_sheet(ws)
+    return wb
+
+
+
 @router.get("/deposit/export")
 def export_deposit_excel(
     year: int = Query(..., description="????"),
@@ -724,8 +873,21 @@ def export_deposit_excel(
         db_gen = _get_db()
         db = next(db_gen)
 
-        rows = _find_recent_payment_rows(db, year, month)
-        wb = _make_simple_deposit_workbook(year, month, rows)
+        rows, meta = _find_monthly_deposit_export_rows_v4(db, year, month)
+        wb = _make_monthly_deposit_export_workbook_v4(rows)
+
+        # ??? ??? ?? ??. ?? ????? ? ? ???? ???.
+        ws_debug = wb.create_sheet(title="debug_source")
+        ws_debug.append(["??", "?"])
+        ws_debug.append(["???", f"{year}-{month:02d}"])
+        ws_debug.append(["source_table", meta.get("source_table", "")])
+        ws_debug.append(["recent_col", meta.get("recent_col", "")])
+        ws_debug.append(["count", meta.get("count", 0)])
+
+        for idx, c in enumerate(meta.get("all_candidates", []), start=1):
+            ws_debug.append([f"candidate_{idx}", f"{c.get('table')} / {c.get('count')} / {c.get('recent')}"])
+
+        ws_debug.sheet_state = "hidden"
 
         filename = f"{year}?_{month:02d}?_????.xlsx"
         return _excel_response(wb, filename)
@@ -735,181 +897,6 @@ def export_deposit_excel(
         wb = _error_workbook("deposit export error", repr(e))
         filename = f"{year}_{month:02d}_deposit_export_error.xlsx"
         return _excel_response(wb, filename)
-
-
-
-
-# =========================================================
-# ???? ???
-# - ????? ?? + ???? ?4??? ?? ??? ???? ??
-# =========================================================
-def _digits_only(v):
-    return re.sub(r"\D", "", str(v or ""))
-
-def _compact_text(v):
-    return re.sub(r"\s+", "", str(v or "")).strip()
-
-def _vehicle_last4(v):
-    d = _digits_only(v)
-    return d[-4:] if len(d) >= 4 else d
-
-def _rematch_confirm_needed_name_last4(db):
-    from sqlalchemy import inspect, text as sql_text
-
-    bind = db.get_bind()
-    inspector = inspect(bind)
-    tables = inspector.get_table_names()
-
-    if "bank_transactions" not in tables:
-        raise Exception("bank_transactions table not found")
-
-    bank_cols = [c["name"] for c in inspector.get_columns("bank_transactions")]
-
-    bank_pk = None
-    try:
-        pk_cols = inspector.get_pk_constraint("bank_transactions").get("constrained_columns") or []
-        if pk_cols:
-            bank_pk = pk_cols[0]
-    except Exception:
-        pass
-
-    if not bank_pk:
-        bank_pk = _find_col(bank_cols, ["id", "transaction_id", "bank_transaction_id"])
-
-    if not bank_pk:
-        raise Exception("bank_transactions primary key not found")
-
-    col_memo = _find_col(bank_cols, ["????", "??", "????", "???", "memo", "description", "sender", "depositor", "payer_name"])
-    col_status = _find_col(bank_cols, ["??", "????", "status", "match_status"])
-    col_target = _find_col(bank_cols, ["????", "??", "matched_target", "match_target"])
-    col_reason = _find_col(bank_cols, ["??", "????", "reason", "match_reason"])
-    col_amount = _find_col(bank_cols, ["???", "??", "amount", "deposit_amount", "paid_amount"])
-
-    if not col_memo or not col_status:
-        raise Exception("bank_transactions memo/status column not found")
-
-    # 1) ??/???/?? ????? ??+???? ?? ??
-    member_candidates = []
-
-    for t in tables:
-        if t == "bank_transactions":
-            continue
-
-        try:
-            cols = [c["name"] for c in inspector.get_columns(t)]
-            col_name = _find_col(cols, ["??", "??", "???", "name", "member_name", "owner_name"])
-            col_vehicle = _find_col(cols, ["????", "?? ??", "vehicle_number", "car_number", "car_no", "plate_number"])
-            col_account = _find_col(cols, ["??", "??", "????", "account", "account_type", "category", "fee_type"])
-
-            if not col_name or not col_vehicle:
-                continue
-
-            q = sql_text(
-                'SELECT "' + col_name + '" AS name, "' + col_vehicle + '" AS vehicle'
-                + (', "' + col_account + '" AS account' if col_account else ', NULL AS account')
-                + ' FROM "' + t + '"'
-            )
-
-            for r in db.execute(q).mappings().all():
-                name = _safe_str(r.get("name"))
-                vehicle = _safe_str(r.get("vehicle"))
-                last4 = _vehicle_last4(vehicle)
-
-                if name and last4:
-                    member_candidates.append({
-                        "name": name,
-                        "vehicle": vehicle,
-                        "last4": last4,
-                        "account": _safe_str(r.get("account")),
-                        "table": t,
-                    })
-
-        except Exception as e:
-            print("WARN: member candidate table skipped", t, repr(e))
-            continue
-
-    # ?? ?? ??
-    unique_candidates = {}
-    for c in member_candidates:
-        key = (c["name"], c["vehicle"], c["last4"], c["account"])
-        unique_candidates[key] = c
-    member_candidates = list(unique_candidates.values())
-
-    # 2) bank_transactions ? ????? ?? ??? ????
-    # ???? ????? ???? DB ???/???? ?? ? ???
-    # ???? LIKE ???? ???? ???.
-    q = sql_text(
-        'SELECT * FROM "bank_transactions" '
-        'WHERE COALESCE(CAST("' + col_status + '" AS TEXT), \'\') NOT LIKE :done_status'
-    )
-    bank_rows = db.execute(q, {"done_status": "%????%"}).mappings().all()
-
-    updated = 0
-    skipped_multi = 0
-    skipped_none = 0
-    examples = []
-
-    for row in bank_rows:
-        row = dict(row)
-        memo = _compact_text(row.get(col_memo))
-
-        matched = []
-        for c in member_candidates:
-            name_c = _compact_text(c["name"])
-            last4 = c["last4"]
-
-            if name_c and last4 and name_c in memo and last4 in memo:
-                matched.append(c)
-
-        # ??+?4??? ? 1?? ??? ?? ??
-        if len(matched) == 1:
-            c = matched[0]
-
-            set_parts = ['"' + col_status + '" = :new_status']
-            params = {
-                "new_status": "????",
-                "pk": row.get(bank_pk),
-            }
-
-            if col_target:
-                set_parts.append('"' + col_target + '" = :target')
-                params["target"] = f'{c["name"]} {c["vehicle"]}'.strip()
-
-            if col_reason:
-                set_parts.append('"' + col_reason + '" = :reason')
-                params["reason"] = "??+?????4????"
-
-            update_q = sql_text(
-                'UPDATE "bank_transactions" SET '
-                + ", ".join(set_parts)
-                + ' WHERE "' + bank_pk + '" = :pk'
-            )
-
-            db.execute(update_q, params)
-            updated += 1
-
-            if len(examples) < 20:
-                examples.append({
-                    "memo": _safe_str(row.get(col_memo)),
-                    "matched": f'{c["name"]} {c["vehicle"]}',
-                    "amount": _safe_str(row.get(col_amount)) if col_amount else "",
-                })
-
-        elif len(matched) > 1:
-            skipped_multi += 1
-        else:
-            skipped_none += 1
-
-    db.commit()
-
-    return {
-        "status": "ok",
-        "checked": len(bank_rows),
-        "updated": updated,
-        "skipped_none": skipped_none,
-        "skipped_multi": skipped_multi,
-        "examples": examples,
-    }
 
 
 @router.get("/deposit/rematch-name-last4")
