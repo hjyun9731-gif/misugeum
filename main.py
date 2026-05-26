@@ -45,6 +45,78 @@ CURRENT_YEAR = int(os.getenv("BILLING_YEAR", str(datetime.now().year)))
 EXCLUDED_STATUSES = {"폐업","양도","이관","탈퇴","사망","말소","확인필요"}
 
 # ── 스타트업 ──────────────────────────────────────────────────────────────────
+
+@app.middleware("http")
+async def preserve_bank_status_redirect(request: Request, call_next):
+    """
+    Keep /bank tab filter after POST/redirect actions.
+    If user is viewing /bank?status=... and presses a button,
+    many routes redirect to /bank only. This middleware appends the
+    original status/q query back to the redirect Location.
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+    response = await call_next(request)
+
+    try:
+        if response.status_code not in (301, 302, 303, 307, 308):
+            return response
+
+        location = response.headers.get("location") or ""
+        if not location:
+            return response
+
+        # Only fix redirects going back to /bank
+        loc_parsed = urlparse(location)
+        if loc_parsed.path != "/bank":
+            return response
+
+        loc_qs = parse_qs(loc_parsed.query)
+
+        # If target already has status, do not touch it
+        if "status" in loc_qs:
+            return response
+
+        referer = request.headers.get("referer") or ""
+        ref_parsed = urlparse(referer)
+
+        if ref_parsed.path != "/bank":
+            return response
+
+        ref_qs = parse_qs(ref_parsed.query)
+
+        changed = False
+
+        # Preserve current bank tab
+        if "status" in ref_qs and ref_qs["status"]:
+            loc_qs["status"] = ref_qs["status"]
+            changed = True
+
+        # Preserve search keyword too
+        if "q" in ref_qs and ref_qs["q"]:
+            loc_qs["q"] = ref_qs["q"]
+            changed = True
+
+        if not changed:
+            return response
+
+        new_query = urlencode(loc_qs, doseq=True)
+        new_location = urlunparse((
+            loc_parsed.scheme,
+            loc_parsed.netloc,
+            loc_parsed.path,
+            loc_parsed.params,
+            new_query,
+            loc_parsed.fragment
+        ))
+
+        response.headers["location"] = new_location
+        return response
+
+    except Exception:
+        return response
+
+
 @app.on_event("startup")
 def startup():
     if os.getenv("RESET_DB") == "1":
