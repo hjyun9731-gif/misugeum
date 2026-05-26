@@ -412,6 +412,82 @@ def _error_workbook(title, error_message):
     return wb
 
 
+
+def _payment_rows_for_month_direct(db, year, month):
+    """
+    N? ???? ??.
+    bank_transactions ????? ??? ??? ?? ????.
+    LIMIT ?? ?? ? ??? ????.
+    """
+    from sqlalchemy import inspect, text as sql_text
+    from datetime import datetime
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    if "bank_transactions" not in tables:
+        raise Exception("bank_transactions ???? ????.")
+
+    cols = [c["name"] for c in inspector.get_columns("bank_transactions")]
+
+    col_date = _find_col(cols, [
+        "????", "????", "????",
+        "transaction_date", "paid_at", "payment_date", "deposit_date",
+        "date", "created_at"
+    ])
+    col_amount = _find_col(cols, [
+        "???", "??", "amount", "deposit_amount", "paid_amount"
+    ])
+    col_memo = _find_col(cols, [
+        "????", "???", "????", "??", "memo",
+        "description", "??", "sender", "depositor", "payer_name"
+    ])
+    col_name = _find_col(cols, ["??", "??", "name", "member_name"])
+    col_vehicle = _find_col(cols, ["????", "vehicle_number", "car_no"])
+    col_account = _find_col(cols, ["??", "??", "account", "type", "category"])
+    col_status = _find_col(cols, ["??", "????", "status", "match_status"])
+
+    if not col_date:
+        raise Exception("bank_transactions?? ????/????/created_at ??? ?? ?????.")
+
+    start_dt = datetime(year, month, 1)
+    if month == 12:
+        end_dt = datetime(year + 1, 1, 1)
+    else:
+        end_dt = datetime(year, month + 1, 1)
+
+    query = (
+        'SELECT * FROM bank_transactions '
+        'WHERE "' + col_date + '" >= :start_dt '
+        'AND "' + col_date + '" < :end_dt '
+        'ORDER BY "' + col_date + '" ASC'
+    )
+
+    rows = db.execute(
+        sql_text(query),
+        {"start_dt": start_dt, "end_dt": end_dt}
+    ).mappings().all()
+
+    out = []
+    for row in rows:
+        row = dict(row)
+        out.append({
+            "???": f"{year}-{month:02d}",
+            "?????": "bank_transactions",
+            "????": _safe_str(row.get(col_date)),
+            "???": _safe_str(row.get(col_amount)),
+            "????/??": _safe_str(row.get(col_memo)),
+            "??": _safe_str(row.get(col_name)),
+            "????": _safe_str(row.get(col_vehicle)),
+            "??": _safe_str(row.get(col_account)),
+            "????": _safe_str(row.get(col_status)),
+            "??": "",
+        })
+
+    return out
+
+
 def _deposit_workbook(year, month, tables):
     rows = _payment_rows_for_month(year, month, tables)
 
@@ -481,20 +557,62 @@ def export_billing_count_excel(
         return _excel_response(wb, filename)
 
 
+
 @router.get("/deposit/export")
 def export_deposit_excel(
-    year: int = Query(..., description="기준년도"),
-    month: int = Query(..., ge=1, le=12, description="기준월")
+    year: int = Query(..., description="????"),
+    month: int = Query(..., ge=1, le=12, description="???")
 ):
     try:
         db_gen = _get_db()
         db = next(db_gen)
-        tables = _get_tables_and_rows(db, mode="deposit", limit=5000)
-        wb = _deposit_workbook(year, month, tables)
-        filename = f"{year}년_{month:02d}월_입금추출.xlsx"
+
+        rows = _payment_rows_for_month_direct(db, year, month)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "????"
+
+        total = 0
+        status_count = {}
+
+        for r in rows:
+            amt = str(r.get("???", "")).replace(",", "").replace("?", "").strip()
+            try:
+                total += int(float(amt))
+            except Exception:
+                pass
+
+            st = r.get("????") or "????"
+            status_count[st] = status_count.get(st, 0) + 1
+
+        ws.append(["???", "????", "????", "??"])
+        ws.append([
+            f"{year}-{month:02d}",
+            len(rows),
+            total,
+            "bank_transactions ??? ?? ?? ?? / LIMIT ??"
+        ])
+
+        ws.append([])
+        ws.append(["????", "??"])
+        for k, v in sorted(status_count.items()):
+            ws.append([k, v])
+
+        _style_sheet(ws)
+
+        headers = [
+            "???", "?????", "????", "???", "????/??",
+            "??", "????", "??", "????", "??"
+        ]
+        _add_sheet(wb, "N? ????", headers, rows)
+
+        filename = f"{year}?_{month:02d}?_????.xlsx"
         return _excel_response(wb, filename)
+
     except Exception as e:
         print("ERROR: deposit export failed:", repr(e))
-        wb = _error_workbook("입금추출 오류", repr(e))
-        filename = f"{year}년_{month:02d}월_입금추출_오류.xlsx"
+        wb = _error_workbook("???? ??", repr(e))
+        filename = f"{year}?_{month:02d}?_????_??.xlsx"
         return _excel_response(wb, filename)
+
