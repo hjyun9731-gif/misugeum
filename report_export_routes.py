@@ -179,8 +179,17 @@ def _style_sheet(ws):
         ws.column_dimensions[col_letter].width = min(max_len, 35)
 
 
+def _safe_sheet_title(title):
+    title = str(title or "sheet")
+    for ch in ['\\', '/', '*', '?', ':', '[', ']']:
+        title = title.replace(ch, '_')
+    title = title.replace(" ", "_")
+    title = title[:31] or "sheet"
+    return title
+
+
 def _add_sheet(wb, title, headers, rows):
-    ws = wb.create_sheet(title=title[:31])
+    ws = wb.create_sheet(title=_safe_sheet_title(title))
     ws.append(headers)
     for r in rows:
         ws.append([r.get(h, "") for h in headers])
@@ -571,7 +580,7 @@ def export_deposit_excel(
 
         wb = Workbook()
         ws = wb.active
-        ws.title = "????"
+        ws.title = "error"
 
         total = 0
         status_count = {}
@@ -605,7 +614,7 @@ def export_deposit_excel(
             "???", "?????", "????", "???", "????/??",
             "??", "????", "??", "????", "??"
         ]
-        _add_sheet(wb, "N? ????", headers, rows)
+        _add_sheet(wb, "monthly_deposit", headers, rows)
 
         filename = f"{year}?_{month:02d}?_????.xlsx"
         return _excel_response(wb, filename)
