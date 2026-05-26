@@ -11,12 +11,13 @@
 {% set active = "bank" %}
 {% block title %}통장매칭
 
+
 <script id="income-mark-buttons">
 document.addEventListener("DOMContentLoaded", function(){
-  const misc = "\uC7A1\uC218\uC785";
-  const susp = "\uAC00\uC218\uAE08";
+  const misc = "\uC7A1\uC218\uC785";   // ???
+  const susp = "\uAC00\uC218\uAE08";   // ???
 
-  function makeBtn(id, kind, label, bg){
+  function makeIncomeBtn(id, kind, label, bg){
     const form = document.createElement("form");
     form.method = "post";
     form.action = "/bank/" + id + "/mark-income";
@@ -31,6 +32,7 @@ document.addEventListener("DOMContentLoaded", function(){
     const btn = document.createElement("button");
     btn.type = "submit";
     btn.textContent = label;
+    btn.title = label + "?? ???";
     btn.style.border = "0";
     btn.style.borderRadius = "9px";
     btn.style.padding = "6px 9px";
@@ -39,7 +41,7 @@ document.addEventListener("DOMContentLoaded", function(){
     btn.style.background = bg;
     btn.style.color = "#fff";
     btn.style.fontSize = "12px";
-
+    btn.style.boxShadow = "0 3px 8px rgba(0,0,0,.12)";
     form.appendChild(input);
     form.appendChild(btn);
     return form;
@@ -51,8 +53,11 @@ document.addEventListener("DOMContentLoaded", function(){
     if(!m) return;
 
     const id = m[1];
+    const parent = a.parentElement;
+    if(!parent || parent.querySelector(".income-mark-box")) return;
 
-    if(a.parentElement && a.parentElement.querySelector(".income-mark-box")) return;
+    const rowText = (a.closest("tr") ? a.closest("tr").innerText : "");
+    if(rowText.indexOf("\uBC18\uC601\uC644\uB8CC") >= 0) return; // ????? ??
 
     const box = document.createElement("span");
     box.className = "income-mark-box";
@@ -61,8 +66,8 @@ document.addEventListener("DOMContentLoaded", function(){
     box.style.marginLeft = "6px";
     box.style.verticalAlign = "middle";
 
-    box.appendChild(makeBtn(id, misc, "\uC7A1\uC218\uC785", "#7c3aed"));
-    box.appendChild(makeBtn(id, susp, "\uAC00\uC218\uAE08", "#0ea5e9"));
+    box.appendChild(makeIncomeBtn(id, misc, "\uC7A1\uC218\uC785", "#7c3aed"));
+    box.appendChild(makeIncomeBtn(id, susp, "\uAC00\uC218\uAE08", "#0ea5e9"));
 
     a.insertAdjacentElement("afterend", box);
   });
