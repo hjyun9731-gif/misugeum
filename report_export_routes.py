@@ -2653,6 +2653,11 @@ def rematch_single_name_bank_transactions():
 # - ???: ????, ???, ????, ????? ?
 # - ???: ????/???, ????? ?? ??? ?
 # =========================================================
+
+
+# =========================================================
+# Bank income classification: misc income / suspense
+# =========================================================
 @router.get("/deposit/classify-income-types")
 def classify_bank_income_types():
     try:
@@ -2662,11 +2667,17 @@ def classify_bank_income_types():
         db_gen = _get_db()
         db = next(db_gen)
 
+        MISC = "\uc7a1\uc218\uc785"       # ???
+        SUSPENSE = "\uac00\uc218\uae08"  # ???
+        UNMATCHED = "\ubbf8\ub9e4\uce6d" # ???
+        NEED_CHECK = "\ud655\uc778\ud544\uc694" # ????
+        AUTO = "\uc790\ub3d9\ub9e4\uce6d" # ????
+
         def compact(v):
-            return re.sub(r"\\s+", "", str(v or "")).strip()
+            return re.sub(r"\s+", "", str(v or "")).strip()
 
         def digits(v):
-            return re.sub(r"\\D", "", str(v or ""))
+            return re.sub(r"\D", "", str(v or ""))
 
         def last4(v):
             d = digits(v)
@@ -2679,29 +2690,32 @@ def classify_bank_income_types():
                 or ""
             )
 
-        ??? = "\uc7a1\uc218\uc785"
-        ??? = "\uac00\uc218\uae08"
-
         misc_keywords = [
-            "\uc790\uaca9\uc99d\uba85", "\uc790\uaca9\uc99d", "\uc99d\uba85", "\ubc1c\uae09",
-            "\ub300\ud3d0\ucc28", "\ub300\ucc28", "\ud3d0\ucc28", "\ub300\uccb4\ub4f1\ub85d",
-            "\uc608\uae08\uc774\uc790", "\uc774\uc790",
-            "\uc0c1\uac00", "\uc784\ub300\ub8cc", "\uc6d4\uc138"
+            "\uc790\uaca9\uc99d\uba85",  # ????
+            "\uc790\uaca9\uc99d",        # ???
+            "\uc99d\uba85",              # ??
+            "\ubc1c\uae09",              # ??
+            "\ub300\ud3d0\ucc28",        # ???
+            "\ub300\ucc28",              # ??
+            "\ud3d0\ucc28",              # ??
+            "\ub300\uccb4\ub4f1\ub85d",  # ????
+            "\uc608\uae08\uc774\uc790",  # ????
+            "\uc774\uc790",              # ??
+            "\uc0c1\uac00",              # ??
+            "\uc784\ub300\ub8cc",        # ???
+            "\uc6d4\uc138",              # ??
         ]
 
         suspense_keywords = [
-            "\ud2b9\ubcc4\ud68c\ube44", "\uac00\uc785\ube44", "\uc785\ud68c\ube44"
+            "\ud2b9\ubcc4\ud68c\ube44",  # ????
+            "\uac00\uc785\ube44",        # ???
+            "\uc785\ud68c\ube44",        # ???
         ]
 
-        # ?? ??/???? ??? ???
         member_names = set()
         member_last4s = set()
 
-        members = (
-            db.query(Member)
-            .filter(Member.name != None, Member.name != "")
-            .all()
-        )
+        members = db.query(Member).filter(Member.name != None, Member.name != "").all()
 
         for m in members:
             nm = compact(getattr(m, "name", "") or "")
@@ -2740,14 +2754,13 @@ def classify_bank_income_types():
         examples_misc = []
         examples_suspense = []
 
-        # ????? ???? ??. ?? ??? ???? ? ??? ??.
         txs = (
             db.query(BankTransaction)
             .filter(BankTransaction.match_status.in_([
-                "\ubbf8\ub9e4\uce6d",
-                "\ud655\uc778\ud544\uc694",
-                "\u26a0 \ud655\uc778\ud544\uc694",
-                "\uc790\ub3d9\ub9e4\uce6d"
+                UNMATCHED,
+                NEED_CHECK,
+                "\u26a0 " + NEED_CHECK,
+                AUTO,
             ]))
             .all()
         )
@@ -2758,9 +2771,8 @@ def classify_bank_income_types():
             cmemo = compact(memo)
             old_reason = getattr(tx, "match_reason", "") or ""
 
-            # 1) ??? ??? ??
             if any(k in cmemo for k in misc_keywords):
-                tx.match_status = ???
+                tx.match_status = MISC
                 tx.matched_member_id = None
                 tx.match_reason = (old_reason + ", " if old_reason else "") + "\uc790\ub3d9\ubd84\ub958: \uc7a1\uc218\uc785"
                 db.add(tx)
@@ -2769,9 +2781,8 @@ def classify_bank_income_types():
                     examples_misc.append(memo)
                 continue
 
-            # 2) ????/???? ???
             if any(k in cmemo for k in suspense_keywords):
-                tx.match_status = ???
+                tx.match_status = SUSPENSE
                 tx.matched_member_id = None
                 tx.match_reason = (old_reason + ", " if old_reason else "") + "\uc790\ub3d9\ubd84\ub958: \uac00\uc218\uae08"
                 db.add(tx)
@@ -2780,10 +2791,9 @@ def classify_bank_income_types():
                     examples_suspense.append(memo)
                 continue
 
-            # 3) ????? ???/?????? ? ??? ???
-            if str(getattr(tx, "match_status", "") or "") == "\ubbf8\ub9e4\uce6d":
+            if str(getattr(tx, "match_status", "") or "") == UNMATCHED:
                 if not looks_like_member_payment(memo):
-                    tx.match_status = ???
+                    tx.match_status = SUSPENSE
                     tx.matched_member_id = None
                     tx.match_reason = (old_reason + ", " if old_reason else "") + "\uc790\ub3d9\ubd84\ub958: \ud68c\uc6d0\ubbf8\ud655\uc778 \uac00\uc218\uae08"
                     db.add(tx)
@@ -2809,4 +2819,4 @@ def classify_bank_income_types():
     except Exception as e:
         print("ERROR: classify income types failed:", repr(e))
         return {"status": "error", "message": repr(e)}
-\n
+
