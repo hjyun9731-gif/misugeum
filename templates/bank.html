@@ -10,47 +10,60 @@
 {% extends "base.html" %}
 {% set active = "bank" %}
 {% block title %}통장매칭
+
 <script id="income-mark-buttons">
 document.addEventListener("DOMContentLoaded", function(){
-  document.querySelectorAll('a[href^="/bank/"][href$="/match"]').forEach(function(a){
-    const m = a.getAttribute("href").match(/\/bank\/(\d+)\/match/);
+  const misc = "\uC7A1\uC218\uC785";
+  const susp = "\uAC00\uC218\uAE08";
+
+  function makeBtn(id, kind, label, bg){
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/bank/" + id + "/mark-income";
+    form.style.display = "inline";
+    form.style.margin = "0 0 0 4px";
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "kind";
+    input.value = kind;
+
+    const btn = document.createElement("button");
+    btn.type = "submit";
+    btn.textContent = label;
+    btn.style.border = "0";
+    btn.style.borderRadius = "9px";
+    btn.style.padding = "6px 9px";
+    btn.style.fontWeight = "800";
+    btn.style.cursor = "pointer";
+    btn.style.background = bg;
+    btn.style.color = "#fff";
+    btn.style.fontSize = "12px";
+
+    form.appendChild(input);
+    form.appendChild(btn);
+    return form;
+  }
+
+  document.querySelectorAll('a[href*="/bank/"][href*="/match"]').forEach(function(a){
+    const href = a.getAttribute("href") || "";
+    const m = href.match(/\/bank\/(\d+)\/match/);
     if(!m) return;
+
     const id = m[1];
+
+    if(a.parentElement && a.parentElement.querySelector(".income-mark-box")) return;
+
     const box = document.createElement("span");
+    box.className = "income-mark-box";
     box.style.display = "inline-flex";
     box.style.gap = "4px";
     box.style.marginLeft = "6px";
+    box.style.verticalAlign = "middle";
 
-    function makeBtn(kind, label){
-      const form = document.createElement("form");
-      form.method = "post";
-      form.action = "/bank/" + id + "/mark-income";
-      form.style.display = "inline";
-      form.style.margin = "0";
+    box.appendChild(makeBtn(id, misc, "\uC7A1\uC218\uC785", "#7c3aed"));
+    box.appendChild(makeBtn(id, susp, "\uAC00\uC218\uAE08", "#0ea5e9"));
 
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = "kind";
-      input.value = kind;
-
-      const btn = document.createElement("button");
-      btn.type = "submit";
-      btn.textContent = label;
-      btn.style.border = "0";
-      btn.style.borderRadius = "8px";
-      btn.style.padding = "5px 8px";
-      btn.style.fontWeight = "800";
-      btn.style.cursor = "pointer";
-      btn.style.background = kind === "???" ? "#7c3aed" : "#0ea5e9";
-      btn.style.color = "#fff";
-
-      form.appendChild(input);
-      form.appendChild(btn);
-      return form;
-    }
-
-    box.appendChild(makeBtn("???", "???"));
-    box.appendChild(makeBtn("???", "???"));
     a.insertAdjacentElement("afterend", box);
   });
 });
@@ -88,10 +101,7 @@ document.addEventListener("DOMContentLoaded", function(){
   ('자동매칭','자동매칭'),
   ('확인필요','확인필요'),
   ('미매칭','미매칭'),
-  ('반영완료','반영완료'),
-  ('잡수입','잡수입'),
-  ('가수금','가수금'),
-  ('제외','제외')
+  ('반영완료','반영완료')
 ] %}
   <a href="/bank?status={{ t }}" class="tab-btn {% if status==t %}active{% endif %}">
     {{ label }} <span class="tab-cnt {% if counts.get(label,0)>0 %}has{% endif %}">{{ counts.get(label, counts.get('전체',0) if not t else 0) }}</span>
