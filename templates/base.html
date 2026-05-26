@@ -11,77 +11,60 @@
 
 <!-- 사이드바 -->
 <aside class="sidebar">
-  <nav class="side-nav">
-
-    <a class="side-item {% if request.url.path.startswith('/dashboard') or request.url.path == '/' %}active{% endif %}" href="/dashboard">
-      <span class="si-icon">??</span>
-      <span>????</span>
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-icon">화</div>
+    <div>
+      <div class="sidebar-logo-text">강원도개인소형화물협회</div>
+      <div class="sidebar-logo-sub">통합관리시스템 v4</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/dashboard" class="sidebar-item {% if active=='dashboard' %}active{% endif %}">
+      <span class="si-icon">📊</span> 대시보드
     </a>
 
-    <div class="side-section">??</div>
-
-    <a class="side-item {% if request.url.path.startswith('/arrears') %}active{% endif %}" href="/arrears">
-      <span class="si-icon">??</span>
-      <span>??? ??</span>
+    <div class="sidebar-section">회원</div>
+    <a href="/arrears" class="sidebar-item {% if active=='arrears' %}active{% endif %}">
+      <span class="si-icon">💰</span> 미수금 명단
+    </a>
+    <a href="/verify" class="sidebar-item {% if active=='verify' %}active{% endif %}">
+      <span class="si-icon">⚠️</span> 검증필요
+      {% if verify_cnt is defined and verify_cnt > 0 %}
+      <span class="sidebar-badge alert">{{ verify_cnt }}</span>
+      {% endif %}
+    </a>
+    <a href="/license-check" class="sidebar-item {% if active=='license' %}active{% endif %}">
+      <span class="si-icon">👥</span> 전체자대조
     </a>
 
-    <a class="side-item {% if request.url.path.startswith('/verify') %}active{% endif %}" href="/verify">
-      <span class="si-icon">??</span>
-      <span>????</span>
+    <div class="sidebar-section">업무</div>
+    <a href="/billing-report" class="sidebar-item {% if active=='billing' %}active{% endif %}">
+      <span class="si-icon">📊</span> 부과대수 관리
+    </a>
+    <a href="/work" class="sidebar-item {% if active=='work' %}active{% endif %}">
+      <span class="si-icon">⚙️</span> 처리 대기목록
+    </a>
+    <a href="/collection" class="sidebar-item {% if active=='collection' %}active{% endif %}">
+      <span class="si-icon">📱</span> 문자대상관리
+    </a>
+    <a href="/bank" class="sidebar-item {% if active=='bank' %}active{% endif %}">
+      <span class="si-icon">🏦</span> 통장매칭
     </a>
 
-    <a class="side-item {% if request.url.path.startswith('/license-check') %}active{% endif %}" href="/license-check">
-      <span class="si-icon">??</span>
-      <span>?????</span>
+    <div class="sidebar-section">자료</div>
+    <a href="/upload" class="sidebar-item {% if active=='upload' %}active{% endif %}">
+      <span class="si-icon">📁</span> 엑셀 업로드
     </a>
 
-    <div class="side-section">??</div>
-
-    <a class="side-item {% if request.url.path.startswith('/billing-counts') %}active{% endif %}" href="/billing-counts">
-      <span class="si-icon">??</span>
-      <span>???? ??</span>
+    <div class="sidebar-section">시스템</div>
+    <a href="/settings" class="sidebar-item {% if active=='settings' %}active{% endif %}">
+      <span class="si-icon">🔧</span> 설정
     </a>
-
-    <a class="side-item {% if request.url.path.startswith('/income-ledger') %}active{% endif %}" href="/income-ledger">
-      <span class="si-icon">??</span>
-      <span>??? ???</span>
+    <a href="/logout" class="sidebar-item">
+      <span class="si-icon">🚪</span> 로그아웃
     </a>
-
-    <a class="side-item {% if request.url.path.startswith('/work') %}active{% endif %}" href="/work">
-      <span class="si-icon">??</span>
-      <span>?? ????</span>
-    </a>
-
-    <a class="side-item {% if request.url.path.startswith('/collection') %}active{% endif %}" href="/collection">
-      <span class="si-icon">?</span>
-      <span>??????</span>
-    </a>
-
-    <a class="side-item {% if request.url.path.startswith('/bank') %}active{% endif %}" href="/bank">
-      <span class="si-icon">??</span>
-      <span>????</span>
-    </a>
-
-    <div class="side-section">??</div>
-
-    <a class="side-item {% if request.url.path.startswith('/upload') %}active{% endif %}" href="/upload">
-      <span class="si-icon">??</span>
-      <span>?? ???</span>
-    </a>
-
-    <div class="side-section">???</div>
-
-    <a class="side-item {% if request.url.path.startswith('/settings') %}active{% endif %}" href="/settings">
-      <span class="si-icon">??</span>
-      <span>??</span>
-    </a>
-
-    <a class="side-item" href="/logout">
-      <span class="si-icon">??</span>
-      <span>????</span>
-    </a>
-
-  </nav>
+    <a href="/billing-counts">부과대수</a>
+</nav>
 </aside>
 
 <!-- 상단바 -->
