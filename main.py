@@ -46,6 +46,44 @@ EXCLUDED_STATUSES = {"폐업","양도","이관","탈퇴","사망","말소","확�
 
 # ── 스타트업 ──────────────────────────────────────────────────────────────────
 
+
+def income_reason_display(v):
+    raw = str(v or "").strip()
+    if not raw:
+        return ""
+
+    parts = [x.strip() for x in raw.split("/")]
+
+    labels = [
+        "\uc218\ub3d9\ubd84\ub958",   # ????
+        "\uc0ac\uc720",               # ??
+        "\uad00\ub828\ucc28\ub7c9",   # ????
+        "\uad00\ub828\uc131\uba85",   # ????
+        "\ube44\uace0",               # ??
+    ]
+
+    fixed = []
+    for i, part in enumerate(parts):
+        if not part:
+            continue
+
+        # ?? ?? ???? ??? ?
+        if any(k in part for k in labels):
+            fixed.append(part)
+            continue
+
+        # ?? ?? ??: ????: ?, ??: ?
+        if "?" in part and ":" in part:
+            value = part.split(":", 1)[1].strip()
+            label = labels[i] if i < len(labels) else labels[-1]
+            fixed.append(label + ": " + value)
+            continue
+
+        fixed.append(part)
+
+    return " / ".join(fixed)
+
+
 @app.middleware("http")
 async def preserve_bank_status_redirect(request: Request, call_next):
     """
@@ -4190,6 +4228,7 @@ def income_ledger_page(
         "tx_amount": _tx_amount_for_income,
         "tx_date": _tx_date_for_income,
         "tx_memo": _tx_memo_for_income,
+        "income_reason_display": income_reason_display,
     })
 
 
@@ -4308,17 +4347,17 @@ def income_ledger_edit_save(
 
     parts = []
     if reason:
-        parts.append("??: " + reason.strip())
+        parts.append("\ube44\uace0: " + reason.strip())
     if related_vehicle_no:
-        parts.append("????: " + related_vehicle_no.strip())
+        parts.append("\uc218\ub3d9\ubd84\ub958: " + related_vehicle_no.strip())
     if related_name:
-        parts.append("????: " + related_name.strip())
+        parts.append("\uc218\ub3d9\ubd84\ub958: " + related_name.strip())
     if note:
-        parts.append("??: " + note.strip())
+        parts.append("\ube44\uace0: " + note.strip())
 
     tx.match_status = new_status
     tx.matched_member_id = None
-    tx.match_reason = "???? ??: " + new_status
+    tx.match_reason = "\uc218\ub3d9\ubd84\ub958 \uc218\uc815: " + new_status
     if parts:
         tx.match_reason += " / " + " / ".join(parts)
 
@@ -4643,13 +4682,13 @@ def bank_mark_income_save(
 
     parts = []
     if reason:
-        parts.append("??: " + reason.strip())
+        parts.append("\ube44\uace0: " + reason.strip())
     if related_vehicle_no:
-        parts.append("????: " + related_vehicle_no.strip())
+        parts.append("\uc218\ub3d9\ubd84\ub958: " + related_vehicle_no.strip())
     if related_name:
-        parts.append("????: " + related_name.strip())
+        parts.append("\uc218\ub3d9\ubd84\ub958: " + related_name.strip())
     if note:
-        parts.append("??: " + note.strip())
+        parts.append("\ube44\uace0: " + note.strip())
 
     memo = str(getattr(tx, "memo", "") or "")
     amount = getattr(tx, "deposit_amount", None) or getattr(tx, "amount", None) or 0
@@ -4659,7 +4698,7 @@ def bank_mark_income_save(
     if raw_kind in ["misc", "misc_income"]:
         new_status = MISC
         old_reason = getattr(tx, "match_reason", "") or ""
-        add_reason = "????: " + new_status
+        add_reason = "\uc218\ub3d9\ubd84\ub958: " + new_status
         if parts:
             add_reason += " / " + " / ".join(parts)
 
@@ -4679,7 +4718,7 @@ def bank_mark_income_save(
     if raw_kind in ["suspense", "temporary", "deposit"]:
         new_status = SUSP
         old_reason = getattr(tx, "match_reason", "") or ""
-        add_reason = "????: " + new_status
+        add_reason = "\uc218\ub3d9\ubd84\ub958: " + new_status
         if parts:
             add_reason += " / " + " / ".join(parts)
 
@@ -4762,7 +4801,7 @@ def bank_mark_income_save(
     # ???? ???
     tx.match_status = SUSP
     tx.matched_member_id = None
-    tx.match_reason = "????: " + SUSP
+    tx.match_reason = "\uc218\ub3d9\ubd84\ub958: " + SUSP
     db.add(tx)
     db.commit()
 
