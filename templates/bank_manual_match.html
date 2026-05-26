@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}????{% endblock %}
+{% block page_title %}????{% endblock %}
+
+{% block content %}
+<style>
+.mm-wrap{display:flex;flex-direction:column;gap:16px}
+.mm-card{background:#fff;border:1px solid #f2d7e3;border-radius:18px;box-shadow:0 8px 22px rgba(255,79,147,.08);padding:18px}
+.mm-title{font-size:20px;font-weight:900;margin-bottom:10px;color:#2d2230}
+.mm-info{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px;margin-top:10px}
+.mm-info div{background:#fff7fb;border:1px solid #f6d6e5;border-radius:14px;padding:10px 12px}
+.mm-info small{display:block;color:#8b7282;margin-bottom:4px;font-size:12px}
+.mm-info b{color:#2d2230;font-size:14px}
+.mm-search{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.mm-search input{height:40px;min-width:340px;border:1px solid #e9c9d8;border-radius:12px;padding:0 13px;outline:none;background:#fff}
+.mm-search input:focus{border-color:#ff5b9e;box-shadow:0 0 0 3px rgba(255,91,158,.14)}
+.mm-btn{border:0;border-radius:12px;height:38px;padding:0 14px;background:#ff5b9e;color:#fff!important;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(255,91,158,.22)}
+.mm-btn.gray{background:#7d7080}
+.mm-table{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden;border:1px solid #f1d4df;border-radius:16px;background:#fff}
+.mm-table th{background:#fff0f6;color:#d8216b;font-weight:900;text-align:left;padding:12px 13px;border-bottom:2px solid #ff9ac5;white-space:nowrap}
+.mm-table td{padding:11px 13px;border-bottom:1px solid #f5e3eb;vertical-align:middle}
+.mm-table tr:hover td{background:#fff8fb}
+.mm-money{text-align:right;color:#e33162;font-weight:900}
+.mm-empty{padding:36px;text-align:center;color:#8b7282;border:1px dashed #efc9d9;border-radius:16px;background:#fff}
+</style>
+
+<div class="mm-wrap">
+  <div class="mm-card">
+    <div class="mm-title">???? ????</div>
+
+    <div class="mm-info">
+      <div><small>????</small><b>{{ tx.txn_date or "-" }}</b></div>
+      <div><small>???</small><b>{{ fmt_amt(tx.amount or 0) }}?</b></div>
+      <div><small>????</small><b>{{ tx.memo or "-" }}</b></div>
+      <div><small>????</small><b>{{ tx.match_status or "-" }}</b></div>
+    </div>
+
+    <form method="get" class="mm-search">
+      <input type="text" name="q" value="{{ q }}" placeholder="??, ????, ??? ??">
+      <button class="mm-btn" type="submit">??</button>
+      <a class="mm-btn gray" href="/bank">?????? ????</a>
+    </form>
+  </div>
+
+  <div class="mm-card">
+    <div class="mm-title">?? ??</div>
+
+    {% if members %}
+    <table class="mm-table">
+      <thead>
+        <tr>
+          <th>??</th>
+          <th>??</th>
+          <th>????</th>
+          <th>??</th>
+          <th>?????</th>
+          <th>??</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in members %}
+        <tr>
+          <td>{{ m.region or "" }}</td>
+          <td>{{ fmt_acc(m.account) }}</td>
+          <td>{{ m.vehicle_no or "" }}</td>
+          <td><b>{{ m.name or "" }}</b></td>
+          <td class="mm-money">{{ fmt_amt(m.excel_arrears or 0) }}?</td>
+          <td>
+            <form method="post" action="/bank/{{ tx.id }}/manual-match" style="margin:0;">
+              <input type="hidden" name="member_id" value="{{ m.id }}">
+              <button class="mm-btn" type="submit">? ???? ??</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="mm-empty">??? ?? ??? ????.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
