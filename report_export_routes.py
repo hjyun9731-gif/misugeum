@@ -389,6 +389,18 @@ def _payment_rows_for_month(year, month, tables):
     return out
 
 
+
+def _error_workbook(title, error_message):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "오류내용"
+    ws.append(["구분", "내용"])
+    ws.append(["오류", str(error_message)])
+    ws.append(["안내", "서버 오류로 다운로드가 실패하지 않도록 오류 내용을 엑셀로 출력했습니다."])
+    _style_sheet(ws)
+    return wb
+
+
 def _deposit_workbook(year, month, tables):
     rows = _payment_rows_for_month(year, month, tables)
 
@@ -444,12 +456,18 @@ def export_billing_count_excel(
     year: int = Query(..., description="기준년도"),
     month: int = Query(..., ge=1, le=12, description="기준월")
 ):
-    db_gen = _get_db()
-    db = next(db_gen)
-    tables = _get_tables_and_rows(db, mode="all", limit=5000)
-    wb = _billing_count_workbook(year, month, tables)
-    filename = f"{year}년_{month:02d}월_부과대수.xlsx"
-    return _excel_response(wb, filename)
+    try:
+        db_gen = _get_db()
+        db = next(db_gen)
+        tables = _get_tables_and_rows(db, mode="all", limit=5000)
+        wb = _billing_count_workbook(year, month, tables)
+        filename = f"{year}년_{month:02d}월_부과대수.xlsx"
+        return _excel_response(wb, filename)
+    except Exception as e:
+        print("ERROR: billing count export failed:", repr(e))
+        wb = _error_workbook("부과대수 오류", repr(e))
+        filename = f"{year}년_{month:02d}월_부과대수_오류.xlsx"
+        return _excel_response(wb, filename)
 
 
 @router.get("/deposit/export")
@@ -457,9 +475,15 @@ def export_deposit_excel(
     year: int = Query(..., description="기준년도"),
     month: int = Query(..., ge=1, le=12, description="기준월")
 ):
-    db_gen = _get_db()
-    db = next(db_gen)
-    tables = _get_tables_and_rows(db, mode="deposit", limit=5000)
-    wb = _deposit_workbook(year, month, tables)
-    filename = f"{year}년_{month:02d}월_입금추출.xlsx"
-    return _excel_response(wb, filename)
+    try:
+        db_gen = _get_db()
+        db = next(db_gen)
+        tables = _get_tables_and_rows(db, mode="deposit", limit=5000)
+        wb = _deposit_workbook(year, month, tables)
+        filename = f"{year}년_{month:02d}월_입금추출.xlsx"
+        return _excel_response(wb, filename)
+    except Exception as e:
+        print("ERROR: deposit export failed:", repr(e))
+        wb = _error_workbook("입금추출 오류", repr(e))
+        filename = f"{year}년_{month:02d}월_입금추출_오류.xlsx"
+        return _excel_response(wb, filename)
