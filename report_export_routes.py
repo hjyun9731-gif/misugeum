@@ -2520,3 +2520,131 @@ def rematch_bank_by_alias_note():
         print("ERROR: rematch alias note failed:", repr(e))
         return {"status": "error", "message": repr(e)}
 
+
+# =========================================================
+# ?? ?? 1? ?? ????
+# - ???/???? ?? ?
+# - ???? ? ?? ??? ???? ??? ??
+# - ??? ? 1??? ?????? ??
+# =========================================================
+@router.get("/deposit/rematch-single-name")
+def rematch_single_name_bank_transactions():
+    try:
+        import re
+        from models import Member, BankTransaction
+
+        db_gen = _get_db()
+        db = next(db_gen)
+
+        def compact(s):
+            return re.sub(r"\s+", "", str(s or "")).strip()
+
+        def extract_names_from_memo(memo):
+            s = compact(memo)
+            # ?? ?? ?? 2~5?
+            names = re.findall(r"[?-?]{2,5}", s)
+            stop = {
+                "??", "??", "??", "??", "??", "???", "??",
+                "??", "??", "??", "??", "??", "??", "??",
+                "??", "??", "??", "??", "???", "???"
+            }
+            return [n for n in names if n not in stop]
+
+        def get_amount(tx):
+            for attr in ["amount", "deposit_amount", "in_amount", "paid_amount", "txn_amount", "money"]:
+                if hasattr(tx, attr):
+                    v = getattr(tx, attr)
+                    try:
+                        if v is not None:
+                            return int(str(v).replace(",", "").replace("?", "").strip())
+                    except Exception:
+                        pass
+            return 0
+
+        # ?? ?? ?? ??? ??? ??
+        members = (
+            db.query(Member)
+            .filter(Member.name != None, Member.name != "")
+            .filter(Member.vehicle_no != None, Member.vehicle_no != "")
+            .all()
+        )
+
+        name_map = {}
+        for m in members:
+            nk = compact(m.name)
+            if not nk:
+                continue
+            name_map.setdefault(nk, []).append(m)
+
+        txs = (
+            db.query(BankTransaction)
+            .filter(BankTransaction.match_status.in_(["???", "????", "? ????"]))
+            .all()
+        )
+
+        checked = 0
+        updated = 0
+        skipped_none = 0
+        skipped_multi = 0
+        examples = []
+
+        for tx in txs:
+            checked += 1
+            memo = getattr(tx, "memo", "") or ""
+            names = extract_names_from_memo(memo)
+
+            matched_members = {}
+
+            for n in names:
+                for m in name_map.get(compact(n), []):
+                    matched_members[m.id] = m
+
+            if len(matched_members) == 1:
+                m = list(matched_members.values())[0]
+                amount = get_amount(tx)
+
+                tx.matched_member_id = m.id
+
+                old_reason = getattr(tx, "match_reason", "") or ""
+                add_reason = f"?? ?? 1? ?? ????: {m.name}/{m.vehicle_no}"
+
+                # ???? 0??? ?? ????? ????? ???? ??
+                if amount <= 0:
+                    tx.match_status = "????"
+                    add_reason += " / ???????"
+                else:
+                    tx.match_status = "????"
+
+                tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+
+                db.add(tx)
+                updated += 1
+
+                if len(examples) < 30:
+                    examples.append({
+                        "memo": memo,
+                        "matched": f"{m.name} / {m.vehicle_no}",
+                        "amount": amount,
+                        "status": tx.match_status,
+                    })
+
+            elif len(matched_members) > 1:
+                skipped_multi += 1
+            else:
+                skipped_none += 1
+
+        db.commit()
+
+        return {
+            "status": "ok",
+            "checked": checked,
+            "updated": updated,
+            "skipped_none": skipped_none,
+            "skipped_multi": skipped_multi,
+            "examples": examples,
+        }
+
+    except Exception as e:
+        print("ERROR: single name rematch failed:", repr(e))
+        return {"status": "error", "message": repr(e)}
+
