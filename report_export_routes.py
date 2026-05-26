@@ -2646,7 +2646,7 @@ def rematch_single_name_bank_transactions():
 
     except Exception as e:
         print("ERROR: single name rematch failed:", repr(e))
-        return {"status": "error", "message": repr(e)}\n\n
+        return {"status": "error", "message": repr(e)}
 # =========================================================
 # ???? ??? / ??? ????
 # - ??/???? ???? ? ?? ? ??
