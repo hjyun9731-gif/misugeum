@@ -36,7 +36,16 @@
 {% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
 
 <div class="tabs">
-  {% for t, label in [('','전체'),('자동매칭','자동매칭'),('확인필요','확인필요'),('미매칭','미매칭'),('반영완료','반영완료')] %}
+  {% for t, label in [
+  ('','??'),
+  ('????','????'),
+  ('????','????'),
+  ('???','???'),
+  ('????','????'),
+  ('???','???'),
+  ('???','???'),
+  ('??','??')
+] %}
   <a href="/bank?status={{ t }}" class="tab-btn {% if status==t %}active{% endif %}">
     {{ label }} <span class="tab-cnt {% if counts.get(label,0)>0 %}has{% endif %}">{{ counts.get(label, counts.get('전체',0) if not t else 0) }}</span>
   </a>
