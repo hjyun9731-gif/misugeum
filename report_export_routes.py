@@ -736,3 +736,191 @@ def export_deposit_excel(
         filename = f"{year}_{month:02d}_deposit_export_error.xlsx"
         return _excel_response(wb, filename)
 
+
+
+
+# =========================================================
+# ???? ???
+# - ????? ?? + ???? ?4??? ?? ??? ???? ??
+# =========================================================
+def _digits_only(v):
+    return re.sub(r"\D", "", str(v or ""))
+
+def _compact_text(v):
+    return re.sub(r"\s+", "", str(v or "")).strip()
+
+def _vehicle_last4(v):
+    d = _digits_only(v)
+    return d[-4:] if len(d) >= 4 else d
+
+def _rematch_confirm_needed_name_last4(db):
+    from sqlalchemy import inspect, text as sql_text
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    if "bank_transactions" not in tables:
+        raise Exception("bank_transactions table not found")
+
+    bank_cols = [c["name"] for c in inspector.get_columns("bank_transactions")]
+
+    bank_pk = None
+    try:
+        pk_cols = inspector.get_pk_constraint("bank_transactions").get("constrained_columns") or []
+        if pk_cols:
+            bank_pk = pk_cols[0]
+    except Exception:
+        pass
+
+    if not bank_pk:
+        bank_pk = _find_col(bank_cols, ["id", "transaction_id", "bank_transaction_id"])
+
+    if not bank_pk:
+        raise Exception("bank_transactions primary key not found")
+
+    col_memo = _find_col(bank_cols, ["????", "??", "????", "???", "memo", "description", "sender", "depositor", "payer_name"])
+    col_status = _find_col(bank_cols, ["??", "????", "status", "match_status"])
+    col_target = _find_col(bank_cols, ["????", "??", "matched_target", "match_target"])
+    col_reason = _find_col(bank_cols, ["??", "????", "reason", "match_reason"])
+    col_amount = _find_col(bank_cols, ["???", "??", "amount", "deposit_amount", "paid_amount"])
+
+    if not col_memo or not col_status:
+        raise Exception("bank_transactions memo/status column not found")
+
+    # 1) ??/???/?? ????? ??+???? ?? ??
+    member_candidates = []
+
+    for t in tables:
+        if t == "bank_transactions":
+            continue
+
+        try:
+            cols = [c["name"] for c in inspector.get_columns(t)]
+            col_name = _find_col(cols, ["??", "??", "???", "name", "member_name", "owner_name"])
+            col_vehicle = _find_col(cols, ["????", "?? ??", "vehicle_number", "car_number", "car_no", "plate_number"])
+            col_account = _find_col(cols, ["??", "??", "????", "account", "account_type", "category", "fee_type"])
+
+            if not col_name or not col_vehicle:
+                continue
+
+            q = sql_text(
+                'SELECT "' + col_name + '" AS name, "' + col_vehicle + '" AS vehicle'
+                + (', "' + col_account + '" AS account' if col_account else ', NULL AS account')
+                + ' FROM "' + t + '"'
+            )
+
+            for r in db.execute(q).mappings().all():
+                name = _safe_str(r.get("name"))
+                vehicle = _safe_str(r.get("vehicle"))
+                last4 = _vehicle_last4(vehicle)
+
+                if name and last4:
+                    member_candidates.append({
+                        "name": name,
+                        "vehicle": vehicle,
+                        "last4": last4,
+                        "account": _safe_str(r.get("account")),
+                        "table": t,
+                    })
+
+        except Exception as e:
+            print("WARN: member candidate table skipped", t, repr(e))
+            continue
+
+    # ?? ?? ??
+    unique_candidates = {}
+    for c in member_candidates:
+        key = (c["name"], c["vehicle"], c["last4"], c["account"])
+        unique_candidates[key] = c
+    member_candidates = list(unique_candidates.values())
+
+    # 2) bank_transactions ? ????? ????
+    q = sql_text(
+        'SELECT * FROM "bank_transactions" '
+        'WHERE CAST("' + col_status + '" AS TEXT) LIKE :status'
+    )
+    bank_rows = db.execute(q, {"status": "%????%"}).mappings().all()
+
+    updated = 0
+    skipped_multi = 0
+    skipped_none = 0
+    examples = []
+
+    for row in bank_rows:
+        row = dict(row)
+        memo = _compact_text(row.get(col_memo))
+
+        matched = []
+        for c in member_candidates:
+            name_c = _compact_text(c["name"])
+            last4 = c["last4"]
+
+            if name_c and last4 and name_c in memo and last4 in memo:
+                matched.append(c)
+
+        # ??+?4??? ? 1?? ??? ?? ??
+        if len(matched) == 1:
+            c = matched[0]
+
+            set_parts = ['"' + col_status + '" = :new_status']
+            params = {
+                "new_status": "????",
+                "pk": row.get(bank_pk),
+            }
+
+            if col_target:
+                set_parts.append('"' + col_target + '" = :target')
+                params["target"] = f'{c["name"]} {c["vehicle"]}'.strip()
+
+            if col_reason:
+                set_parts.append('"' + col_reason + '" = :reason')
+                params["reason"] = "??+?????4????"
+
+            update_q = sql_text(
+                'UPDATE "bank_transactions" SET '
+                + ", ".join(set_parts)
+                + ' WHERE "' + bank_pk + '" = :pk'
+            )
+
+            db.execute(update_q, params)
+            updated += 1
+
+            if len(examples) < 20:
+                examples.append({
+                    "memo": _safe_str(row.get(col_memo)),
+                    "matched": f'{c["name"]} {c["vehicle"]}',
+                    "amount": _safe_str(row.get(col_amount)) if col_amount else "",
+                })
+
+        elif len(matched) > 1:
+            skipped_multi += 1
+        else:
+            skipped_none += 1
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "checked": len(bank_rows),
+        "updated": updated,
+        "skipped_none": skipped_none,
+        "skipped_multi": skipped_multi,
+        "examples": examples,
+    }
+
+
+@router.get("/deposit/rematch-name-last4")
+def rematch_deposit_name_last4():
+    try:
+        db_gen = _get_db()
+        db = next(db_gen)
+        result = _rematch_confirm_needed_name_last4(db)
+        return result
+    except Exception as e:
+        print("ERROR: rematch failed:", repr(e))
+        return {
+            "status": "error",
+            "message": repr(e),
+        }
+
