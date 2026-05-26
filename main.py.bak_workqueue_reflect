@@ -4002,16 +4002,3 @@ def billing_person_exclude(pid: int, db: Session = Depends(get_db),
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT","8080")))
-
-
-# =========================================================
-# 보고/집계 엑셀 추출 라우트
-# - N월 부과대수 엑셀 추출
-# - N월 입금추출 엑셀 추출
-# =========================================================
-try:
-    from report_export_routes import router as report_export_router
-    app.include_router(report_export_router)
-    print("INFO: report export routes loaded")
-except Exception as e:
-    print("WARN: report export routes not loaded:", e)
