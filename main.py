@@ -84,6 +84,19 @@ def income_reason_display(v):
     return " / ".join(fixed)
 
 
+
+@app.middleware("http")
+async def redirect_old_work_to_pending_board(request: Request, call_next):
+    """
+    ?? ?????? /work ???? ????
+    ? ????? /work/pending-board ? ?? ??.
+    """
+    if request.method == "GET" and request.url.path == "/work":
+        return RedirectResponse("/work/pending-board", status_code=302)
+
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def preserve_bank_status_redirect(request: Request, call_next):
     """
@@ -5225,4 +5238,153 @@ def apply_work_queue_item(
         "/work?msg=" + quote(process_type + " ????"),
         status_code=302
     )
+
+
+@app.post("/bank/{tid}/apply")
+@app.post("/bank/{tid}/confirm")
+@app.post("/bank/{tid}/apply-payment")
+@app.post("/bank/{tid}/confirm-apply")
+async def bank_apply_payment_safe(
+    tid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    from fastapi.responses import JSONResponse
+    import datetime as _dt
+    import re as _re
+
+    DONE = "\ubc18\uc601\uc644\ub8cc"      # ????
+    UNMATCHED = "\ubbf8\ub9e4\uce6d"      # ???
+
+    def _num(v):
+        if v is None:
+            return 0
+        if isinstance(v, (int, float)):
+            return int(v)
+        s = str(v).replace(",", "").replace("?", "").strip()
+        m = _re.search(r"-?\d+", s)
+        return int(m.group(0)) if m else 0
+
+    def _get(obj, names):
+        for n in names:
+            if hasattr(obj, n):
+                v = getattr(obj, n)
+                if v not in [None, ""]:
+                    return v
+        return None
+
+    def _wants_json():
+        h = request.headers
+        return (
+            "application/json" in (h.get("accept") or "")
+            or "application/json" in (h.get("content-type") or "")
+            or (h.get("x-requested-with") or "").lower() == "xmlhttprequest"
+        )
+
+    async def _read_payload():
+        data = {}
+        try:
+            if "application/json" in (request.headers.get("content-type") or ""):
+                data = await request.json()
+            else:
+                form = await request.form()
+                data = dict(form)
+        except Exception:
+            data = {}
+        return data
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        if _wants_json():
+            return JSONResponse({"ok": False, "message": "????? ?? ? ????."}, status_code=404)
+        raise HTTPException(404)
+
+    if str(getattr(tx, "match_status", "") or "") == DONE or getattr(tx, "applied", False):
+        msg = "?? ????? ?????."
+        if _wants_json():
+            return JSONResponse({"ok": False, "message": msg}, status_code=400)
+        return RedirectResponse("/bank?msg=" + quote(msg), status_code=302)
+
+    payload = await _read_payload()
+    memo_note = str(payload.get("note") or payload.get("memo") or "").strip()
+
+    amount = _num(
+        _get(tx, [
+            "deposit_amount", "amount", "paid_amount",
+            "in_amount", "txn_amount", "money"
+        ])
+    )
+
+    member_id = _get(tx, [
+        "matched_member_id", "member_id",
+        "target_member_id", "mid"
+    ])
+
+    if not member_id:
+        msg = "??? ???? ?? ??? ? ????."
+        if _wants_json():
+            return JSONResponse({"ok": False, "message": msg}, status_code=400)
+        return RedirectResponse("/bank?status=" + quote(UNMATCHED) + "&msg=" + quote(msg), status_code=302)
+
+    member = db.query(Member).filter(Member.id == int(member_id)).first()
+    if not member:
+        msg = "?? ??? ?? ? ????."
+        if _wants_json():
+            return JSONResponse({"ok": False, "message": msg}, status_code=404)
+        return RedirectResponse("/bank?msg=" + quote(msg), status_code=302)
+
+    old_arrears = _num(getattr(member, "excel_arrears", 0))
+    new_arrears = max(0, old_arrears - amount)
+
+    if hasattr(member, "excel_arrears"):
+        member.excel_arrears = new_arrears
+
+    # ?? ??? ?? ??? ??? ??? ??
+    today = _dt.date.today()
+    tx_date = _get(tx, ["txn_date", "deposit_date", "paid_date", "date"])
+    for attr in ["last_paid_date", "last_payment_date", "paid_date"]:
+        if hasattr(member, attr):
+            try:
+                setattr(member, attr, tx_date or today)
+            except Exception:
+                pass
+
+    # ?? ?? ????
+    if hasattr(tx, "match_status"):
+        tx.match_status = DONE
+
+    if hasattr(tx, "applied"):
+        tx.applied = True
+
+    if hasattr(tx, "applied_at"):
+        tx.applied_at = _dt.datetime.now()
+
+    old_reason = str(getattr(tx, "match_reason", "") or "")
+    add_reason = f"????: {amount:,}? / ??? {old_arrears:,}? / ??? {new_arrears:,}?"
+    if memo_note:
+        add_reason += " / ??: " + memo_note
+
+    if hasattr(tx, "match_reason"):
+        tx.match_reason = (old_reason + " / " if old_reason else "") + add_reason
+
+    db.add(member)
+    db.add(tx)
+    db.commit()
+
+    msg = f"?? {amount:,}? ????. ??? {old_arrears:,}? ? {new_arrears:,}?"
+
+    if _wants_json():
+        return JSONResponse({
+            "ok": True,
+            "message": msg,
+            "amount": amount,
+            "before": old_arrears,
+            "after": new_arrears,
+            "status": DONE,
+        })
+
+    referer = request.headers.get("referer") or "/bank"
+    return RedirectResponse(referer, status_code=302)
 
