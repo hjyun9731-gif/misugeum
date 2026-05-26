@@ -39,19 +39,29 @@ def _safe_str(v):
 def _parse_date(v):
     if v is None or v == "":
         return None
+
+    # datetime은 date보다 먼저 처리해야 함.
+    # datetime도 date의 하위 타입이라 순서가 중요함.
+    if isinstance(v, datetime):
+        return v.date()
+
     if isinstance(v, date):
         return v
+
     s = str(v).strip()
     if not s:
         return None
+
     s = s.replace(".", "-").replace("/", "-")
     s = re.sub(r"\s+.*$", "", s)
+
     for fmt in ("%Y-%m-%d", "%Y-%m", "%Y%m%d", "%Y.%m.%d"):
         try:
             d = datetime.strptime(s, fmt)
             return d.date()
         except Exception:
             pass
+
     m = re.search(r"(20\d{2}|19\d{2})[-.]?(\d{1,2})[-.]?(\d{1,2})?", s)
     if m:
         y = int(m.group(1))
@@ -61,6 +71,7 @@ def _parse_date(v):
             return date(y, mo, da)
         except Exception:
             return None
+
     return None
 
 
