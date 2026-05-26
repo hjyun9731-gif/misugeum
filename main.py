@@ -5068,3 +5068,162 @@ def pending_income_apply(
         status_code=302
     )
 
+
+@app.post("/work/{wid}/apply")
+@app.post("/work-queue/{wid}/apply")
+@app.post("/workqueue/{wid}/apply")
+def apply_work_queue_item(
+    wid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    import datetime as _dt
+
+    w = db.query(WorkQueue).filter(WorkQueue.id == wid).first()
+    if not w:
+        raise HTTPException(404)
+
+    # ???? ??
+    process_type = str(
+        getattr(w, "process_type", None)
+        or getattr(w, "type", None)
+        or getattr(w, "work_type", None)
+        or ""
+    ).strip()
+
+    # ?? ?? ??
+    member_id = (
+        getattr(w, "member_id", None)
+        or getattr(w, "mid", None)
+        or getattr(w, "target_member_id", None)
+    )
+
+    m = None
+    if member_id:
+        m = db.query(Member).filter(Member.id == member_id).first()
+
+    # member_id? ??? ??/????? ????
+    if not m:
+        name = str(getattr(w, "name", "") or getattr(w, "member_name", "") or "").strip()
+        vehicle_no = str(getattr(w, "vehicle_no", "") or getattr(w, "car_no", "") or "").strip()
+
+        q = db.query(Member)
+        if vehicle_no:
+            m = q.filter(Member.vehicle_no == vehicle_no).first() if hasattr(Member, "vehicle_no") else None
+        if not m and name:
+            m = q.filter(Member.name == name).first() if hasattr(Member, "name") else None
+
+    exclude_types = [
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+    ]
+
+    restore_types = [
+        "????",
+        "??",
+    ]
+
+    # 1) ??/??/??/??/??/??? ?????? ?? ???? ??
+    #    ???? ?? ??
+    if any(x in process_type for x in exclude_types):
+        if m:
+            # ?? ???? ???? ? ???? 0 ??
+            if hasattr(m, "excel_arrears"):
+                m.excel_arrears = 0
+
+            # ??/?? ?? ??? ??? ?? ??
+            for attr in ["status", "member_status", "billing_status", "arrears_status"]:
+                if hasattr(m, attr):
+                    try:
+                        setattr(m, attr, process_type)
+                    except Exception:
+                        pass
+
+            # ??/??? ?? ?? ??
+            note_text = f"{_dt.date.today()} {process_type} ?? - ???? ??"
+            for attr in ["note", "memo", "remark", "remarks", "bigo"]:
+                if hasattr(m, attr):
+                    old = str(getattr(m, attr) or "")
+                    try:
+                        setattr(m, attr, (old + " / " if old else "") + note_text)
+                        break
+                    except Exception:
+                        pass
+
+            db.add(m)
+
+        # workqueue ??? ????
+        if hasattr(w, "status"):
+            w.status = "????"
+        if hasattr(w, "applied_at"):
+            w.applied_at = _dt.datetime.now()
+        if hasattr(w, "result"):
+            w.result = process_type + " ?? - ???? ??"
+
+        db.add(w)
+        db.commit()
+
+        return RedirectResponse(
+            "/work?msg=" + quote(process_type + " ????: ????? ??? ?? ?????? ??????."),
+            status_code=302
+        )
+
+    # 2) ????? ?? ?????? ??
+    if any(x in process_type for x in restore_types):
+        if m:
+            for attr in ["status", "member_status", "billing_status", "arrears_status"]:
+                if hasattr(m, attr):
+                    try:
+                        setattr(m, attr, "??")
+                    except Exception:
+                        pass
+
+            note_text = f"{_dt.date.today()} ???? ?? - ???? ??"
+            for attr in ["note", "memo", "remark", "remarks", "bigo"]:
+                if hasattr(m, attr):
+                    old = str(getattr(m, attr) or "")
+                    try:
+                        setattr(m, attr, (old + " / " if old else "") + note_text)
+                        break
+                    except Exception:
+                        pass
+
+            db.add(m)
+
+        if hasattr(w, "status"):
+            w.status = "????"
+        if hasattr(w, "applied_at"):
+            w.applied_at = _dt.datetime.now()
+        if hasattr(w, "result"):
+            w.result = "???? ?? - ???? ??"
+
+        db.add(w)
+        db.commit()
+
+        return RedirectResponse(
+            "/work?msg=" + quote("???? ????: ?????? ??????."),
+            status_code=302
+        )
+
+    # 3) ? ? ??? ??? ????
+    if hasattr(w, "status"):
+        w.status = "????"
+    if hasattr(w, "applied_at"):
+        w.applied_at = _dt.datetime.now()
+    if hasattr(w, "result"):
+        w.result = process_type + " ????"
+
+    db.add(w)
+    db.commit()
+
+    return RedirectResponse(
+        "/work?msg=" + quote(process_type + " ????"),
+        status_code=302
+    )
+
