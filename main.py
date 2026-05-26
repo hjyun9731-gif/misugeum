@@ -4193,33 +4193,43 @@ def bank_mark_income(
 ):
     from urllib.parse import quote
 
-    MISC = "\uc7a1\uc218\uc785"      # ???
-    SUSP = "\uac00\uc218\uae08"      # ???
-    EXCL = "\uc81c\uc678"            # ??
+    MISC = "\uc7a1\uc218\uc785"        # ???
+    SUSP = "\uac00\uc218\uae08"        # ???
+    DONE = "\ubc18\uc601\uc644\ub8cc"  # ????
 
-    if kind not in [MISC, SUSP, EXCL]:
-        kind = SUSP
+    # ????? ????? ???, ???? ?? ????? ??
+    raw_kind = str(kind or "").strip().lower()
+
+    if raw_kind in ["misc", "misc_income"]:
+        new_status = MISC
+    elif raw_kind in ["suspense", "temporary", "deposit"]:
+        new_status = SUSP
+    elif kind in [MISC, SUSP]:
+        new_status = kind
+    else:
+        new_status = SUSP
 
     tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
     if not tx:
         raise HTTPException(404)
 
-    # ?? ????? ?? ??? ??? ?? ? ??? ??
-    if getattr(tx, "applied", False):
+    # ????? ??
+    if str(getattr(tx, "match_status", "") or "") == DONE:
         return RedirectResponse(
-            "/bank?msg=" + quote("?? ????? ??? ?? ????/??? ? ???? ???."),
+            "/bank?msg=" + quote("?? ????? ??? ??? ? ???/????? ???? ???."),
             status_code=302
         )
 
     old_reason = getattr(tx, "match_reason", "") or ""
-    tx.match_status = kind
+    tx.match_status = new_status
     tx.matched_member_id = None
-    tx.match_reason = (old_reason + ", " if old_reason else "") + f"????: {kind}"
+    tx.match_reason = (old_reason + ", " if old_reason else "") + "????: " + new_status
+
     db.add(tx)
     db.commit()
 
     return RedirectResponse(
-        f"/bank?status={quote(kind)}&msg=" + quote(f"{kind}?? ??????."),
+        "/income-ledger?kind=" + quote(new_status),
         status_code=302
     )
 

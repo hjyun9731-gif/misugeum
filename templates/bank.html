@@ -13,6 +13,93 @@
 
 
 
+
+<script id="income-mark-buttons">
+document.addEventListener("DOMContentLoaded", function(){
+  const labelMisc = String.fromCharCode(0xC7A1,0xC218,0xC785); // ???
+  const labelSusp = String.fromCharCode(0xAC00,0xC218,0xAE08); // ???
+  const labelDone = String.fromCharCode(0xBC18,0xC601,0xC644,0xB8CC); // ????
+
+  function findTransactionId(row){
+    const els = row.querySelectorAll("a, form, button");
+    for(const el of els){
+      const href = el.getAttribute("href") || "";
+      const action = el.getAttribute("action") || "";
+      const onclick = el.getAttribute("onclick") || "";
+      const combined = href + " " + action + " " + onclick;
+
+      let m = combined.match(/\/bank\/(\d+)\/match/);
+      if(m) return m[1];
+
+      m = combined.match(/\/bank\/(\d+)\/manual-match/);
+      if(m) return m[1];
+
+      m = combined.match(/\/bank\/(\d+)/);
+      if(m) return m[1];
+    }
+    return null;
+  }
+
+  function makeBtn(id, kindValue, label, bg){
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/bank/" + id + "/mark-income";
+    form.style.display = "inline";
+    form.style.margin = "0 0 0 4px";
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "kind";
+    input.value = kindValue;
+
+    const btn = document.createElement("button");
+    btn.type = "submit";
+    btn.textContent = label;
+    btn.title = label + "?? ???";
+    btn.style.border = "0";
+    btn.style.borderRadius = "9px";
+    btn.style.padding = "6px 9px";
+    btn.style.fontWeight = "800";
+    btn.style.cursor = "pointer";
+    btn.style.background = bg;
+    btn.style.color = "#fff";
+    btn.style.fontSize = "12px";
+    btn.style.boxShadow = "0 3px 8px rgba(0,0,0,.12)";
+
+    form.appendChild(input);
+    form.appendChild(btn);
+    return form;
+  }
+
+  document.querySelectorAll("table tbody tr").forEach(function(row){
+    if(row.querySelector(".income-mark-box")) return;
+
+    const rowText = row.innerText || "";
+    if(rowText.indexOf(labelDone) >= 0) return;
+
+    const id = findTransactionId(row);
+    if(!id) return;
+
+    const cells = row.querySelectorAll("td");
+    if(!cells.length) return;
+
+    const lastCell = cells[cells.length - 1];
+
+    const box = document.createElement("span");
+    box.className = "income-mark-box";
+    box.style.display = "inline-flex";
+    box.style.gap = "4px";
+    box.style.marginLeft = "6px";
+    box.style.verticalAlign = "middle";
+
+    box.appendChild(makeBtn(id, "misc", labelMisc, "#7c3aed"));
+    box.appendChild(makeBtn(id, "suspense", labelSusp, "#0ea5e9"));
+
+    lastCell.appendChild(box);
+  });
+});
+</script>
+
 {% endblock %}
 {% block page_title %}통장매칭{% endblock %}
 {% block content %}
