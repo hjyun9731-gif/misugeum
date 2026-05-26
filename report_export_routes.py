@@ -2135,3 +2135,101 @@ def export_current_members_deposit_excel(
         filename = f"{year}_{month:02d}_deposit_current_members_error.xlsx"
         return _excel_response(wb, filename)
 
+
+# =========================================================
+# ?? ??? ?? ???
+# ??: MonthlyLedger.year/month + paid_amount > 0
+# ???? "?? ????"? ?? ??
+# ??: ???? / ?? / ?? / ??
+# =========================================================
+@router.get("/deposit/monthly-ledger-export")
+def export_monthly_ledger_deposit_excel(
+    year: int = Query(..., description="year"),
+    month: int = Query(..., ge=1, le=12, description="month")
+):
+    try:
+        from sqlalchemy import func
+        from models import Member, MonthlyLedger
+        from openpyxl import Workbook
+
+        db_gen = _get_db()
+        db = next(db_gen)
+
+        VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+        NAME = "\uc774\ub984"                 # ??
+        ACCOUNT = "\uacc4\uc815"              # ??
+        AMOUNT = "\uae08\uc561"               # ??
+
+        # ???? ?? ????? ?? ??:
+        # MonthlyLedger.year/month + paid_amount > 0 + member_id? ??
+        paid_rows = (
+            db.query(
+                MonthlyLedger.member_id.label("member_id"),
+                func.sum(MonthlyLedger.paid_amount).label("paid_sum")
+            )
+            .filter(MonthlyLedger.year == year)
+            .filter(MonthlyLedger.month == month)
+            .filter(MonthlyLedger.paid_amount > 0)
+            .group_by(MonthlyLedger.member_id)
+            .all()
+        )
+
+        member_ids = [r.member_id for r in paid_rows if r.member_id]
+        members = {}
+        if member_ids:
+            for m in db.query(Member).filter(Member.id.in_(member_ids)).all():
+                members[m.id] = m
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "deposit_export"
+        ws.append([VEHICLE, NAME, ACCOUNT, AMOUNT])
+
+        total_amount = 0
+
+        for r in paid_rows:
+            m = members.get(r.member_id)
+            paid_sum = int(r.paid_sum or 0)
+            total_amount += paid_sum
+
+            if m:
+                vehicle = (
+                    getattr(m, "vehicle_no", None)
+                    or getattr(m, "vehicle_number", None)
+                    or getattr(m, "car_no", None)
+                    or getattr(m, "plate_number", None)
+                    or ""
+                )
+                name = getattr(m, "name", "") or ""
+                account = getattr(m, "account", "") or ""
+            else:
+                vehicle = ""
+                name = ""
+                account = ""
+
+            ws.append([vehicle, name, account, paid_sum])
+
+        _style_sheet(ws)
+        ws.column_dimensions["A"].width = 18
+        ws.column_dimensions["B"].width = 16
+        ws.column_dimensions["C"].width = 14
+        ws.column_dimensions["D"].width = 14
+
+        ws_debug = wb.create_sheet(title="debug_source")
+        ws_debug.append(["item", "value"])
+        ws_debug.append(["basis", "MonthlyLedger.year/month + paid_amount > 0"])
+        ws_debug.append(["year", year])
+        ws_debug.append(["month", month])
+        ws_debug.append(["count", len(paid_rows)])
+        ws_debug.append(["total_amount", total_amount])
+        ws_debug.sheet_state = "hidden"
+
+        filename = f"{year}_{month:02d}_monthly_deposit_export.xlsx"
+        return _excel_response(wb, filename)
+
+    except Exception as e:
+        print("ERROR: monthly ledger deposit export failed:", repr(e))
+        wb = _error_workbook("monthly ledger deposit export error", repr(e))
+        filename = f"{year}_{month:02d}_monthly_deposit_export_error.xlsx"
+        return _excel_response(wb, filename)
+
