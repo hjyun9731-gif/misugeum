@@ -567,6 +567,154 @@ def export_billing_count_excel(
 
 
 
+
+def _find_recent_payment_rows(db, year, month):
+    """
+    N? ????:
+    /arrears ??? ?? ???? ?????? YYYY-MM? ??? ?? ???.
+    ?? ??? ???? / ?? / ?? / ??? ????.
+    """
+    from sqlalchemy import inspect, text as sql_text
+
+    ym = f"{year}-{month:02d}"
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    result = []
+
+    recent_date_candidates = [
+        "?????", "?? ???", "??????", "??? ???",
+        "last_payment_date", "recent_payment_date", "latest_payment_date",
+        "last_paid_at", "paid_at", "payment_date"
+    ]
+
+    vehicle_candidates = [
+        "????", "?? ??", "vehicle_number", "car_number", "car_no", "plate_number"
+    ]
+
+    name_candidates = [
+        "??", "??", "???", "name", "member_name", "owner_name"
+    ]
+
+    account_candidates = [
+        "??", "??", "????", "account", "account_type", "category", "fee_type"
+    ]
+
+    amount_candidates = [
+        "??", "???", "????", "?????", "?? ???",
+        "amount", "payment_amount", "paid_amount", "deposit_amount",
+        "last_payment_amount", "recent_payment_amount"
+    ]
+
+    # arrears ?? ??? ??
+    preferred_words = [
+        "arrears", "member", "dues", "fee", "misu", "??", "??", "??", "??"
+    ]
+
+    sorted_tables = sorted(
+        tables,
+        key=lambda t: 0 if any(w in t.lower() for w in preferred_words) else 1
+    )
+
+    for table in sorted_tables:
+        try:
+            cols = [c["name"] for c in inspector.get_columns(table)]
+            if not cols:
+                continue
+
+            col_recent = _find_col(cols, recent_date_candidates)
+            if not col_recent:
+                continue
+
+            col_vehicle = _find_col(cols, vehicle_candidates)
+            col_name = _find_col(cols, name_candidates)
+            col_account = _find_col(cols, account_candidates)
+            col_amount = _find_col(cols, amount_candidates)
+
+            # ??? ????? + ??/??/?? ? ???? ??? ?
+            if not (col_vehicle or col_name or col_amount):
+                continue
+
+            q = sql_text(
+                'SELECT * FROM "' + table + '" '
+                'WHERE CAST("' + col_recent + '" AS TEXT) LIKE :ym '
+                'ORDER BY "' + col_recent + '" ASC'
+            )
+
+            rows = db.execute(q, {"ym": ym + "%"}).mappings().all()
+
+            for row in rows:
+                row = dict(row)
+                result.append({
+                    "????": _safe_str(row.get(col_vehicle)),
+                    "??": _safe_str(row.get(col_name)),
+                    "??": _safe_str(row.get(col_account)),
+                    "??": _safe_str(row.get(col_amount)),
+                    "_table": table,
+                    "_recent_col": col_recent,
+                    "_recent_value": _safe_str(row.get(col_recent)),
+                })
+
+        except Exception as e:
+            print("WARN: recent payment table skipped", table, repr(e))
+            continue
+
+    # ?? ??: ???? + ?? + ?? + ?? ??
+    unique = {}
+    for r in result:
+        key = (
+            r.get("????", ""),
+            r.get("??", ""),
+            r.get("??", ""),
+            r.get("??", ""),
+        )
+        unique[key] = r
+
+    return list(unique.values())
+
+
+def _make_simple_deposit_workbook(year, month, rows):
+    wb = Workbook()
+
+    ws = wb.active
+    ws.title = "summary"
+
+    total = 0
+    for r in rows:
+        amt = str(r.get("??", "")).replace(",", "").replace("?", "").strip()
+        try:
+            total += int(float(amt))
+        except Exception:
+            pass
+
+    ws.append(["???", "????", "????", "??"])
+    ws.append([
+        f"{year}-{month:02d}",
+        len(rows),
+        total,
+        "?????? ???? ???? ??? ?? ? ?? ??"
+    ])
+    _style_sheet(ws)
+
+    ws2 = wb.create_sheet(title="deposit_list")
+    headers = ["????", "??", "??", "??"]
+    ws2.append(headers)
+
+    for r in rows:
+        ws2.append([
+            r.get("????", ""),
+            r.get("??", ""),
+            r.get("??", ""),
+            r.get("??", ""),
+        ])
+
+    _style_sheet(ws2)
+    return wb
+
+
+
 @router.get("/deposit/export")
 def export_deposit_excel(
     year: int = Query(..., description="????"),
@@ -576,52 +724,15 @@ def export_deposit_excel(
         db_gen = _get_db()
         db = next(db_gen)
 
-        rows = _payment_rows_for_month_direct(db, year, month)
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "error"
-
-        total = 0
-        status_count = {}
-
-        for r in rows:
-            amt = str(r.get("???", "")).replace(",", "").replace("?", "").strip()
-            try:
-                total += int(float(amt))
-            except Exception:
-                pass
-
-            st = r.get("????") or "????"
-            status_count[st] = status_count.get(st, 0) + 1
-
-        ws.append(["???", "????", "????", "??"])
-        ws.append([
-            f"{year}-{month:02d}",
-            len(rows),
-            total,
-            "bank_transactions ??? ?? ?? ?? / LIMIT ??"
-        ])
-
-        ws.append([])
-        ws.append(["????", "??"])
-        for k, v in sorted(status_count.items()):
-            ws.append([k, v])
-
-        _style_sheet(ws)
-
-        headers = [
-            "???", "?????", "????", "???", "????/??",
-            "??", "????", "??", "????", "??"
-        ]
-        _add_sheet(wb, "monthly_deposit", headers, rows)
+        rows = _find_recent_payment_rows(db, year, month)
+        wb = _make_simple_deposit_workbook(year, month, rows)
 
         filename = f"{year}?_{month:02d}?_????.xlsx"
         return _excel_response(wb, filename)
 
     except Exception as e:
         print("ERROR: deposit export failed:", repr(e))
-        wb = _error_workbook("???? ??", repr(e))
-        filename = f"{year}?_{month:02d}?_????_??.xlsx"
+        wb = _error_workbook("deposit export error", repr(e))
+        filename = f"{year}_{month:02d}_deposit_export_error.xlsx"
         return _excel_response(wb, filename)
 
