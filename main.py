@@ -2207,7 +2207,7 @@ def bank_apply_auto_all(db: Session = Depends(get_db), user: User = Depends(requ
 
 
 @app.get("/bank/{tid}/match", response_class=HTMLResponse)
-def bank_manual_match_page(
+<div class="mm-wrap"><div class="mm-card">def bank_manual_match_page(
     tid: int,
     request: Request,
     q: str = "",
@@ -2270,7 +2270,118 @@ def bank_manual_match_page(
       <meta charset="utf-8">
       <title>수동매칭</title>
       <link rel="stylesheet" href="/static/style.css">
-    </head>
+    
+<style id="manual-match-style-v1">
+  :root{
+    --pink:#ff4f93;
+    --pink-soft:#fff0f6;
+    --line:#f4c8d9;
+    --text:#2d2230;
+    --muted:#746579;
+    --bg:#fff8fb;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    padding:24px;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",Arial,sans-serif;
+    font-size:14px;
+  }
+  .mm-wrap{
+    max-width:1280px;
+    margin:0 auto;
+  }
+  .mm-card{
+    background:var(--card);
+    border:1px solid #f1d4df;
+    border-radius:18px;
+    box-shadow:0 8px 22px rgba(255,79,147,.10);
+    padding:22px;
+    margin-bottom:18px;
+  }
+  h2{
+    margin:0 0 12px;
+    font-size:24px;
+    font-weight:900;
+    letter-spacing:-.5px;
+  }
+  form{
+    margin:14px 0;
+  }
+  input[type=text]{
+    height:40px;
+    min-width:360px;
+    border:1px solid #e7c9d8;
+    border-radius:12px;
+    padding:0 14px;
+    outline:none;
+    background:#fff;
+    font-size:14px;
+  }
+  input[type=text]:focus{
+    border-color:var(--pink);
+    box-shadow:0 0 0 3px rgba(255,79,147,.14);
+  }
+  button{
+    height:38px;
+    border:0;
+    border-radius:12px;
+    padding:0 15px;
+    background:var(--pink);
+    color:#fff;
+    font-weight:800;
+    cursor:pointer;
+    box-shadow:0 4px 12px rgba(255,79,147,.24);
+  }
+  a{
+    color:#6f4a7a;
+    text-decoration:none;
+    font-weight:800;
+    margin-left:8px;
+  }
+  table{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    background:#fff;
+    border:1px solid #f1d4df;
+    border-radius:16px;
+    overflow:hidden;
+    box-shadow:0 8px 22px rgba(255,79,147,.08);
+    margin-top:18px;
+  }
+  th{
+    background:var(--pink-soft);
+    color:#d8216b;
+    font-weight:900;
+    text-align:left;
+    padding:13px 14px;
+    border-bottom:2px solid #ff8fbd;
+    white-space:nowrap;
+  }
+  td{
+    padding:12px 14px;
+    border-bottom:1px solid #f5e3eb;
+    vertical-align:middle;
+  }
+  tr:hover td{
+    background:#fff8fb;
+  }
+  td:nth-child(5){
+    color:#e33162;
+    font-weight:900;
+    text-align:right;
+  }
+  td:last-child{
+    text-align:center;
+    white-space:nowrap;
+  }
+</style>
+
+</head>
     <body style="padding:24px;background:#fafafa;">
       <div style="background:white;border:1px solid #eee;border-radius:18px;padding:20px;margin-bottom:16px;">
         <h2>미매칭 수동매칭</h2>
@@ -2303,7 +2414,7 @@ def bank_manual_match_page(
     return HTMLResponse(html)
 
 
-@app.post("/bank/{tid}/manual-match")
+</div></div>@app.post("/bank/{tid}/manual-match")
 def bank_manual_match_save(
     tid: int,
     member_id: int = Form(...),
