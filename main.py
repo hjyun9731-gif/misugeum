@@ -2742,9 +2742,20 @@ def bank_page(request: Request, status: str = "", q: str = "",
         try: tx._candidates = _json.loads(tx.match_candidates_json) if tx.match_candidates_json else []
         except: tx._candidates = []
 
-    counts = {s: db.query(BankTransaction).filter(BankTransaction.match_status == s).count()
-              for s in ["자동매칭","확인필요","미매칭","반영완료"]}
-    counts["전체"] = db.query(BankTransaction).count()
+    status_tabs = [
+        "????",
+        "????",
+        "???",
+        "????",
+        "???",
+        "???",
+        "??",
+    ]
+    counts = {
+        s: db.query(BankTransaction).filter(BankTransaction.match_status == s).count()
+        for s in status_tabs
+    }
+    counts["??"] = db.query(BankTransaction).count()
 
     return templates.TemplateResponse(request, "bank.html", {
         "request": request, "user": user, "txs": txs, "status": status, "q": q,
