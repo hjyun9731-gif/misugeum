@@ -295,6 +295,71 @@ async function searchMember(txId, deposit) {
 })();
 </script>
 
+
+<script id="bank-delete-buttons">
+(function(){
+  const labelDelete = String.fromCharCode(0xC0AD,0xC81C); // ??
+
+  function makeDeleteBtn(id){
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/bank/" + id + "/delete";
+    form.style.display = "inline";
+    form.style.margin = "0 0 0 4px";
+    form.onsubmit = function(){
+      return confirm("? ????? ????????? ???? ?? ???? ????.");
+    };
+
+    const btn = document.createElement("button");
+    btn.type = "submit";
+    btn.textContent = labelDelete;
+    btn.style.border = "0";
+    btn.style.borderRadius = "9px";
+    btn.style.padding = "6px 9px";
+    btn.style.fontWeight = "800";
+    btn.style.cursor = "pointer";
+    btn.style.background = "#ef4444";
+    btn.style.color = "#fff";
+    btn.style.fontSize = "12px";
+
+    form.appendChild(btn);
+    return form;
+  }
+
+  function installDeleteButtons(){
+    document.querySelectorAll('tr[id^="btx-"]').forEach(function(row){
+      if(row.querySelector(".bank-delete-box")) return;
+
+      const id = row.id.replace("btx-", "").trim();
+      if(!id) return;
+
+      const cells = row.querySelectorAll("td");
+      if(!cells.length) return;
+
+      const lastCell = cells[cells.length - 1];
+
+      const box = document.createElement("span");
+      box.className = "bank-delete-box";
+      box.style.display = "inline-flex";
+      box.style.marginLeft = "6px";
+      box.appendChild(makeDeleteBtn(id));
+
+      lastCell.appendChild(box);
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    installDeleteButtons();
+    let tries = 0;
+    const timer = setInterval(function(){
+      installDeleteButtons();
+      tries += 1;
+      if(tries >= 10) clearInterval(timer);
+    }, 300);
+  });
+})();
+</script>
+
 {% endblock %}
 
 

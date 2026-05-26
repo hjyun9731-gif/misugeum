@@ -4184,92 +4184,6 @@ def income_ledger_export(
     )
 
 
-@app.get("/bank/{tid}/mark-income", response_class=HTMLResponse)
-def bank_mark_income_form(
-    tid: int,
-    request: Request,
-    kind: str = "misc",
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user)
-):
-    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
-    if not tx:
-        raise HTTPException(404)
-
-    raw_kind = str(kind or "").strip().lower()
-    kind_code = "misc" if raw_kind in ["misc", "misc_income"] else "suspense"
-
-    return templates.TemplateResponse(request, "income_mark_form.html", {
-        "request": request,
-        "user": user,
-        "tx": tx,
-        "kind_code": kind_code,
-        "fmt_amt": fmt_amt,
-    })
-
-
-@app.post("/bank/{tid}/mark-income")
-def bank_mark_income_save(
-    tid: int,
-    kind: str = Form(...),
-    reason: str = Form(""),
-    related_vehicle_no: str = Form(""),
-    related_name: str = Form(""),
-    note: str = Form(""),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user)
-):
-    from urllib.parse import quote
-
-    MISC = "\uc7a1\uc218\uc785"        # ???
-    SUSP = "\uac00\uc218\uae08"        # ???
-    DONE = "\ubc18\uc601\uc644\ub8cc"  # ????
-
-    raw_kind = str(kind or "").strip().lower()
-
-    if raw_kind in ["misc", "misc_income"]:
-        new_status = MISC
-    elif raw_kind in ["suspense", "temporary", "deposit"]:
-        new_status = SUSP
-    else:
-        new_status = SUSP
-
-    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
-    if not tx:
-        raise HTTPException(404)
-
-    if str(getattr(tx, "match_status", "") or "") == DONE:
-        return RedirectResponse(
-            "/bank?msg=" + quote("?? ????? ??? ??? ? ???/????? ???? ???."),
-            status_code=302
-        )
-
-    parts = []
-    if reason:
-        parts.append("??: " + reason.strip())
-    if related_vehicle_no:
-        parts.append("????: " + related_vehicle_no.strip())
-    if related_name:
-        parts.append("????: " + related_name.strip())
-    if note:
-        parts.append("??: " + note.strip())
-
-    old_reason = getattr(tx, "match_reason", "") or ""
-    add_reason = "????: " + new_status
-    if parts:
-        add_reason += " / " + " / ".join(parts)
-
-    tx.match_status = new_status
-    tx.matched_member_id = None
-    tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
-
-    db.add(tx)
-    db.commit()
-
-    return RedirectResponse(
-        "/income-ledger?kind=" + quote(new_status),
-        status_code=302
-    )
 
 
 @app.get("/income-ledger/{tid}/edit", response_class=HTMLResponse)
@@ -4596,6 +4510,222 @@ def generate_next_month_arrears_from_billing_counts(
 
     return RedirectResponse(
         f"/billing-counts?year={year}&month={month}&msg=" + quote(msg),
+        status_code=302
+    )
+
+
+@app.get("/bank/{tid}/mark-income", response_class=HTMLResponse)
+def bank_mark_income_form(
+    tid: int,
+    request: Request,
+    kind: str = "misc",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    kind_code = str(kind or "misc").strip().lower()
+
+    return templates.TemplateResponse(request, "income_mark_form.html", {
+        "request": request,
+        "user": user,
+        "tx": tx,
+        "kind_code": kind_code,
+        "fmt_amt": fmt_amt,
+    })
+
+
+@app.post("/bank/{tid}/mark-income")
+def bank_mark_income_save(
+    tid: int,
+    kind: str = Form(...),
+    reason: str = Form(""),
+    related_vehicle_no: str = Form(""),
+    related_name: str = Form(""),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    from sqlalchemy import text
+    import datetime as _dt
+
+    MISC = "\uc7a1\uc218\uc785"          # ???
+    SUSP = "\uac00\uc218\uae08"          # ???
+    DONE = "\ubc18\uc601\uc644\ub8cc"    # ????
+    PENDING = "\ubc18\uc601\ub300\uae30" # ????
+
+    raw_kind = str(kind or "").strip().lower()
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    if str(getattr(tx, "match_status", "") or "") == DONE:
+        return RedirectResponse(
+            "/bank?msg=" + quote("?? ????? ??? ??? ? ???? ???."),
+            status_code=302
+        )
+
+    parts = []
+    if reason:
+        parts.append("??: " + reason.strip())
+    if related_vehicle_no:
+        parts.append("????: " + related_vehicle_no.strip())
+    if related_name:
+        parts.append("????: " + related_name.strip())
+    if note:
+        parts.append("??: " + note.strip())
+
+    memo = str(getattr(tx, "memo", "") or "")
+    amount = getattr(tx, "deposit_amount", None) or getattr(tx, "amount", None) or 0
+    txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
+
+    # 1) ???
+    if raw_kind in ["misc", "misc_income"]:
+        new_status = MISC
+        old_reason = getattr(tx, "match_reason", "") or ""
+        add_reason = "????: " + new_status
+        if parts:
+            add_reason += " / " + " / ".join(parts)
+
+        tx.match_status = new_status
+        tx.matched_member_id = None
+        tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+
+        db.add(tx)
+        db.commit()
+
+        return RedirectResponse(
+            "/income-ledger?kind=" + quote(new_status),
+            status_code=302
+        )
+
+    # 2) ???
+    if raw_kind in ["suspense", "temporary", "deposit"]:
+        new_status = SUSP
+        old_reason = getattr(tx, "match_reason", "") or ""
+        add_reason = "????: " + new_status
+        if parts:
+            add_reason += " / " + " / ".join(parts)
+
+        tx.match_status = new_status
+        tx.matched_member_id = None
+        tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+
+        db.add(tx)
+        db.commit()
+
+        return RedirectResponse(
+            "/income-ledger?kind=" + quote(new_status),
+            status_code=302
+        )
+
+    # 3) ???? - ??? / ???
+    if raw_kind in ["pending_assoc", "pending_join"]:
+        pending_type = "????-???" if raw_kind == "pending_assoc" else "????-???"
+
+        # ?? ??? ????? ??
+        old_reason = getattr(tx, "match_reason", "") or ""
+        add_reason = pending_type
+        if parts:
+            add_reason += " / " + " / ".join(parts)
+
+        tx.match_status = PENDING
+        tx.matched_member_id = None
+        tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+
+        db.add(tx)
+
+        # ???? ?? ??? ??
+        # ?? WorkQueue ??? ????? ??, ???? ????? ?? ??
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS bank_income_pending_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bank_transaction_id INTEGER,
+                process_type VARCHAR(50),
+                income_kind VARCHAR(50),
+                txn_date VARCHAR(20),
+                amount INTEGER,
+                memo TEXT,
+                related_vehicle_no VARCHAR(100),
+                related_name VARCHAR(100),
+                reason TEXT,
+                note TEXT,
+                status VARCHAR(50) DEFAULT '????',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
+        db.execute(text("""
+            INSERT INTO bank_income_pending_queue
+            (bank_transaction_id, process_type, income_kind, txn_date, amount, memo,
+             related_vehicle_no, related_name, reason, note, status)
+            VALUES
+            (:bank_transaction_id, :process_type, :income_kind, :txn_date, :amount, :memo,
+             :related_vehicle_no, :related_name, :reason, :note, :status)
+        """), {
+            "bank_transaction_id": tid,
+            "process_type": "????",
+            "income_kind": pending_type,
+            "txn_date": txn_date,
+            "amount": int(amount or 0),
+            "memo": memo,
+            "related_vehicle_no": related_vehicle_no,
+            "related_name": related_name,
+            "reason": reason,
+            "note": note,
+            "status": "????",
+        })
+
+        db.commit()
+
+        return RedirectResponse(
+            "/work?status=" + quote("????") + "&msg=" + quote(pending_type + " ????? ?????."),
+            status_code=302
+        )
+
+    # ???? ???
+    tx.match_status = SUSP
+    tx.matched_member_id = None
+    tx.match_reason = "????: " + SUSP
+    db.add(tx)
+    db.commit()
+
+    return RedirectResponse(
+        "/income-ledger?kind=" + quote(SUSP),
+        status_code=302
+    )
+
+
+@app.post("/bank/{tid}/delete")
+def bank_transaction_delete(
+    tid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    DONE = "\ubc18\uc601\uc644\ub8cc"  # ????
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    # ???? ??
+    if getattr(tx, "applied", False) or str(getattr(tx, "match_status", "") or "") == DONE:
+        return RedirectResponse(
+            "/bank?msg=" + quote("????? ????? ??? ? ????. ?? ????/???? ?????."),
+            status_code=302
+        )
+
+    db.delete(tx)
+    db.commit()
+
+    return RedirectResponse(
+        "/bank?msg=" + quote("????? ??????."),
         status_code=302
     )
 
