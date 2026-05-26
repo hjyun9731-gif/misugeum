@@ -2349,3 +2349,174 @@ def cleanup_bank_status():
         print("ERROR: cleanup bank status failed:", repr(e))
         return {"status": "error", "message": repr(e)}
 
+
+# =========================================================
+# ?? ?? ???
+# ?: ??? ??? / ???? 2974 / ?? "??, ? ? ?"
+#     ???? "???2974??" -> ????? ????
+# =========================================================
+@router.get("/deposit/rematch-alias-note")
+def rematch_bank_by_alias_note():
+    try:
+        import re
+        from models import Member, BankTransaction
+
+        db_gen = _get_db()
+        db = next(db_gen)
+
+        def compact(s):
+            return re.sub(r"\s+", "", str(s or "")).strip()
+
+        def digits(s):
+            return re.sub(r"\D", "", str(s or ""))
+
+        def vehicle_last4(v):
+            d = digits(v)
+            return d[-4:] if len(d) >= 4 else d
+
+        def extract_aliases_from_note(note):
+            """
+            ???? ??? ?? ?? ??.
+            '??, ? ? ?' -> ['???']
+            """
+            raw = str(note or "")
+            aliases = set()
+
+            # ??/???/?? ???? ??
+            parts = re.split(r"[,/()\[\]{}:;|]+", raw)
+
+            stop = {
+                "??", "??", "??", "??", "??", "??", "??",
+                "??", "??", "???", "???", "??", "??",
+                "??", "??", "??", "??", "??"
+            }
+
+            for part in parts:
+                p = compact(part)
+                if not p or p in stop:
+                    continue
+
+                # ?? 2~5? ??? ??? ??
+                found = re.findall(r"[?-?]{2,5}", p)
+                for f in found:
+                    f = compact(f)
+                    if f and f not in stop and 2 <= len(f) <= 5:
+                        aliases.add(f)
+
+            return list(aliases)
+
+        def member_note_text(m):
+            texts = []
+            for attr in [
+                "note", "memo", "remark", "remarks", "raw_note",
+                "bigo", "??", "etc", "description"
+            ]:
+                if hasattr(m, attr):
+                    v = getattr(m, attr)
+                    if v:
+                        texts.append(str(v))
+            return " ".join(texts)
+
+        # 1) ??? ?? ?? ???
+        candidates = []
+
+        members = db.query(Member).all()
+        for m in members:
+            vehicle = (
+                getattr(m, "vehicle_no", None)
+                or getattr(m, "vehicle_number", None)
+                or getattr(m, "car_no", None)
+                or getattr(m, "plate_number", None)
+                or ""
+            )
+            last4 = vehicle_last4(vehicle)
+            if not last4:
+                continue
+
+            aliases = set()
+
+            # ?? ?? ??? ??? ??
+            name = compact(getattr(m, "name", "") or "")
+            if name:
+                aliases.add(name)
+
+            # ?? ? ?? ??
+            for a in extract_aliases_from_note(member_note_text(m)):
+                aliases.add(a)
+
+            for a in aliases:
+                candidates.append({
+                    "member": m,
+                    "alias": a,
+                    "last4": last4,
+                    "vehicle": vehicle,
+                })
+
+        checked = 0
+        updated = 0
+        skipped_none = 0
+        skipped_multi = 0
+        examples = []
+
+        txs = (
+            db.query(BankTransaction)
+            .filter(BankTransaction.match_status.in_(["???", "????", "? ????"]))
+            .all()
+        )
+
+        for tx in txs:
+            checked += 1
+            memo = compact(getattr(tx, "memo", "") or "")
+
+            matched = []
+            for c in candidates:
+                if c["alias"] and c["last4"] and c["alias"] in memo and c["last4"] in memo:
+                    matched.append(c)
+
+            # ?? ?? ?? ?? ??
+            uniq = {}
+            for c in matched:
+                uniq[c["member"].id] = c
+            matched = list(uniq.values())
+
+            if len(matched) == 1:
+                c = matched[0]
+                m = c["member"]
+
+                tx.matched_member_id = m.id
+                tx.match_status = "????"
+                old_reason = getattr(tx, "match_reason", "") or ""
+                add_reason = f"????+?????????: {c['alias']}+{c['last4']} -> {m.name}/{c['vehicle']}"
+                tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+
+                db.add(tx)
+                updated += 1
+
+                if len(examples) < 30:
+                    examples.append({
+                        "memo": getattr(tx, "memo", "") or "",
+                        "matched": f"{m.name} / {c['vehicle']}",
+                        "alias": c["alias"],
+                        "last4": c["last4"],
+                    })
+
+            elif len(matched) > 1:
+                skipped_multi += 1
+            else:
+                skipped_none += 1
+
+        db.commit()
+
+        return {
+            "status": "ok",
+            "checked": checked,
+            "updated_to_auto": updated,
+            "skipped_none": skipped_none,
+            "skipped_multi": skipped_multi,
+            "examples": examples,
+        }
+
+    except Exception as e:
+        print("ERROR: rematch alias note failed:", repr(e))
+        return {"status": "error", "message": repr(e)}
+
