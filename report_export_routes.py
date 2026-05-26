@@ -2233,3 +2233,119 @@ def export_monthly_ledger_deposit_excel(
         filename = f"{year}_{month:02d}_monthly_deposit_export_error.xlsx"
         return _excel_response(wb, filename)
 
+
+# =========================================================
+# ???? ??
+# 1) ?? ?? ???? ?? ??
+# 2) ??? ????? ???? ??? ??
+# =========================================================
+@router.get("/deposit/cleanup-bank-status")
+def cleanup_bank_status():
+    try:
+        import re
+        from models import BankTransaction
+        from sqlalchemy import or_
+
+        db_gen = _get_db()
+        db = next(db_gen)
+
+        def memo_text(tx):
+            return str(getattr(tx, "memo", "") or "")
+
+        def has_korean_name(s):
+            return bool(re.search(r"[?-?]{2,5}", s or ""))
+
+        def has_vehicle_like(s):
+            s = str(s or "")
+            return bool(
+                re.search(r"[?-?]{2}\d{2}[?-?]\d{3,4}", s)
+                or re.search(r"\d{3,4}", s)
+            )
+
+        def is_noise_memo(s):
+            s = str(s or "").strip()
+            compact = re.sub(r"\s+", "", s)
+
+            # ?? ??? ?? ?? ?? ??
+            if compact in ["??", "??", "???"]:
+                return True
+
+            # ??/??/??? ?? ??
+            if re.fullmatch(r"[A-Za-z0-9\-_\(\)]+", compact):
+                return True
+
+            # ??? + ??/??? ?? ??/?? ??? ?? ??
+            bank_words = ["??", "??", "??", "??", "??", "???", "???", "??"]
+            if any(w in compact for w in bank_words):
+                if not has_korean_name(compact) and not re.search(r"[?-?]{2}\d{2}[?-?]\d{3,4}", compact):
+                    return True
+
+            # ??? ?? ???? ??? ??? ??
+            if not has_korean_name(compact) and not re.search(r"[?-?]{2}\d{2}[?-?]\d{3,4}", compact):
+                return True
+
+            return False
+
+        excluded = 0
+        upgraded = 0
+        checked = 0
+        examples_excluded = []
+        examples_upgraded = []
+
+        txs = (
+            db.query(BankTransaction)
+            .filter(BankTransaction.match_status.in_(["???", "????", "? ????"]))
+            .all()
+        )
+
+        for tx in txs:
+            checked += 1
+            memo = memo_text(tx)
+            reason = str(getattr(tx, "match_reason", "") or "")
+
+            # 1) ?? ?? ???? ?? ??
+            if str(tx.match_status or "") == "???" and is_noise_memo(memo):
+                tx.match_status = "??"
+                tx.match_reason = (reason + ", " if reason else "") + "????: ??/???? ???? ??"
+                db.add(tx)
+                excluded += 1
+                if len(examples_excluded) < 20:
+                    examples_excluded.append(memo)
+                continue
+
+            # 2) ???? ? ???? ?? ? ???? ??? ??
+            strong_reason = (
+                "??=?????" in reason
+                or "???????" in reason
+            )
+
+            name_tail_pattern = bool(
+                re.search(r"[?-?]{2,5}\d{3,4}", memo)
+                or re.search(r"\d{3,4}[?-?]{2,5}", memo)
+                or re.search(r"[?-?]{2}\d{2}[?-?]\d{3,4}[?-?]{1,5}", memo)
+            )
+
+            if "????" in str(tx.match_status or ""):
+                if strong_reason or name_tail_pattern:
+                    tx.match_status = "????"
+                    tx.match_reason = (reason + ", " if reason else "") + "??: ???? ??"
+                    db.add(tx)
+                    upgraded += 1
+                    if len(examples_upgraded) < 20:
+                        examples_upgraded.append(memo)
+
+        db.commit()
+
+        return {
+            "status": "ok",
+            "checked": checked,
+            "excluded_to_??": excluded,
+            "confirm_to_????": upgraded,
+            "examples_excluded": examples_excluded,
+            "examples_upgraded": examples_upgraded,
+        }
+
+    except Exception as e:
+        print("ERROR: cleanup bank status failed:", repr(e))
+        return {"status": "error", "message": repr(e)}
+
