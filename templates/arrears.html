@@ -89,7 +89,7 @@ function downloadBillingCountExcel() {
 function downloadDepositExcel() {
     const ym = getReportExportYM();
     if (!ym) return;
-    window.location.href = `/api/reports/deposit/export?year=${ym.year}&month=${ym.month}`;
+    window.location.href = `/api/reports/deposit/current-members-export?year=${ym.year}&month=${ym.month}`;
 }
 </script>
 <!-- /report-export-buttons-for-arrears -->

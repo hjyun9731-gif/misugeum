@@ -1031,38 +1031,529 @@ def _make_monthly_deposit_export_workbook_v5(rows):
 
 
 
-@router.get("/deposit/export")
-def export_deposit_excel(
-    year: int = Query(..., description="year"),
-    month: int = Query(..., ge=1, le=12, description="month")
-):
-    try:
-        db_gen = _get_db()
-        db = next(db_gen)
 
-        rows, meta = _find_monthly_deposit_export_rows_v5(db, year, month)
-        wb = _make_monthly_deposit_export_workbook_v5(rows)
+def _extract_name_from_memo_for_export(memo):
+    import re
+    s = str(memo or "").strip()
+    m = re.search(r"[?-?]{2,5}", s)
+    return m.group(0) if m else ""
 
-        ws_debug = wb.create_sheet(title="debug_source")
-        ws_debug.append(["item", "value"])
-        ws_debug.append(["month", f"{year}-{month:02d}"])
-        ws_debug.append(["source_table", meta.get("source_table", "")])
-        ws_debug.append(["recent_col", meta.get("recent_col", "")])
-        ws_debug.append(["count", meta.get("count", 0)])
 
-        for idx, c in enumerate(meta.get("all_candidates", []), start=1):
-            ws_debug.append([f"candidate_{idx}", f"{c.get('table')} / {c.get('count')} / {c.get('recent')}"])
+def _extract_vehicle_tail_from_memo_for_export(memo):
+    import re
+    s = str(memo or "")
+    # ??80?1629, ??81?2589 ?? ???? ?? ??
+    m = re.search(r"[?-?]{2}\d{2}[?-?]\d{3,4}", s)
+    if m:
+        return m.group(0)
 
-        ws_debug.sheet_state = "hidden"
+    # ?? ?/?? ?? 3~4???? ?? ?????? ??
+    m = re.search(r"\d{3,4}", s)
+    return m.group(0) if m else ""
 
-        filename = f"{year}_{month:02d}_deposit_export.xlsx"
-        return _excel_response(wb, filename)
 
-    except Exception as e:
-        print("ERROR: deposit export failed:", repr(e))
-        wb = _error_workbook("deposit export error", repr(e))
-        filename = f"{year}_{month:02d}_deposit_export_error.xlsx"
-        return _excel_response(wb, filename)
+def _find_monthly_bank_deposit_rows_4cols(db, year, month):
+    """
+    ???? ??? ?? ???? ??:
+    bank_transactions?? ????? YYYY-MM? ?? ????? ????.
+    ?? ??? ???? / ?? / ?? / ?? 4??.
+    """
+    from sqlalchemy import inspect, text as sql_text
+    from datetime import datetime
+
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+    NAME = "\uc774\ub984"                 # ??
+    ACCOUNT = "\uacc4\uc815"              # ??
+    AMOUNT = "\uae08\uc561"               # ??
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    if "bank_transactions" not in tables:
+        raise Exception("bank_transactions ???? ????.")
+
+    cols = [c["name"] for c in inspector.get_columns("bank_transactions")]
+
+    col_date = _find_col(cols, [
+        "\uc785\uae08\uc77c\uc790", "\uac70\ub798\uc77c\uc790", "\ub0a9\ubd80\uc77c\uc790",
+        "transaction_date", "deposit_date", "payment_date", "paid_at", "date", "created_at"
+    ])
+    col_amount = _find_col(cols, [
+        "\uc785\uae08\uc561", "\uae08\uc561", "amount", "deposit_amount", "paid_amount"
+    ])
+    col_memo = _find_col(cols, [
+        "\uc774\uccb4\uba54\ubaa8", "\uba54\ubaa8", "\uc785\uae08\uc790\uba85", "\ubcf4\ub0b8\ubd84",
+        "memo", "description", "sender", "depositor", "payer_name"
+    ])
+    col_target = _find_col(cols, [
+        "\ub9e4\uce6d\ub300\uc0c1", "\ub300\uc0c1", "matched_target", "match_target"
+    ])
+    col_account = _find_col(cols, [
+        "\uacc4\uc815", "\uad6c\ubd84", "account", "account_type", "category", "fee_type"
+    ])
+
+    if not col_date:
+        raise Exception("bank_transactions?? ???? ??? ?? ?????.")
+
+    start_dt = datetime(year, month, 1)
+    if month == 12:
+        end_dt = datetime(year + 1, 1, 1)
+    else:
+        end_dt = datetime(year, month + 1, 1)
+
+    q = sql_text(
+        'SELECT * FROM "bank_transactions" '
+        'WHERE "' + col_date + '" >= :start_dt '
+        'AND "' + col_date + '" < :end_dt '
+        'ORDER BY "' + col_date + '" ASC'
+    )
+
+    db_rows = db.execute(q, {"start_dt": start_dt, "end_dt": end_dt}).mappings().all()
+
+    rows = []
+    for row in db_rows:
+        row = dict(row)
+
+        memo = row.get(col_memo) if col_memo else ""
+        target = str(row.get(col_target) or "") if col_target else ""
+
+        vehicle = ""
+        name = ""
+
+        # ????? ??/??? ??? ?? ??
+        if target and target not in ["-", "?", "None"]:
+            vehicle = _extract_vehicle_tail_from_memo_for_export(target)
+            name = _extract_name_from_memo_for_export(target)
+
+        # ??? ???????? ??
+        if not vehicle:
+            vehicle = _extract_vehicle_tail_from_memo_for_export(memo)
+        if not name:
+            name = _extract_name_from_memo_for_export(memo)
+
+        rows.append({
+            VEHICLE: vehicle,
+            NAME: name,
+            ACCOUNT: _safe_str(row.get(col_account)) if col_account else "",
+            AMOUNT: _safe_str(row.get(col_amount)) if col_amount else "",
+        })
+
+    return rows, {
+        "source_table": "bank_transactions",
+        "date_col": col_date,
+        "amount_col": col_amount or "",
+        "memo_col": col_memo or "",
+        "count": len(rows),
+    }
+
+
+def _make_deposit_export_bank4_workbook(rows):
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"
+    NAME = "\uc774\ub984"
+    ACCOUNT = "\uacc4\uc815"
+    AMOUNT = "\uae08\uc561"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "deposit_export"
+
+    headers = [VEHICLE, NAME, ACCOUNT, AMOUNT]
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            r.get(VEHICLE, ""),
+            r.get(NAME, ""),
+            r.get(ACCOUNT, ""),
+            r.get(AMOUNT, ""),
+        ])
+
+    _style_sheet(ws)
+
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+
+    return wb
+
+
+
+
+def _extract_korean_name_for_export(memo):
+    import re
+    s = str(memo or "")
+    m = re.search(r"[?-?]{2,5}", s)
+    return m.group(0) if m else ""
+
+
+def _extract_vehicle_for_export(memo):
+    import re
+    s = str(memo or "")
+
+    # ??80?1629 / ??81?2589 ?? ?? ????
+    m = re.search(r"[?-?]{2}\d{2}[?-?]\d{3,4}", s)
+    if m:
+        return m.group(0)
+
+    # ?? ?? ?? ?? ?? ???
+    m = re.search(r"\d{3,4}", s)
+    if m:
+        return m.group(0)
+
+    return ""
+
+
+def _find_real_monthly_deposit_rows(db, year, month):
+    """
+    ??? ?? ???? ???? ?? ?? ?? ???? ??.
+    ?? ??? ?? ?? CAST(date AS TEXT) LIKE 'YYYY-MM%' ? ????.
+    """
+    from sqlalchemy import inspect, text as sql_text
+
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+    NAME = "\uc774\ub984"                 # ??
+    ACCOUNT = "\uacc4\uc815"              # ??
+    AMOUNT = "\uae08\uc561"               # ??
+
+    ym = f"{year}-{month:02d}"
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    date_candidates = [
+        "\uc785\uae08\uc77c\uc790",        # ????
+        "\uac70\ub798\uc77c\uc790",        # ????
+        "\ub0a9\ubd80\uc77c\uc790",        # ????
+        "transaction_date", "deposit_date", "payment_date",
+        "paid_at", "date", "created_at"
+    ]
+
+    memo_candidates = [
+        "\uc774\uccb4\uba54\ubaa8",        # ????
+        "\uba54\ubaa8",                    # ??
+        "\uc785\uae08\uc790\uba85",        # ????
+        "\ubcf4\ub0b8\ubd84",              # ???
+        "memo", "description", "sender", "depositor", "payer_name"
+    ]
+
+    amount_candidates = [
+        "\uc785\uae08\uc561",              # ???
+        "\uae08\uc561",                    # ??
+        "amount", "deposit_amount", "paid_amount", "payment_amount"
+    ]
+
+    account_candidates = [
+        "\uacc4\uc815",                    # ??
+        "\uad6c\ubd84",                    # ??
+        "account", "account_type", "category", "fee_type", "type"
+    ]
+
+    target_candidates = [
+        "\ub9e4\uce6d\ub300\uc0c1",        # ????
+        "\ub300\uc0c1",                    # ??
+        "matched_target", "match_target"
+    ]
+
+    possible_sources = []
+
+    for table in tables:
+        try:
+            cols = [c["name"] for c in inspector.get_columns(table)]
+            if not cols:
+                continue
+
+            col_date = _find_col(cols, date_candidates)
+            col_memo = _find_col(cols, memo_candidates)
+            col_amount = _find_col(cols, amount_candidates)
+
+            if not col_date or not col_amount:
+                continue
+
+            # memo? ??? ????/?? ??? ?? ? ??? memo ??? ?? ???? ??
+            col_account = _find_col(cols, account_candidates)
+            col_target = _find_col(cols, target_candidates)
+
+            q_count = sql_text(
+                'SELECT COUNT(*) FROM "' + table + '" '
+                'WHERE CAST("' + col_date + '" AS TEXT) LIKE :ym'
+            )
+            cnt = db.execute(q_count, {"ym": ym + "%"}).scalar() or 0
+
+            if int(cnt) <= 0:
+                continue
+
+            possible_sources.append({
+                "table": table,
+                "count": int(cnt),
+                "date": col_date,
+                "memo": col_memo,
+                "amount": col_amount,
+                "account": col_account,
+                "target": col_target,
+            })
+
+        except Exception as e:
+            print("WARN: real deposit source scan skipped", table, repr(e))
+            continue
+
+    if not possible_sources:
+        return [], {
+            "source_table": "",
+            "date_col": "",
+            "count": 0,
+            "sources": [],
+        }
+
+    # ??? 624?? ??? ?? ? ?? ? ?? ?? ?? ??? ??
+    possible_sources.sort(key=lambda x: x["count"], reverse=True)
+    src = possible_sources[0]
+
+    q_rows = sql_text(
+        'SELECT * FROM "' + src["table"] + '" '
+        'WHERE CAST("' + src["date"] + '" AS TEXT) LIKE :ym '
+        'ORDER BY CAST("' + src["date"] + '" AS TEXT) ASC'
+    )
+
+    db_rows = db.execute(q_rows, {"ym": ym + "%"}).mappings().all()
+
+    rows = []
+    for row in db_rows:
+        row = dict(row)
+
+        memo = _safe_str(row.get(src["memo"])) if src["memo"] else ""
+        target = _safe_str(row.get(src["target"])) if src["target"] else ""
+
+        base_text = target if target and target not in ["-", "?", "None"] else memo
+
+        rows.append({
+            VEHICLE: _extract_vehicle_for_export(base_text),
+            NAME: _extract_korean_name_for_export(base_text),
+            ACCOUNT: _safe_str(row.get(src["account"])) if src["account"] else "",
+            AMOUNT: _safe_str(row.get(src["amount"])) if src["amount"] else "",
+        })
+
+    return rows, {
+        "source_table": src["table"],
+        "date_col": src["date"],
+        "memo_col": src["memo"] or "",
+        "amount_col": src["amount"] or "",
+        "account_col": src["account"] or "",
+        "count": len(rows),
+        "sources": possible_sources[:10],
+    }
+
+
+def _make_real_monthly_deposit_workbook(rows):
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"
+    NAME = "\uc774\ub984"
+    ACCOUNT = "\uacc4\uc815"
+    AMOUNT = "\uae08\uc561"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "deposit_export"
+
+    headers = [VEHICLE, NAME, ACCOUNT, AMOUNT]
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            r.get(VEHICLE, ""),
+            r.get(NAME, ""),
+            r.get(ACCOUNT, ""),
+            r.get(AMOUNT, ""),
+        ])
+
+    _style_sheet(ws)
+
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+
+    return wb
+
+
+
+
+def _member_monthly_deposit_rows(db, year, month):
+    """
+    /arrears ??? ?? ???? ??:
+    Member.last_paid_date ? YYYY-MM ?? ???? ?? ?? ??.
+    ?? ??: ???? / ?? / ?? / ??
+    """
+    from sqlalchemy import cast, String
+    from models import Member
+
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+    NAME = "\uc774\ub984"                 # ??
+    ACCOUNT = "\uacc4\uc815"              # ??
+    AMOUNT = "\uae08\uc561"               # ??
+
+    ym = f"{year}-{month:02d}"
+
+    q = db.query(Member).filter(
+        cast(Member.last_paid_date, String).like(ym + "%")
+    )
+
+    members = q.order_by(Member.region, Member.name).all()
+
+    rows = []
+    for m in members:
+        vehicle = (
+            getattr(m, "vehicle_number", None)
+            or getattr(m, "car_number", None)
+            or getattr(m, "plate_number", None)
+            or getattr(m, "vehicle_no", None)
+            or ""
+        )
+
+        name = getattr(m, "name", "") or ""
+
+        account = (
+            getattr(m, "account", None)
+            or getattr(m, "account_type", None)
+            or getattr(m, "fee_type", None)
+            or getattr(m, "category", None)
+            or ""
+        )
+
+        # ??? ????? ??? ??? ?? ??, ??? ???/????? ?? ??
+        amount = (
+            getattr(m, "last_paid_amount", None)
+            or getattr(m, "recent_payment_amount", None)
+            or getattr(m, "paid_amount", None)
+            or getattr(m, "payment_amount", None)
+            or getattr(m, "monthly_fee", None)
+            or getattr(m, "excel_arrears", None)
+            or ""
+        )
+
+        rows.append({
+            VEHICLE: vehicle,
+            NAME: name,
+            ACCOUNT: account,
+            AMOUNT: amount,
+        })
+
+    return rows
+
+
+def _make_member_monthly_deposit_workbook(rows):
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"
+    NAME = "\uc774\ub984"
+    ACCOUNT = "\uacc4\uc815"
+    AMOUNT = "\uae08\uc561"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "deposit_export"
+
+    headers = [VEHICLE, NAME, ACCOUNT, AMOUNT]
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            r.get(VEHICLE, ""),
+            r.get(NAME, ""),
+            r.get(ACCOUNT, ""),
+            r.get(AMOUNT, ""),
+        ])
+
+    _style_sheet(ws)
+
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+
+    return wb
+
+
+
+
+def _arrears_current_rows_for_deposit_export(db):
+    """
+    /arrears ??? ?? ??? ??? ??.
+    ?? total_count? ??? ?? Member.excel_arrears > 0 ???? ?? ??.
+    ?? ??: ???? / ?? / ?? / ??
+    """
+    from models import Member
+
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+    NAME = "\uc774\ub984"                 # ??
+    ACCOUNT = "\uacc4\uc815"              # ??
+    AMOUNT = "\uae08\uc561"               # ??
+
+    q = db.query(Member).filter(Member.excel_arrears > 0)
+
+    members = q.order_by(Member.region, Member.name).all()
+
+    rows = []
+    for m in members:
+        vehicle = (
+            getattr(m, "vehicle_number", None)
+            or getattr(m, "car_number", None)
+            or getattr(m, "plate_number", None)
+            or getattr(m, "vehicle_no", None)
+            or ""
+        )
+
+        name = getattr(m, "name", "") or ""
+
+        account = (
+            getattr(m, "account", None)
+            or getattr(m, "account_type", None)
+            or getattr(m, "fee_type", None)
+            or getattr(m, "category", None)
+            or ""
+        )
+
+        amount = getattr(m, "excel_arrears", "") or ""
+
+        rows.append({
+            VEHICLE: vehicle,
+            NAME: name,
+            ACCOUNT: account,
+            AMOUNT: amount,
+        })
+
+    return rows
+
+
+def _make_arrears_current_export_workbook(rows):
+    VEHICLE = "\ucc28\ub7c9\ubc88\ud638"
+    NAME = "\uc774\ub984"
+    ACCOUNT = "\uacc4\uc815"
+    AMOUNT = "\uae08\uc561"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "deposit_export"
+
+    headers = [VEHICLE, NAME, ACCOUNT, AMOUNT]
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            r.get(VEHICLE, ""),
+            r.get(NAME, ""),
+            r.get(ACCOUNT, ""),
+            r.get(AMOUNT, ""),
+        ])
+
+    _style_sheet(ws)
+
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+
+    return wb
+
 
 
 @router.get("/deposit/rematch-name-last4")
@@ -1492,4 +1983,155 @@ def rematch_deposit_visible_pattern():
             "status": "error",
             "message": repr(e),
         }
+
+
+@router.get("/deposit/export")
+def export_deposit_excel(
+    year: int = Query(..., description="year"),
+    month: int = Query(..., ge=1, le=12, description="month")
+):
+    """
+    N? ???? ???.
+    /arrears ??? ?? ??? ?? ???? Member ????? ?? ??.
+    ?? ??? ???? / ?? / ?? / ?? 4??.
+    """
+    try:
+        from models import Member
+        from openpyxl import Workbook
+
+        db_gen = _get_db()
+        db = next(db_gen)
+
+        VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+        NAME = "\uc774\ub984"                 # ??
+        ACCOUNT = "\uacc4\uc815"              # ??
+        AMOUNT = "\uae08\uc561"               # ??
+
+        # /arrears? ?? ??? ?? ??
+        q = db.query(Member).filter(Member.excel_arrears > 0)
+        members = q.order_by(Member.region, Member.name).all()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "deposit_export"
+        ws.append([VEHICLE, NAME, ACCOUNT, AMOUNT])
+
+        for m in members:
+            vehicle = (
+                getattr(m, "vehicle_number", None)
+                or getattr(m, "car_number", None)
+                or getattr(m, "plate_number", None)
+                or getattr(m, "vehicle_no", None)
+                or ""
+            )
+
+            name = getattr(m, "name", "") or ""
+
+            account = (
+                getattr(m, "account", None)
+                or getattr(m, "account_type", None)
+                or getattr(m, "fee_type", None)
+                or getattr(m, "category", None)
+                or ""
+            )
+
+            amount = getattr(m, "excel_arrears", "") or ""
+
+            ws.append([vehicle, name, account, amount])
+
+        _style_sheet(ws)
+
+        ws.column_dimensions["A"].width = 18
+        ws.column_dimensions["B"].width = 16
+        ws.column_dimensions["C"].width = 14
+        ws.column_dimensions["D"].width = 14
+
+        filename = f"{year}_{month:02d}_deposit_export.xlsx"
+        return _excel_response(wb, filename)
+
+    except Exception as e:
+        print("ERROR: final deposit export failed:", repr(e))
+        wb = _error_workbook("deposit export error", repr(e))
+        filename = f"{year}_{month:02d}_deposit_export_error.xlsx"
+        return _excel_response(wb, filename)
+
+
+# =========================================================
+# N? ???? ? ???
+# ?? /deposit/export ?? ???
+# ??: /api/reports/deposit/current-members-export
+# ??: ???? / ?? / ?? / ??
+# ??: /arrears ?? ?? Member.excel_arrears > 0
+# =========================================================
+@router.get("/deposit/current-members-export")
+def export_current_members_deposit_excel(
+    year: int = Query(..., description="year"),
+    month: int = Query(..., ge=1, le=12, description="month")
+):
+    try:
+        from models import Member
+        from openpyxl import Workbook
+
+        db_gen = _get_db()
+        db = next(db_gen)
+
+        VEHICLE = "\ucc28\ub7c9\ubc88\ud638"  # ????
+        NAME = "\uc774\ub984"                 # ??
+        ACCOUNT = "\uacc4\uc815"              # ??
+        AMOUNT = "\uae08\uc561"               # ??
+
+        q = db.query(Member).filter(Member.excel_arrears > 0)
+        members = q.order_by(Member.region, Member.name).all()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "deposit_export"
+        ws.append([VEHICLE, NAME, ACCOUNT, AMOUNT])
+
+        for m in members:
+            vehicle = (
+                getattr(m, "vehicle_number", None)
+                or getattr(m, "car_number", None)
+                or getattr(m, "plate_number", None)
+                or getattr(m, "vehicle_no", None)
+                or getattr(m, "car_no", None)
+                or ""
+            )
+
+            name = getattr(m, "name", "") or ""
+
+            account = (
+                getattr(m, "account", None)
+                or getattr(m, "account_type", None)
+                or getattr(m, "fee_type", None)
+                or getattr(m, "category", None)
+                or ""
+            )
+
+            amount = getattr(m, "excel_arrears", "") or ""
+
+            ws.append([vehicle, name, account, amount])
+
+        _style_sheet(ws)
+
+        ws.column_dimensions["A"].width = 18
+        ws.column_dimensions["B"].width = 16
+        ws.column_dimensions["C"].width = 14
+        ws.column_dimensions["D"].width = 14
+
+        ws_debug = wb.create_sheet(title="debug_source")
+        ws_debug.append(["item", "value"])
+        ws_debug.append(["route", "/api/reports/deposit/current-members-export"])
+        ws_debug.append(["basis", "Member.excel_arrears > 0"])
+        ws_debug.append(["count", len(members)])
+        ws_debug.sheet_state = "hidden"
+
+        filename = f"{year}_{month:02d}_deposit_current_members.xlsx"
+        return _excel_response(wb, filename)
+
+    except Exception as e:
+        print("ERROR: current members deposit export failed:", repr(e))
+        wb = _error_workbook("deposit export error", repr(e))
+        filename = f"{year}_{month:02d}_deposit_current_members_error.xlsx"
+        return _excel_response(wb, filename)
 
