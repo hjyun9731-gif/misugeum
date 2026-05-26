@@ -9,7 +9,54 @@
 
 {% extends "base.html" %}
 {% set active = "bank" %}
-{% block title %}통장매칭{% endblock %}
+{% block title %}통장매칭
+<script id="income-mark-buttons">
+document.addEventListener("DOMContentLoaded", function(){
+  document.querySelectorAll('a[href^="/bank/"][href$="/match"]').forEach(function(a){
+    const m = a.getAttribute("href").match(/\/bank\/(\d+)\/match/);
+    if(!m) return;
+    const id = m[1];
+    const box = document.createElement("span");
+    box.style.display = "inline-flex";
+    box.style.gap = "4px";
+    box.style.marginLeft = "6px";
+
+    function makeBtn(kind, label){
+      const form = document.createElement("form");
+      form.method = "post";
+      form.action = "/bank/" + id + "/mark-income";
+      form.style.display = "inline";
+      form.style.margin = "0";
+
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "kind";
+      input.value = kind;
+
+      const btn = document.createElement("button");
+      btn.type = "submit";
+      btn.textContent = label;
+      btn.style.border = "0";
+      btn.style.borderRadius = "8px";
+      btn.style.padding = "5px 8px";
+      btn.style.fontWeight = "800";
+      btn.style.cursor = "pointer";
+      btn.style.background = kind === "???" ? "#7c3aed" : "#0ea5e9";
+      btn.style.color = "#fff";
+
+      form.appendChild(input);
+      form.appendChild(btn);
+      return form;
+    }
+
+    box.appendChild(makeBtn("???", "???"));
+    box.appendChild(makeBtn("???", "???"));
+    a.insertAdjacentElement("afterend", box);
+  });
+});
+</script>
+
+{% endblock %}
 {% block page_title %}통장매칭{% endblock %}
 {% block content %}
 

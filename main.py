@@ -4036,3 +4036,190 @@ try:
     print("INFO: report export routes loaded")
 except Exception as e:
     print("WARN: report export routes not loaded:", e)
+
+
+# =========================================================
+# ??? / ??? ??
+# - BankTransaction.match_status = ??? / ??? ?? ??
+# - ?? ?? ??
+# - ?? ????
+# - ???? ???? ?? ??
+# =========================================================
+
+def _tx_amount_for_income(tx):
+    import re as _re
+    for attr in ["amount", "deposit_amount", "in_amount", "paid_amount", "txn_amount", "money"]:
+        if hasattr(tx, attr):
+            v = getattr(tx, attr)
+            try:
+                if v is None:
+                    continue
+                if isinstance(v, (int, float)):
+                    return int(v)
+                s = str(v).replace(",", "").replace("?", "").strip()
+                m = _re.search(r"-?\d+", s)
+                if m:
+                    return int(m.group(0))
+            except Exception:
+                pass
+    return 0
+
+
+def _tx_date_for_income(tx):
+    for attr in ["txn_date", "date", "paid_date", "deposit_date", "transaction_date"]:
+        if hasattr(tx, attr):
+            v = getattr(tx, attr)
+            if v:
+                return str(v)[:10]
+    return ""
+
+
+def _tx_memo_for_income(tx):
+    for attr in ["memo", "description", "raw_data"]:
+        if hasattr(tx, attr):
+            v = getattr(tx, attr)
+            if v:
+                return str(v)
+    return ""
+
+
+@app.get("/income-ledger", response_class=HTMLResponse)
+def income_ledger_page(
+    request: Request,
+    kind: str = "",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    MISC = "\uc7a1\uc218\uc785"      # ???
+    SUSP = "\uac00\uc218\uae08"      # ???
+
+    if kind not in [MISC, SUSP]:
+        kind = MISC
+
+    bq = db.query(BankTransaction).filter(BankTransaction.match_status == kind)
+
+    if q:
+        like = f"%{q}%"
+        bq = bq.filter(BankTransaction.memo.ilike(like))
+
+    txs = bq.order_by(BankTransaction.id.desc()).all()
+    total_amount = sum(_tx_amount_for_income(tx) for tx in txs)
+
+    return templates.TemplateResponse(request, "income_ledger.html", {
+        "request": request,
+        "user": user,
+        "kind": kind,
+        "q": q,
+        "txs": txs,
+        "total_count": len(txs),
+        "total_amount": total_amount,
+        "fmt_amt": fmt_amt,
+        "tx_amount": _tx_amount_for_income,
+        "tx_date": _tx_date_for_income,
+        "tx_memo": _tx_memo_for_income,
+    })
+
+
+@app.get("/income-ledger/export")
+def income_ledger_export(
+    kind: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from io import BytesIO
+    from urllib.parse import quote
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+
+    MISC = "\uc7a1\uc218\uc785"      # ???
+    SUSP = "\uac00\uc218\uae08"      # ???
+
+    if kind not in [MISC, SUSP]:
+        kind = MISC
+
+    txs = (
+        db.query(BankTransaction)
+        .filter(BankTransaction.match_status == kind)
+        .order_by(BankTransaction.id.desc())
+        .all()
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = kind
+
+    headers = ["????", "???", "????", "??", "??"]
+    ws.append(headers)
+
+    for tx in txs:
+        ws.append([
+            _tx_date_for_income(tx),
+            _tx_amount_for_income(tx),
+            _tx_memo_for_income(tx),
+            kind,
+            getattr(tx, "match_reason", "") or "",
+        ])
+
+    for col, width in {
+        "A": 14,
+        "B": 14,
+        "C": 46,
+        "D": 14,
+        "E": 50,
+    }.items():
+        ws.column_dimensions[col].width = width
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = f"{kind}_??.xlsx"
+    encoded = quote(filename)
+
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"}
+    )
+
+
+@app.post("/bank/{tid}/mark-income")
+def bank_mark_income(
+    tid: int,
+    kind: str = Form(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    MISC = "\uc7a1\uc218\uc785"      # ???
+    SUSP = "\uac00\uc218\uae08"      # ???
+    EXCL = "\uc81c\uc678"            # ??
+
+    if kind not in [MISC, SUSP, EXCL]:
+        kind = SUSP
+
+    tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
+    if not tx:
+        raise HTTPException(404)
+
+    # ?? ????? ?? ??? ??? ?? ? ??? ??
+    if getattr(tx, "applied", False):
+        return RedirectResponse(
+            "/bank?msg=" + quote("?? ????? ??? ?? ????/??? ? ???? ???."),
+            status_code=302
+        )
+
+    old_reason = getattr(tx, "match_reason", "") or ""
+    tx.match_status = kind
+    tx.matched_member_id = None
+    tx.match_reason = (old_reason + ", " if old_reason else "") + f"????: {kind}"
+    db.add(tx)
+    db.commit()
+
+    return RedirectResponse(
+        f"/bank?status={quote(kind)}&msg=" + quote(f"{kind}?? ??????."),
+        status_code=302
+    )
+

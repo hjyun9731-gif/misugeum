@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}???????{% endblock %}
+{% block page_title %}???????{% endblock %}
+
+{% block content %}
+<style>
+.income-wrap{display:flex;flex-direction:column;gap:16px}
+.income-card{background:#fff;border:1px solid #f2d7e3;border-radius:18px;box-shadow:0 8px 22px rgba(255,79,147,.08);padding:18px}
+.income-title{font-size:20px;font-weight:900;color:#2d2230;margin-bottom:10px}
+.income-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.income-tab{padding:9px 14px;border-radius:999px;text-decoration:none;font-weight:900;border:1px solid #ffd0e2;color:#7b5b70;background:#fff}
+.income-tab.active{background:#ff5b9e;color:#fff;border-color:#ff5b9e;box-shadow:0 4px 12px rgba(255,91,158,.22)}
+.income-summary{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;margin-top:12px}
+.income-summary div{background:#fff7fb;border:1px solid #f6d6e5;border-radius:14px;padding:12px}
+.income-summary small{display:block;color:#8b7282;margin-bottom:4px}
+.income-summary b{font-size:18px;color:#2d2230}
+.income-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.income-actions input{height:38px;min-width:260px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px}
+.btn-pink{height:38px;border:0;border-radius:12px;padding:0 14px;background:#ff5b9e;color:#fff!important;font-weight:900;text-decoration:none;display:inline-flex;align-items:center}
+.btn-gray{height:38px;border:0;border-radius:12px;padding:0 14px;background:#7d7080;color:#fff!important;font-weight:900;text-decoration:none;display:inline-flex;align-items:center}
+.income-table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #f1d4df;border-radius:16px;overflow:hidden;background:#fff}
+.income-table th{background:#fff0f6;color:#d8216b;font-weight:900;text-align:left;padding:12px;border-bottom:2px solid #ff9ac5}
+.income-table td{padding:11px 12px;border-bottom:1px solid #f5e3eb;vertical-align:middle}
+.income-table tr:hover td{background:#fff8fb}
+.money{text-align:right;color:#e33162;font-weight:900}
+.empty{padding:40px;text-align:center;color:#8b7282;border:1px dashed #efc9d9;border-radius:16px;background:#fff}
+</style>
+
+<div class="income-wrap">
+  <div class="income-card">
+    <div class="income-title">??????? ??</div>
+
+    <div class="income-tabs">
+      <a class="income-tab {% if kind == '???' %}active{% endif %}" href="/income-ledger?kind=???">???</a>
+      <a class="income-tab {% if kind == '???' %}active{% endif %}" href="/income-ledger?kind=???">???</a>
+    </div>
+
+    <div class="income-summary">
+      <div><small>?? ??</small><b>{{ kind }}</b></div>
+      <div><small>??</small><b>{{ total_count }}?</b></div>
+      <div><small>?? ??</small><b>{{ fmt_amt(total_amount) }}?</b></div>
+    </div>
+
+    <form method="get" class="income-actions">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <input type="text" name="q" value="{{ q }}" placeholder="???? ??">
+      <button class="btn-pink" type="submit">??</button>
+      <a class="btn-gray" href="/income-ledger/export?kind={{ kind }}">?? ????</a>
+      <a class="btn-gray" href="/bank">??????</a>
+    </form>
+  </div>
+
+  <div class="income-card">
+    {% if txs %}
+    <table class="income-table">
+      <thead>
+        <tr>
+          <th>????</th>
+          <th>???</th>
+          <th>????</th>
+          <th>??</th>
+          <th>??</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in txs %}
+        <tr>
+          <td>{{ tx_date(tx) }}</td>
+          <td class="money">{{ fmt_amt(tx_amount(tx)) }}?</td>
+          <td>{{ tx_memo(tx) }}</td>
+          <td>{{ kind }}</td>
+          <td>{{ tx.match_reason or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty">?? ??? ????.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
