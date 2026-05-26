@@ -4196,20 +4196,14 @@ def bank_mark_income_form(
     if not tx:
         raise HTTPException(404)
 
-    MISC = "\uc7a1\uc218\uc785"        # ???
-    SUSP = "\uac00\uc218\uae08"        # ???
-
     raw_kind = str(kind or "").strip().lower()
-    if raw_kind in ["misc", "misc_income", MISC]:
-        selected_kind = MISC
-    else:
-        selected_kind = SUSP
+    kind_code = "misc" if raw_kind in ["misc", "misc_income"] else "suspense"
 
     return templates.TemplateResponse(request, "income_mark_form.html", {
         "request": request,
         "user": user,
         "tx": tx,
-        "kind": selected_kind,
+        "kind_code": kind_code,
         "fmt_amt": fmt_amt,
     })
 
@@ -4233,9 +4227,9 @@ def bank_mark_income_save(
 
     raw_kind = str(kind or "").strip().lower()
 
-    if raw_kind in ["misc", "misc_income", MISC]:
+    if raw_kind in ["misc", "misc_income"]:
         new_status = MISC
-    elif raw_kind in ["suspense", "temporary", "deposit", SUSP]:
+    elif raw_kind in ["suspense", "temporary", "deposit"]:
         new_status = SUSP
     else:
         new_status = SUSP

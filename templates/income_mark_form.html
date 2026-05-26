@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}?? ??{% endblock %}
-{% block page_title %}?? ??{% endblock %}
+{% block title %}&#xC785;&#xAE08; &#xBD84;&#xB958;{% endblock %}
+{% block page_title %}&#xC785;&#xAE08; &#xBD84;&#xB958;{% endblock %}
 
 {% block content %}
 <style>
@@ -25,16 +25,25 @@
 
 <div class="mark-wrap">
   <div class="mark-card">
-    <div class="mark-title">???? ??</div>
+    <div class="mark-title">&#xD1B5;&#xC7A5;&#xC785;&#xAE08; &#xBD84;&#xB958;</div>
 
     <div class="info-grid">
-      <div class="info-box"><small>????</small><b>{{ tx.txn_date or "-" }}</b></div>
-      <div class="info-box"><small>???</small><b>{{ fmt_amt(tx.deposit_amount or tx.amount or 0) }}?</b></div>
-      <div class="info-box"><small>????</small><b>{{ tx.match_status or "-" }}</b></div>
+      <div class="info-box">
+        <small>&#xC785;&#xAE08;&#xC77C;&#xC790;</small>
+        <b>{{ tx.txn_date or tx.date or tx.paid_date or "-" }}</b>
+      </div>
+      <div class="info-box">
+        <small>&#xC785;&#xAE08;&#xC561;</small>
+        <b>{{ fmt_amt(tx.deposit_amount or tx.amount or 0) }}&#xC6D0;</b>
+      </div>
+      <div class="info-box">
+        <small>&#xD604;&#xC7AC;&#xC0C1;&#xD0DC;</small>
+        <b>{{ tx.match_status or "-" }}</b>
+      </div>
     </div>
 
     <div class="info-box">
-      <small>????</small>
+      <small>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</small>
       <b>{{ tx.memo or "-" }}</b>
     </div>
   </div>
@@ -43,37 +52,37 @@
     <form method="post" action="/bank/{{ tx.id }}/mark-income">
       <div class="form-grid">
         <div class="field">
-          <label>??</label>
+          <label>&#xBD84;&#xB958;</label>
           <select name="kind">
-            <option value="misc" {% if kind == '???' %}selected{% endif %}>???</option>
-            <option value="suspense" {% if kind == '???' %}selected{% endif %}>???</option>
+            <option value="misc" {% if kind_code == 'misc' %}selected{% endif %}>&#xC7A1;&#xC218;&#xC785;</option>
+            <option value="suspense" {% if kind_code == 'suspense' %}selected{% endif %}>&#xAC00;&#xC218;&#xAE08;</option>
           </select>
         </div>
 
         <div class="field">
-          <label>??</label>
-          <input type="text" name="reason" placeholder="?: ???? ??, ???, ????, ??? ?">
+          <label>&#xC0AC;&#xC720;</label>
+          <input type="text" name="reason" placeholder="&#xC608;: &#xC790;&#xACA9;&#xC99D;&#xBA85; &#xBC1C;&#xAE09;, &#xB300;&#xD3D0;&#xCC28;, &#xC608;&#xAE08;&#xC774;&#xC790;, &#xAC00;&#xC785;&#xBE44;">
         </div>
 
         <div class="field">
-          <label>?? ????</label>
-          <input type="text" name="related_vehicle_no" placeholder="?: ??80?1234 ?? 1234">
+          <label>&#xAD00;&#xB828; &#xCC28;&#xB7C9;&#xBC88;&#xD638;</label>
+          <input type="text" name="related_vehicle_no" placeholder="&#xC608;: &#xAC15;&#xC6D0;80&#xBC30;1234 &#xB610;&#xB294; 1234">
         </div>
 
         <div class="field">
-          <label>?? ??</label>
-          <input type="text" name="related_name" placeholder="??? ??">
+          <label>&#xAD00;&#xB828; &#xC131;&#xBA85;</label>
+          <input type="text" name="related_name" placeholder="&#xAD00;&#xB828;&#xC790; &#xC774;&#xB984;">
         </div>
 
         <div class="field full">
-          <label>??</label>
-          <textarea name="note" placeholder="??? ?? ??"></textarea>
+          <label>&#xBE44;&#xACE0;</label>
+          <textarea name="note" placeholder="&#xCD94;&#xAC00;&#xB85C; &#xB0A8;&#xAE38; &#xB0B4;&#xC6A9;"></textarea>
         </div>
       </div>
 
       <div class="actions">
-        <button class="btn-pink" type="submit">????</button>
-        <a class="btn-gray" href="/bank">?????? ????</a>
+        <button class="btn-pink" type="submit">&#xC800;&#xC7A5;&#xD558;&#xAE30;</button>
+        <a class="btn-gray" href="/bank">&#xD1B5;&#xC7A5;&#xB9E4;&#xCE6D;&#xC73C;&#xB85C; &#xB3CC;&#xC544;&#xAC00;&#xAE30;</a>
       </div>
     </form>
   </div>
