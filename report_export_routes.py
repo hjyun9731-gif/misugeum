@@ -835,12 +835,14 @@ def _rematch_confirm_needed_name_last4(db):
         unique_candidates[key] = c
     member_candidates = list(unique_candidates.values())
 
-    # 2) bank_transactions ? ????? ????
+    # 2) bank_transactions ? ????? ?? ??? ????
+    # ???? ????? ???? DB ???/???? ?? ? ???
+    # ???? LIKE ???? ???? ???.
     q = sql_text(
         'SELECT * FROM "bank_transactions" '
-        'WHERE CAST("' + col_status + '" AS TEXT) LIKE :status'
+        'WHERE COALESCE(CAST("' + col_status + '" AS TEXT), \'\') NOT LIKE :done_status'
     )
-    bank_rows = db.execute(q, {"status": "%????%"}).mappings().all()
+    bank_rows = db.execute(q, {"done_status": "%????%"}).mappings().all()
 
     updated = 0
     skipped_multi = 0
