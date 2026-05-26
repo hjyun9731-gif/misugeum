@@ -12,12 +12,34 @@
 {% block title %}통장매칭
 
 
+
 <script id="income-mark-buttons">
 document.addEventListener("DOMContentLoaded", function(){
-  const misc = "\uC7A1\uC218\uC785";   // ???
-  const susp = "\uAC00\uC218\uAE08";   // ???
+  const MISC = "\uC7A1\uC218\uC785";   // ???
+  const SUSP = "\uAC00\uC218\uAE08";   // ???
+  const DONE = "\uBC18\uC601\uC644\uB8CC"; // ????
 
-  function makeIncomeBtn(id, kind, label, bg){
+  function findTransactionId(row){
+    const els = row.querySelectorAll("a, form, button");
+    for(const el of els){
+      const href = el.getAttribute("href") || "";
+      const action = el.getAttribute("action") || "";
+      const onclick = el.getAttribute("onclick") || "";
+      const combined = href + " " + action + " " + onclick;
+
+      let m = combined.match(/\/bank\/(\d+)\/match/);
+      if(m) return m[1];
+
+      m = combined.match(/\/bank\/(\d+)\/manual-match/);
+      if(m) return m[1];
+
+      m = combined.match(/bank\/(\d+)/);
+      if(m) return m[1];
+    }
+    return null;
+  }
+
+  function makeBtn(id, kind, label, bg){
     const form = document.createElement("form");
     form.method = "post";
     form.action = "/bank/" + id + "/mark-income";
@@ -42,22 +64,25 @@ document.addEventListener("DOMContentLoaded", function(){
     btn.style.color = "#fff";
     btn.style.fontSize = "12px";
     btn.style.boxShadow = "0 3px 8px rgba(0,0,0,.12)";
+
     form.appendChild(input);
     form.appendChild(btn);
     return form;
   }
 
-  document.querySelectorAll('a[href*="/bank/"][href*="/match"]').forEach(function(a){
-    const href = a.getAttribute("href") || "";
-    const m = href.match(/\/bank\/(\d+)\/match/);
-    if(!m) return;
+  document.querySelectorAll("table tbody tr").forEach(function(row){
+    if(row.querySelector(".income-mark-box")) return;
 
-    const id = m[1];
-    const parent = a.parentElement;
-    if(!parent || parent.querySelector(".income-mark-box")) return;
+    const rowText = row.innerText || "";
+    if(rowText.indexOf(DONE) >= 0) return;
 
-    const rowText = (a.closest("tr") ? a.closest("tr").innerText : "");
-    if(rowText.indexOf("\uBC18\uC601\uC644\uB8CC") >= 0) return; // ????? ??
+    const id = findTransactionId(row);
+    if(!id) return;
+
+    const cells = row.querySelectorAll("td");
+    if(!cells.length) return;
+
+    const lastCell = cells[cells.length - 1];
 
     const box = document.createElement("span");
     box.className = "income-mark-box";
@@ -65,11 +90,10 @@ document.addEventListener("DOMContentLoaded", function(){
     box.style.gap = "4px";
     box.style.marginLeft = "6px";
     box.style.verticalAlign = "middle";
+    box.appendChild(makeBtn(id, MISC, "\uC7A1\uC218\uC785", "#7c3aed"));
+    box.appendChild(makeBtn(id, SUSP, "\uAC00\uC218\uAE08", "#0ea5e9"));
 
-    box.appendChild(makeIncomeBtn(id, misc, "\uC7A1\uC218\uC785", "#7c3aed"));
-    box.appendChild(makeIncomeBtn(id, susp, "\uAC00\uC218\uAE08", "#0ea5e9"));
-
-    a.insertAdjacentElement("afterend", box);
+    lastCell.appendChild(box);
   });
 });
 </script>
