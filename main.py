@@ -2219,6 +2219,30 @@ def admin_fix_billing_pending_latest_only(
 
 
 
+@app.post("/admin/fix-billing-reflect-status")
+def admin_fix_billing_reflect_status(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    폐지/양도/관리비폐지 타입인데 reflect_status가 반영대기/처리대기인 것들을 NULL로 초기화.
+    반영대기 탭에서 제거됨.
+    """
+    try:
+        exclude_pts = ["폐지", "양도", "관리비폐지", "폐업", "이관", "탈퇴", "사망", "말소", "현역복구", "70세", "협회가입", "택배신규"]
+        bps = db.query(BillingPerson).filter(
+            BillingPerson.process_type.in_(exclude_pts),
+            BillingPerson.reflect_status.in_(["반영대기", "처리대기"])
+        ).all()
+        count = 0
+        for bp in bps:
+            bp.reflect_status = "부과대수상세"
+            count += 1
+        db.commit()
+        return {"ok": True, "fixed": count}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
+
 @app.post("/admin/rebuild-latest-billing-pending")
 def admin_rebuild_latest_billing_pending(
     db: Session = Depends(get_db),
