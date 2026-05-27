@@ -6827,3 +6827,98 @@ def bank_reset_match_status_safe(
         status_code=302
     )
 
+
+
+# ── FORCE DEBUG: billing upload stats ─────────────────────────────
+@app.get("/api/debug/billing-upload-stats-force")
+def api_debug_billing_upload_stats_force(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import text, inspect
+
+    result = {
+        "ok": True,
+        "db": "",
+        "tables": [],
+        "target_table": None,
+        "columns": [],
+        "total": 0,
+        "by_month_sheet_process": [],
+        "by_process": [],
+        "error": None,
+    }
+
+    try:
+        bind = db.get_bind()
+        result["db"] = getattr(getattr(bind, "dialect", None), "name", "")
+
+        inspector = inspect(bind)
+        tables = inspector.get_table_names()
+        result["tables"] = [t for t in tables if "billing" in t.lower() or "work" in t.lower()]
+
+        target = None
+        for cand in [
+            "billing_people",
+            "billing_persons",
+            "billing_person",
+            "work_queue",
+            "work_queues",
+            "billing_generated_arrears"
+        ]:
+            if cand in tables:
+                target = cand
+                break
+
+        if not target:
+            result["ok"] = False
+            result["error"] = "billing/work 관련 대상 테이블을 찾지 못했습니다."
+            return result
+
+        result["target_table"] = target
+
+        cols = [c["name"] for c in inspector.get_columns(target)]
+        result["columns"] = cols
+
+        result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
+
+        source_year_col = "source_year" if "source_year" in cols else "''"
+        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
+        process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
+
+        rows = db.execute(text(f"""
+            SELECT 
+                COALESCE(CAST({source_year_col} AS TEXT),'') AS source_year,
+                COALESCE(CAST({source_month_col} AS TEXT),'') AS source_month,
+                COALESCE(CAST({source_sheet_col} AS TEXT),'') AS source_sheet,
+                COALESCE(CAST({process_col} AS TEXT),'') AS process_type,
+                COUNT(*) AS cnt
+            FROM {target}
+            GROUP BY source_year, source_month, source_sheet, process_type
+            ORDER BY source_year, source_month, source_sheet, process_type
+        """)).mappings().all()
+
+        result["by_month_sheet_process"] = [dict(r) for r in rows]
+
+        rows2 = db.execute(text(f"""
+            SELECT COALESCE(CAST({process_col} AS TEXT),'') AS process_type, COUNT(*) AS cnt
+            FROM {target}
+            GROUP BY process_type
+            ORDER BY process_type
+        """)).mappings().all()
+
+        result["by_process"] = [dict(r) for r in rows2]
+
+        return result
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        result["ok"] = False
+        result["error"] = repr(e)
+        return result
+
+
