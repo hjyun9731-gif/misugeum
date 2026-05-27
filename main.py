@@ -3957,25 +3957,60 @@ def _tx_memo_for_income(tx):
 
 
 def _ensure_income_ledger_details(db):
+    """
+    income_ledger_details 테이블 보장.
+    SQLite/PostgreSQL 모두 안전하게 처리.
+    실패 시 rollback 해서 이후 쿼리까지 죽지 않게 함.
+    """
     try:
         from sqlalchemy import text as _t2
-        db.execute(_t2(
-            "CREATE TABLE IF NOT EXISTS income_ledger_details ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "bank_transaction_id INTEGER,"
-            "income_type VARCHAR(20),"
-            "work_type VARCHAR(50),"
-            "pending_target VARCHAR(20) DEFAULT '없음',"
-            "related_vehicle_no VARCHAR(100),"
-            "related_name VARCHAR(100),"
-            "note TEXT,"
-            "next_billing_date VARCHAR(20),"
-            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            "updated_at TIMESTAMP)"
-        ))
+
+        dialect = getattr(getattr(db, "bind", None), "dialect", None)
+        name = getattr(dialect, "name", "")
+
+        if name == "postgresql":
+            ddl = """
+            CREATE TABLE IF NOT EXISTS income_ledger_details (
+                id SERIAL PRIMARY KEY,
+                bank_transaction_id INTEGER,
+                income_type VARCHAR(20),
+                work_type VARCHAR(50),
+                pending_target VARCHAR(20) DEFAULT '없음',
+                related_vehicle_no VARCHAR(100),
+                related_name VARCHAR(100),
+                note TEXT,
+                next_billing_date VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        else:
+            ddl = """
+            CREATE TABLE IF NOT EXISTS income_ledger_details (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bank_transaction_id INTEGER,
+                income_type VARCHAR(20),
+                work_type VARCHAR(50),
+                pending_target VARCHAR(20) DEFAULT '없음',
+                related_vehicle_no VARCHAR(100),
+                related_name VARCHAR(100),
+                note TEXT,
+                next_billing_date VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+
+        db.execute(_t2(ddl))
         db.commit()
-    except Exception:
-        pass
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("income_ledger_details ensure error:", repr(e))
+
 
 def _calc_pending_target(income_type, work_type):
     ASSOC_KW = ["가입비", "특별회비", "협회가입", "협회비", "입회"]
