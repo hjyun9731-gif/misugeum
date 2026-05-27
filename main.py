@@ -1943,7 +1943,7 @@ def _reflect_workqueue_item(db: Session, wq, user: User):
     if not member:
         return False, "회원 없음"
 
-    if getattr(wq, "status", "") == "부과대수상세", "반영완료":
+    if getattr(wq, "status", "") in ["부과대수상세", "반영완료"]:
         return True, "이미 반영완료"
 
     ptype_raw = (getattr(wq, "process_type", "") or "").strip()
