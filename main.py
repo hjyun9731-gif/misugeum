@@ -3925,7 +3925,7 @@ def _tx_amount_for_income(tx):
                     continue
                 if isinstance(v, (int, float)):
                     return int(v)
-                s = str(v).replace(",", "").replace("?", "").strip()
+                s = str(v).replace(",", "").replace("₩", "").replace("�", "").strip()
                 m = _re.search(r"-?\d+", s)
                 if m:
                     return int(m.group(0))
@@ -4938,7 +4938,7 @@ async def bank_apply_payment_safe(
             return 0
         if isinstance(v, (int, float)):
             return int(v)
-        s = str(v).replace(",", "").replace("?", "").strip()
+        s = str(v).replace(",", "").replace("₩", "").replace("�", "").strip()
         m = _re.search(r"-?\d+", s)
         return int(m.group(0)) if m else 0
 
@@ -5354,7 +5354,7 @@ def bank_apply_auto_all_safe(
             return 0
         if isinstance(v, (int, float)):
             return int(v)
-        s = str(v).replace(",", "").replace("?", "").strip()
+        s = str(v).replace(",", "").replace("₩", "").replace("�", "").strip()
         m = _re.search(r"-?\d+", s)
         return int(m.group(0)) if m else 0
 
