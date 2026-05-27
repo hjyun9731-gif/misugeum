@@ -7169,6 +7169,117 @@ def pending_board_page(
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
+
+    # def pending_board_billing_detail_branch_marker
+    # 부과대수상세 탭은 처리대기목록 일반 rows와 섞지 않고 BillingPerson 전체를 별도로 조회한다.
+    if tab == "부과대수상세":
+        from sqlalchemy import or_
+
+        try:
+            page = int(request.query_params.get("page", 1) or 1)
+        except Exception:
+            page = 1
+        try:
+            page_size = int(request.query_params.get("page_size", 50) or 50)
+        except Exception:
+            page_size = 50
+
+        if page < 1:
+            page = 1
+        if page_size not in [30, 50, 100]:
+            page_size = 50
+
+        filter_year = request.query_params.get("year", "") or ""
+        filter_month = request.query_params.get("month", "") or ""
+        filter_process_type = request.query_params.get("process_type", "") or ""
+        filter_status = request.query_params.get("status", "") or ""
+        qq = request.query_params.get("q", "") or ""
+
+        q_bp = db.query(BillingPerson)
+
+        if filter_year:
+            q_bp = q_bp.filter(BillingPerson.year == int(filter_year))
+        if filter_month:
+            q_bp = q_bp.filter(BillingPerson.month == int(filter_month))
+        if filter_process_type:
+            # 폐지 탭 성격 확인을 위해 부과대수상세에서도 폐지 선택 시 관리비폐지를 같이 볼 수 있게 함
+            if filter_process_type == "폐지":
+                q_bp = q_bp.filter(BillingPerson.process_type.in_(["폐지", "관리비폐지"]))
+            else:
+                q_bp = q_bp.filter(BillingPerson.process_type == filter_process_type)
+        if filter_status:
+            q_bp = q_bp.filter(BillingPerson.reflect_status == filter_status)
+        if qq:
+            like = f"%{qq}%"
+            q_bp = q_bp.filter(or_(
+                BillingPerson.name.ilike(like),
+                BillingPerson.vehicle_no.ilike(like),
+                BillingPerson.region.ilike(like),
+                BillingPerson.source_sheet.ilike(like),
+                BillingPerson.process_type.ilike(like),
+                BillingPerson.note.ilike(like),
+            ))
+
+        total = q_bp.count()
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        if page > total_pages:
+            page = total_pages
+
+        rows = (
+            q_bp.order_by(
+                BillingPerson.year.desc(),
+                BillingPerson.month.desc(),
+                BillingPerson.id.desc()
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
+        years = [
+            r[0] for r in db.query(BillingPerson.year)
+            .distinct()
+            .order_by(BillingPerson.year.desc())
+            .all()
+            if r[0]
+        ]
+
+        process_options = [
+            r[0] for r in db.query(BillingPerson.process_type)
+            .distinct()
+            .order_by(BillingPerson.process_type)
+            .all()
+            if r[0]
+        ]
+
+        status_options = [
+            r[0] for r in db.query(BillingPerson.reflect_status)
+            .distinct()
+            .order_by(BillingPerson.reflect_status)
+            .all()
+            if r[0]
+        ]
+
+        return templates.TemplateResponse(request, "pending_board_billing_details.html", {
+            "request": request,
+            "user": user,
+            "tab": tab,
+            "rows": rows,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "years": years,
+            "months": list(range(1, 13)),
+            "process_options": process_options,
+            "status_options": status_options,
+            "filter_year": filter_year,
+            "filter_month": filter_month,
+            "filter_process_type": filter_process_type,
+            "filter_status": filter_status,
+            "q": qq,
+        })
+
     from sqlalchemy import text as _text
     from urllib.parse import quote
     _ensure_pending_board_table(db)
@@ -7362,7 +7473,7 @@ def pending_board_page(
         elif tab == "이관":
             filtered = [r for r in rows if r["process_type"] in ["이관", "타도"]]
         else:
-            filtered = [r for r in rows if r["process_type"] == tab]
+            filtered = [r for r in rows if (r["process_type"] in ["폐지", "관리비폐지"] if tab == "폐지" else r["process_type"] == tab)]
     if q:
         filtered = [r for r in filtered if q in row_text(r)]
 
@@ -7379,7 +7490,7 @@ def pending_board_page(
         elif t == "이관":
             counts[t] = sum(1 for r in rows if r["process_type"] in ["이관", "타도"])
         else:
-            counts[t] = sum(1 for r in rows if r["process_type"] == t)
+            counts[t] = sum(1 for r in rows if (r["process_type"] in ["폐지", "관리비폐지"] if t == "폐지" else r["process_type"] == t))
 
     return templates.TemplateResponse(request, "pending_board.html", {
         "request": request, "user": user, "rows": filtered,

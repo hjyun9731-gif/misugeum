@@ -1,11 +1,13 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}처리대기목록 - 부과대수상세{% endblock %}
 {% block page_title %}처리대기목록{% endblock %}
 
 {% block content %}
-<div style="margin-bottom:14px;">
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
   <a class="btn btn-ghost" href="/work/pending-board?tab=전체">전체</a>
   <a class="btn btn-ghost" href="/work/pending-board?tab=반영대기">반영대기</a>
+  <a class="btn btn-ghost" href="/work/pending-board?tab=폐지">폐지</a>
+  <a class="btn btn-ghost" href="/work/pending-board?tab=양도">양도</a>
   <a class="btn btn-primary" href="/work/pending-board?tab=부과대수상세">부과대수상세</a>
 </div>
 
@@ -55,7 +57,7 @@
 
     <div>
       <label>검색</label>
-      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역">
+      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역, 시트명">
     </div>
 
     <div>
@@ -86,8 +88,10 @@
         <th>지역</th>
         <th>성명</th>
         <th>차량번호</th>
+        <th>계정</th>
         <th>원본시트</th>
         <th>원본행</th>
+        <th>비고</th>
       </tr>
     </thead>
     <tbody>
@@ -99,12 +103,14 @@
         <td>{{ r.region or "" }}</td>
         <td>{{ r.name or "" }}</td>
         <td>{{ r.vehicle_no or "" }}</td>
+        <td>{{ r.account or "" }}</td>
         <td>{{ r.source_sheet or "" }}</td>
         <td>{{ r.source_row or "" }}</td>
+        <td>{{ r.note or "" }}</td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="8" style="text-align:center;padding:20px;color:#888;">조회 결과 없음</td>
+        <td colspan="10" style="text-align:center;padding:20px;color:#888;">조회 결과 없음</td>
       </tr>
       {% endfor %}
     </tbody>
