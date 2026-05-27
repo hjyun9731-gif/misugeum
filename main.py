@@ -4358,68 +4358,154 @@ def income_ledger_page(
 @app.get("/income-ledger/export")
 def income_ledger_export(
     kind: str = "",
+    q: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
+    """
+    잡수입·가수금 관리 엑셀 다운로드.
+    업무용으로 필요한 컬럼만 출력:
+    성명 / 차량번호 / 업무사유 / 입금액
+    """
     from io import BytesIO
-    from urllib.parse import quote
     from fastapi.responses import StreamingResponse
     from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from sqlalchemy import text as _t
 
-    MISC = "\uc7a1\uc218\uc785"      # ???
-    SUSP = "\uac00\uc218\uae08"      # ???
+    MISC = "잡수입"
+    SUSP = "가수금"
 
     if kind not in [MISC, SUSP]:
         kind = MISC
 
-    txs = (
-        db.query(BankTransaction)
-        .filter(BankTransaction.match_status == kind)
-        .order_by(BankTransaction.id.desc())
-        .all()
-    )
+    try:
+        _ensure_income_ledger_details(db)
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("income export ensure detail error:", repr(e))
+
+    bq = db.query(BankTransaction).filter(BankTransaction.match_status == kind)
+
+    if q:
+        like = f"%{q}%"
+        try:
+            bq = bq.filter(BankTransaction.memo.ilike(like))
+        except Exception:
+            pass
+
+    txs = bq.order_by(BankTransaction.id.desc()).all()
+
+    # income_ledger_details 매핑
+    detail_map = {}
+    try:
+        rows = db.execute(_t("""
+            SELECT bank_transaction_id, work_type, pending_target,
+                   related_vehicle_no, related_name, note, next_billing_date
+            FROM income_ledger_details
+        """)).mappings().all()
+        for r in rows:
+            detail_map[r["bank_transaction_id"]] = r
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("income export detail load error:", repr(e))
+        detail_map = {}
 
     wb = Workbook()
     ws = wb.active
     ws.title = kind
 
-    headers = ["????", "???", "????", "??", "??"]
+    headers = ["성명", "차량번호", "업무사유", "입금액"]
     ws.append(headers)
 
-    for tx in txs:
-        ws.append([
-            _tx_date_for_income(tx),
-            _tx_amount_for_income(tx),
-            _tx_memo_for_income(tx),
-            kind,
-            getattr(tx, "match_reason", "") or "",
-        ])
+    header_fill = PatternFill("solid", fgColor="FFEAF3")
+    header_font = Font(bold=True, color="C2185B")
+    thin = Side(style="thin", color="E8C7D6")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    for col, width in {
-        "A": 14,
-        "B": 14,
-        "C": 46,
-        "D": 14,
-        "E": 50,
-    }.items():
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = border
+
+    for tx in txs:
+        d = detail_map.get(getattr(tx, "id", None))
+
+        if d:
+            name = d.get("related_name") or ""
+            vehicle_no = d.get("related_vehicle_no") or ""
+            work_type = d.get("work_type") or ""
+        else:
+            parsed = {}
+            try:
+                parsed = _parse_income_reason(str(getattr(tx, "match_reason", "") or ""))
+            except Exception:
+                parsed = {}
+
+            raw = (str(getattr(tx, "match_reason", "") or "") + " " +
+                   str(getattr(tx, "memo", "") or ""))
+
+            name = parsed.get("name") or ""
+            vehicle_no = parsed.get("vehicle_no") or ""
+            work_type = parsed.get("work_reason") or ""
+
+            if not work_type:
+                for kw in [
+                    "자격증명발급", "자격증명", "택배신규", "신규관리", "관리비",
+                    "가입비", "특별회비", "협회가입", "협회비", "입회",
+                    "대폐차", "예금이자", "상가임대료", "기타"
+                ]:
+                    if kw in raw:
+                        work_type = kw
+                        break
+
+        amount = 0
+        try:
+            amount = int(getattr(tx, "deposit_amount", 0) or getattr(tx, "amount", 0) or 0)
+        except Exception:
+            amount = 0
+
+        ws.append([name, vehicle_no, work_type, amount])
+
+    # 보기 좋게 서식
+    widths = {
+        "A": 16,   # 성명
+        "B": 18,   # 차량번호
+        "C": 22,   # 업무사유
+        "D": 14,   # 입금액
+    }
+
+    for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
-    bio = BytesIO()
-    wb.save(bio)
-    bio.seek(0)
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(vertical="center")
+        row[3].number_format = '#,##0'
 
-    filename = f"{kind}_??.xlsx"
-    encoded = quote(filename)
+    ws.freeze_panes = "A2"
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = "income_ledger_clean.xlsx"
 
     return StreamingResponse(
-        bio,
+        output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"}
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
     )
-
-
-
-
 
 
 @app.post("/billing-counts/generate-next-arrears")
