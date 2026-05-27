@@ -2854,6 +2854,293 @@ def pending_detail_rowtype_alias_safe(
 
 
 # ── 처리대기목록 응급 안전 화면 ─────────────────────────────────────
+
+
+# ── 잡수입/가수금 응급 안전 화면 ─────────────────────────────────────
+@app.get("/income-ledger", response_class=HTMLResponse)
+@app.get("/work/income-ledger", response_class=HTMLResponse)
+@app.get("/income-ledger/page", response_class=HTMLResponse)
+@app.get("/work/income", response_class=HTMLResponse)
+@app.get("/work/income-ledger-page", response_class=HTMLResponse)
+def emergency_income_ledger_page(
+    request: Request,
+    kind: str = "잡수입",
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    잡수입/가수금 관리 응급 안전 화면.
+    기존 템플릿/컬럼 오류로 Internal Server Error가 나지 않도록
+    IncomeLedgerDetail 또는 bank_income_pending_queue를 안전하게 조회한다.
+    """
+    from html import escape
+    from sqlalchemy import text as _text
+
+    def h(v):
+        return escape(str(v or ""))
+
+    def getv(row, *names):
+        for name in names:
+            try:
+                if isinstance(row, dict):
+                    v = row.get(name)
+                else:
+                    v = getattr(row, name, None)
+                if v not in [None, ""]:
+                    return v
+            except Exception:
+                pass
+        return ""
+
+    try:
+        page = int(page or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(page_size or 50)
+    except Exception:
+        page_size = 50
+
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
+
+    rows = []
+    err = ""
+
+    # 1) IncomeLedgerDetail 모델 우선 조회
+    try:
+        try:
+            _ensure_income_ledger_details(db)
+        except Exception:
+            pass
+
+        query = db.query(IncomeLedgerDetail)
+
+        if kind:
+            # income_kind, category 둘 중 있는 쪽만 시도
+            try:
+                query = query.filter(IncomeLedgerDetail.income_kind == kind)
+            except Exception:
+                pass
+
+        if q:
+            like = f"%{q}%"
+            try:
+                query = query.filter(or_(
+                    IncomeLedgerDetail.related_name.ilike(like),
+                    IncomeLedgerDetail.related_vehicle_no.ilike(like),
+                    IncomeLedgerDetail.memo.ilike(like),
+                    IncomeLedgerDetail.note.ilike(like),
+                ))
+            except Exception:
+                pass
+
+        data = query.order_by(IncomeLedgerDetail.id.desc()).limit(3000).all()
+
+        for r in data:
+            rows.append({
+                "id": getv(r, "id"),
+                "date": str(getv(r, "deposit_date", "income_date", "created_at"))[:10],
+                "kind": getv(r, "income_kind", "category", "kind") or kind,
+                "amount": getv(r, "amount", "deposit_amount"),
+                "memo": getv(r, "memo", "bank_memo", "deposit_memo"),
+                "vehicle": getv(r, "related_vehicle_no", "vehicle_no"),
+                "name": getv(r, "related_name", "name"),
+                "target": getv(r, "pending_target", "process_type"),
+                "billing_date": getv(r, "billing_date", "next_billing_date"),
+                "note": getv(r, "note", "reason"),
+                "source": "income_ledger_details",
+            })
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        err += "IncomeLedgerDetail 조회 오류: " + h(repr(e)) + "<br>"
+
+    # 2) 모델 조회가 비었으면 raw table 조회
+    if not rows:
+        for table_name in ["income_ledger_details", "bank_income_pending_queue"]:
+            try:
+                exists = db.execute(_text(
+                    "select 1 from information_schema.tables where table_name=:t"
+                ), {"t": table_name}).first()
+            except Exception:
+                exists = True
+
+            try:
+                raw_rows = db.execute(_text(f"select * from {table_name} order by id desc limit 3000")).mappings().all()
+                for r in raw_rows:
+                    txt = " ".join(str(v or "") for v in dict(r).values())
+                    if q and q not in txt:
+                        continue
+                    if kind and kind not in txt and table_name == "income_ledger_details":
+                        # 너무 엄격하게 막지 않음. 자료가 안 보이는 것보다 보이는 게 우선.
+                        pass
+
+                    rows.append({
+                        "id": r.get("id", ""),
+                        "date": str(r.get("deposit_date") or r.get("income_date") or r.get("created_at") or "")[:10],
+                        "kind": r.get("income_kind") or r.get("category") or r.get("kind") or kind,
+                        "amount": r.get("amount") or r.get("deposit_amount") or "",
+                        "memo": r.get("memo") or r.get("bank_memo") or r.get("deposit_memo") or r.get("transfer_memo") or "",
+                        "vehicle": r.get("related_vehicle_no") or r.get("vehicle_no") or "",
+                        "name": r.get("related_name") or r.get("name") or "",
+                        "target": r.get("pending_target") or r.get("process_type") or "",
+                        "billing_date": r.get("billing_date") or r.get("next_billing_date") or "",
+                        "note": r.get("note") or r.get("reason") or "",
+                        "source": table_name,
+                    })
+                if rows:
+                    break
+            except Exception as e:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                err += f"{table_name} 조회 오류: " + h(repr(e)) + "<br>"
+
+    # 필터
+    if kind in ["잡수입", "가수금"]:
+        filtered = []
+        for r in rows:
+            txt = f"{r.get('kind','')} {r.get('target','')} {r.get('note','')} {r.get('memo','')}"
+            if kind in txt:
+                filtered.append(r)
+        # 필터 결과가 0이면 응급상태에서는 전체라도 보여줌
+        if filtered:
+            rows = filtered
+
+    total = len(rows)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * page_size
+    page_rows = rows[start:start + page_size]
+
+    row_html = ""
+    for r in page_rows:
+        row_html += f"""
+        <tr>
+          <td>{h(r.get('date'))}</td>
+          <td>{h(r.get('kind'))}</td>
+          <td style="text-align:right;font-weight:700;">{h(r.get('amount'))}</td>
+          <td>{h(r.get('memo'))}</td>
+          <td>{h(r.get('vehicle'))}</td>
+          <td>{h(r.get('name'))}</td>
+          <td>{h(r.get('target'))}</td>
+          <td>{h(r.get('billing_date'))}</td>
+          <td>{h(r.get('note'))}</td>
+          <td>{h(r.get('source'))}</td>
+        </tr>
+        """
+
+    if not row_html:
+        row_html = '<tr><td colspan="10" style="text-align:center;padding:24px;color:#777;">잡수입/가수금 항목이 없습니다.</td></tr>'
+
+    kind_tabs = ""
+    for k in ["잡수입", "가수금", "전체"]:
+        active = "primary" if (kind == k or (k == "전체" and not kind)) else "ghost"
+        kk = "" if k == "전체" else k
+        kind_tabs += f'<a class="btn {active}" href="/income-ledger?kind={h(kk)}">{h(k)}</a> '
+
+    base = f"/income-ledger?kind={h(kind)}&q={h(q)}&page_size={page_size}"
+    prev_link = f'<a class="btn ghost" href="{base}&page={page-1}">이전</a>' if page > 1 else ""
+    next_link = f'<a class="btn ghost" href="{base}&page={page+1}">다음</a>' if page < total_pages else ""
+
+    html = f"""
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>잡수입/가수금 관리</title>
+<style>
+body{{font-family:Arial,'Malgun Gothic',sans-serif;background:#f6f7fb;margin:0;padding:18px;}}
+.card{{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin-bottom:14px;}}
+.btn{{display:inline-block;padding:7px 10px;border-radius:9px;border:1px solid #ddd;text-decoration:none;color:#333;background:white;margin:2px;font-size:13px;}}
+.primary{{background:#2563eb!important;color:white!important;border-color:#2563eb!important;}}
+.ghost{{background:white;}}
+table{{width:100%;border-collapse:collapse;background:white;}}
+th,td{{border-bottom:1px solid #eee;padding:8px;font-size:13px;vertical-align:top;}}
+th{{background:#fafafa;text-align:left;}}
+input,select{{padding:7px;border:1px solid #ddd;border-radius:8px;}}
+.err{{color:#e11d48;font-weight:700;}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2 style="margin:0 0 10px 0;">잡수입/가수금 관리</h2>
+  <div>{kind_tabs}</div>
+  <div class="err">{err}</div>
+</div>
+
+<div class="card">
+  <form method="get" action="/income-ledger" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+    <div>
+      <label>구분</label><br>
+      <select name="kind">
+        <option value="" {"selected" if not kind else ""}>전체</option>
+        <option value="잡수입" {"selected" if kind=="잡수입" else ""}>잡수입</option>
+        <option value="가수금" {"selected" if kind=="가수금" else ""}>가수금</option>
+      </select>
+    </div>
+    <div><label>검색</label><br><input type="text" name="q" value="{h(q)}" placeholder="이체메모, 성명, 차량번호"></div>
+    <div>
+      <label>개수</label><br>
+      <select name="page_size">
+        <option value="30" {"selected" if page_size==30 else ""}>30개</option>
+        <option value="50" {"selected" if page_size==50 else ""}>50개</option>
+        <option value="100" {"selected" if page_size==100 else ""}>100개</option>
+      </select>
+    </div>
+    <button class="btn primary" type="submit">조회</button>
+    <a class="btn ghost" href="/income-ledger">초기화</a>
+    <a class="btn ghost" href="/work/pending-board">처리대기목록</a>
+  </form>
+  <div style="margin-top:10px;color:#666;">총 {total}건 · {page}/{total_pages}페이지</div>
+</div>
+
+<div class="card">
+<table>
+<thead>
+<tr>
+<th>입금일자</th>
+<th>구분</th>
+<th>금액</th>
+<th>이체메모</th>
+<th>차량번호</th>
+<th>성명</th>
+<th>처리대상</th>
+<th>부과일자</th>
+<th>비고</th>
+<th>출처</th>
+</tr>
+</thead>
+<tbody>
+{row_html}
+</tbody>
+</table>
+</div>
+
+<div class="card" style="text-align:center;">
+  {prev_link}
+  <span style="padding:8px 12px;">{page} / {total_pages}</span>
+  {next_link}
+</div>
+</body>
+</html>
+"""
+    return HTMLResponse(html)
+
+
+
 @app.get("/work", response_class=HTMLResponse)
 @app.get("/work/pending-board", response_class=HTMLResponse)
 def emergency_pending_board_page(
