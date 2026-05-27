@@ -6853,6 +6853,107 @@ BILLING_TO_PENDING_PT = {
     "자격증명발급": "관리비",
     "신규관리": "관리비",
 }
+
+def _safe_json_dict(v):
+    try:
+        import json
+        if not v:
+            return {}
+        if isinstance(v, dict):
+            return v
+        return json.loads(v)
+    except Exception:
+        return {}
+
+
+def _extract_korean_date_text(v):
+    """
+    비고/원문에서 날짜만 추출.
+    26.04.29. / 2026-04-29 / 18. 5. 1. / 94.3.8. 대응.
+    """
+    import re
+    t = str(v or "")
+    if not t:
+        return ""
+
+    m = re.search(r"(20\d{2}|19\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})", t)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return f"{y:04d}-{mo:02d}-{d:02d}"
+
+    m = re.search(r"(?<!\d)(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})", t)
+    if m:
+        yy, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        y = 2000 + yy if yy <= 30 else 1900 + yy
+        return f"{y:04d}-{mo:02d}-{d:02d}"
+
+    return ""
+
+
+def _bp_request_and_next_dates(bp, final_process_type):
+    """
+    부과대수 엑셀 행의 업무 기준 날짜 계산.
+    관리비: 인가일자 우선, 없으면 자격증명발급일자
+    협회비: 가입일자
+    제외/폐지류: 비고 날짜
+    """
+    raw = _safe_json_dict(getattr(bp, "raw_data", "") or "")
+    raw_data = raw.get("raw_data") if isinstance(raw.get("raw_data"), dict) else {}
+
+    def pick(*keys):
+        for k in keys:
+            v = raw.get(k, "")
+            if v:
+                return str(v)
+        return ""
+
+    def pick_raw_contains(*names):
+        for _, v in raw_data.items():
+            txt = str(v or "")
+            for name in names:
+                if name in txt:
+                    d = _extract_korean_date_text(txt)
+                    if d:
+                        return d
+        return ""
+
+    pt = str(final_process_type or "").strip()
+
+    request_date = ""
+    next_billing_date = ""
+
+    if pt == "관리비":
+        request_date = (
+            _extract_korean_date_text(pick("permit_date", "인가일자", "허가일자"))
+            or _extract_korean_date_text(pick("cert_issue_date", "자격증명발급일자", "자격증명일자"))
+            or pick_raw_contains("인가", "허가", "자격증명")
+        )
+        if request_date:
+            next_billing_date = _calc_next_billing_date(request_date)
+
+    elif pt == "협회비":
+        request_date = (
+            _extract_korean_date_text(pick("join_date", "가입일자", "협회가입일"))
+            or pick_raw_contains("가입")
+        )
+        if request_date:
+            next_billing_date = _calc_next_billing_date(request_date)
+
+    else:
+        note = pick("note", "비고", "메모")
+        request_date = (
+            _extract_korean_date_text(note)
+            or pick_raw_contains("폐지", "폐업", "양도", "이관", "탈퇴", "말소")
+        )
+        next_billing_date = ""
+
+    if not request_date:
+        request_date = str(getattr(bp, "created_at", "") or "")[:10]
+
+    return request_date, next_billing_date
+
+
+
 INCOME_KEYWORDS_ASSOC = [
     "가입비", "특별회비", "협회가입", "협회비", "가입", "입회"
 ]
@@ -6897,7 +6998,7 @@ def pending_board_page(
                 st = "반영대기"
             elif st == "처리대기":
                 st = "반영대기"
-            rd = str(getattr(bp, "created_at", "") or "")[:10]
+            rd, nb_date = _bp_request_and_next_dates(bp, pt)
             acct_map = {"협회비": "협", "관리비": "관"}
             acct = acct_map.get(pt, getattr(bp, "account", "") or "")
             rows.append({
@@ -6906,8 +7007,9 @@ def pending_board_page(
                 "name": getattr(bp, "name", "") or "",
                 "vehicle_no": getattr(bp, "vehicle_no", "") or "",
                 "account": acct,
-                "before_arrears": 0, "request_date": rd,
-                "next_billing_date": _calc_next_billing_date(rd),
+                "before_arrears": None,
+                "request_date": rd,
+                "next_billing_date": nb_date,
                 "source": "부과대수업로드",
                 "source_sheet": getattr(bp, "source_sheet", "") or "",
                 "reason": getattr(bp, "note", "") or "", "note": pt_raw,
@@ -6968,7 +7070,7 @@ def pending_board_page(
                 "name": d.related_name or "",
                 "vehicle_no": d.related_vehicle_no or "",
                 "account": acct,
-                "before_arrears": int(getattr(tx, "deposit_amount", 0) or 0) if tx else 0,
+                "before_arrears": None,
                 "request_date": req_date,
                 "next_billing_date": txn_date,
                 "source": d.income_type or "",
@@ -7009,7 +7111,7 @@ def pending_board_page(
                 "name": parsed.get("name") or "",
                 "vehicle_no": parsed.get("vehicle_no") or memo,
                 "account": acct,
-                "before_arrears": int(getattr(tx, "deposit_amount", 0) or 0),
+                "before_arrears": None,
                 "request_date": txn_date,
                 "next_billing_date": _calc_next_billing_date(txn_date),
                 "source": ms, "source_sheet": "",
@@ -7034,7 +7136,7 @@ def pending_board_page(
                 "name": str(rd2.get("related_name", "") or ""),
                 "vehicle_no": str(rd2.get("related_vehicle_no", "") or ""),
                 "account": "",
-                "before_arrears": int(rd2.get("amount", 0) or 0),
+                "before_arrears": None,
                 "request_date": rdate,
                 "next_billing_date": _calc_next_billing_date(rdate),
                 "source": "통장입금", "source_sheet": "",
