@@ -2638,11 +2638,11 @@ def bank_page(request: Request, status: str = "", q: str = "",
     # SAFE DEFAULT BANK STATUS TABS
     # /bank ??? ? status_tabs? ??? ????? ???? 500 ?? ?? ??
     status_tabs = [
-        ("", "??"),
-        ("????", "????"),
-        ("????", "????"),
-        ("???", "???"),
-        ("????", "????"),
+        ("", "전체"),
+        ("자동매칭", "자동매칭"),
+        ("확인필요", "확인필요"),
+        ("미매칭", "미매칭"),
+        ("반영완료", "반영완료"),
     ]
 
     bq = db.query(BankTransaction)
@@ -2656,16 +2656,13 @@ def bank_page(request: Request, status: str = "", q: str = "",
         try: tx._candidates = _json.loads(tx.match_candidates_json) if tx.match_candidates_json else []
         except: tx._candidates = []
 
-        status_tabs = ["전체", "반영대기", "협회비", "관리비", "반영완료"]
-    counts = {
-        s: db.query(BankTransaction).filter(BankTransaction.match_status == s).count()
-        for s in status_tabs
-    }
+    _count_keys = ["자동매칭", "확인필요", "미매칭", "반영완료"]
+    counts = {s: db.query(BankTransaction).filter(BankTransaction.match_status == s).count() for s in _count_keys}
     counts["전체"] = db.query(BankTransaction).count()
 
     return templates.TemplateResponse(request, "bank.html", {
         "request": request, "user": user, "txs": txs, "status": status, "q": q,
-        "counts": counts, "fmt_amt": fmt_amt,
+        "counts": counts, "status_tabs": status_tabs, "fmt_amt": fmt_amt,
         "msg": request.query_params.get("msg", ""),
     })
 
@@ -4456,7 +4453,7 @@ def bank_mark_income_save(
                 related_name VARCHAR(100),
                 reason TEXT,
                 note TEXT,
-                status VARCHAR(50) DEFAULT '????',
+                status VARCHAR(50) DEFAULT '반영대기',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -4579,7 +4576,7 @@ def _ensure_pending_income_table(db):
             related_name VARCHAR(100),
             reason TEXT,
             note TEXT,
-            status VARCHAR(50) DEFAULT '????',
+            status VARCHAR(50) DEFAULT '반영대기',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """))
@@ -5163,7 +5160,7 @@ def _ensure_pending_board_table(db):
                 related_name VARCHAR(100),
                 reason TEXT,
                 note TEXT,
-                status VARCHAR(50) DEFAULT '????',
+                status VARCHAR(50) DEFAULT '반영대기',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -5181,7 +5178,7 @@ def _ensure_pending_board_table(db):
                 related_name VARCHAR(100),
                 reason TEXT,
                 note TEXT,
-                status VARCHAR(50) DEFAULT '????',
+                status VARCHAR(50) DEFAULT '반영대기',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -5415,7 +5412,7 @@ def bank_apply_auto_all_safe(
             tx.applied_at = _dt.datetime.now()
 
         old_reason = str(getattr(tx, "match_reason", "") or "")
-        add_reason = f"???? ????: {amount:,}? / ??? {old_arr:,}? / ??? {new_arr:,}?"
+        add_reason = f"[자동반영] 입금 {amount:,}원 / 전 {old_arr:,}원 / 후 {new_arr:,}원"
         if hasattr(tx, "match_reason"):
             tx.match_reason = (old_reason + " / " if old_reason else "") + add_reason
 
@@ -5427,7 +5424,7 @@ def bank_apply_auto_all_safe(
 
     db.commit()
 
-    msg = f"???? {applied_count}? ???? / ?? {total_amount:,}? / ?? {skipped_count}?"
+    msg = f"자동반영 {applied_count}건 완료 / 합계 {total_amount:,}원 / 제외 {skipped_count}건"
     return RedirectResponse(
         "/bank?status=" + quote(DONE) + "&msg=" + quote(msg),
         status_code=302
@@ -5472,7 +5469,7 @@ def bank_reset_match_status_safe(
         if hasattr(tx, "matched_member_id"):
             tx.matched_member_id = None
         if hasattr(tx, "match_reason"):
-            tx.match_reason = "???? ???"
+            tx.match_reason = "매칭상태 초기화"
 
         # ?????? ?? ??? ???? applied? ???.
         # ?, ?? ??? ??? ??? ???? ? ??? ?? ??.
@@ -5487,7 +5484,7 @@ def bank_reset_match_status_safe(
 
     db.commit()
 
-    msg = f"???? ??? ?? {reset_count}? / ???? ?? {protected_count}?"
+    msg = f"매칭상태 초기화 {reset_count}건 / 보호 {protected_count}건"
     return RedirectResponse(
         "/bank?status=" + quote(UNMATCHED) + "&msg=" + quote(msg),
         status_code=302
