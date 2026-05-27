@@ -5245,6 +5245,14 @@ PROCESS_NORM = {
     "반영대기-협회비": "협회비",
     "반영대기-관리비": "관리비",
 }
+# BillingPerson process_type -> 반영대기 탭용 최종 처리구분 변환
+BILLING_TO_PENDING_PT = {
+    "협회가입": "협회비",
+    "협회가입원": "협회비",
+    "택배신규": "관리비",
+    "자격증명발급": "관리비",
+    "신규관리": "관리비",
+}
 INCOME_KEYWORDS_ASSOC = [
     "가입비", "특별회비", "협회가입", "협회비", "가입", "입회"
 ]
@@ -5270,21 +5278,25 @@ def pending_board_page(
         bps = db.query(BillingPerson).order_by(BillingPerson.id.desc()).all()
         for bp in bps:
             pt_raw = str(getattr(bp, "process_type", "") or "")
-            pt = PROCESS_NORM.get(pt_raw, pt_raw)
+            pt_norm = PROCESS_NORM.get(pt_raw, pt_raw)
+            # 협회가입/택배신규 등은 반영대기 탭에서 협회비/관리비로 표시
+            pt = BILLING_TO_PENDING_PT.get(pt_norm, pt_norm)
             st = str(getattr(bp, "reflect_status", "") or "반영대기")
             if st == "처리대기": st = "반영대기"
             rd = str(getattr(bp, "created_at", "") or "")[:10]
+            acct_map = {"협회비": "협", "관리비": "관"}
+            acct = acct_map.get(pt, getattr(bp, "account", "") or "")
             rows.append({
                 "row_type": "bp", "id": bp.id, "status": st, "process_type": pt,
                 "region": getattr(bp, "region", "") or "",
                 "name": getattr(bp, "name", "") or "",
                 "vehicle_no": getattr(bp, "vehicle_no", "") or "",
-                "account": getattr(bp, "account", "") or "",
+                "account": acct,
                 "before_arrears": 0, "request_date": rd,
                 "next_billing_date": _calc_next_billing_date(rd),
                 "source": "부과대수업로드",
                 "source_sheet": getattr(bp, "source_sheet", "") or "",
-                "reason": getattr(bp, "note", "") or "", "note": "",
+                "reason": getattr(bp, "note", "") or "", "note": pt_raw,
             })
     except Exception as e:
         print("BillingPerson error:", e)
