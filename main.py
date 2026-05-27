@@ -2508,6 +2508,151 @@ def admin_rebuild_latest_billing_pending(
 
 
 
+
+
+# ── 처리대기목록 상세/처리현황 안전 API ─────────────────────────────
+@app.get("/api/work/detail")
+@app.get("/work/detail")
+@app.get("/api/work/pending-detail")
+@app.get("/work/pending-board/detail")
+def work_item_detail_safe_api(
+    id: int = 0,
+    row_type: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    처리대기목록/처리현황 상세보기 공통 안전 API.
+    프론트에서 detail not found가 나지 않도록 여러 URL alias를 지원한다.
+    """
+    def sg(obj, name, default=""):
+        try:
+            v = getattr(obj, name, default)
+            if v is None:
+                return default
+            return v
+        except Exception:
+            return default
+
+    def pack(obj, kind):
+        if not obj:
+            return None
+
+        data = {
+            "kind": kind,
+            "id": sg(obj, "id", ""),
+            "status": sg(obj, "status", "") or sg(obj, "reflect_status", ""),
+            "process_type": sg(obj, "process_type", "") or sg(obj, "pending_target", "") or sg(obj, "income_kind", ""),
+            "region": sg(obj, "region", ""),
+            "name": sg(obj, "name", "") or sg(obj, "related_name", ""),
+            "vehicle_no": sg(obj, "vehicle_no", "") or sg(obj, "related_vehicle_no", ""),
+            "account": sg(obj, "account", ""),
+            "request_date": sg(obj, "request_date", "") or sg(obj, "billing_date", ""),
+            "next_billing_date": sg(obj, "next_billing_date", ""),
+            "source": sg(obj, "source", "") or sg(obj, "source_screen", ""),
+            "source_sheet": sg(obj, "source_sheet", ""),
+            "source_row": sg(obj, "source_row", ""),
+            "reason": sg(obj, "reason", "") or sg(obj, "work_reason", ""),
+            "note": sg(obj, "note", ""),
+            "amount": sg(obj, "amount", "") or sg(obj, "deposit_amount", ""),
+            "created_at": str(sg(obj, "created_at", ""))[:19],
+            "updated_at": str(sg(obj, "updated_at", ""))[:19],
+        }
+
+        # raw_data 있으면 같이 전달
+        try:
+            raw = sg(obj, "raw_data", "")
+            if raw:
+                data["raw_data"] = raw
+        except Exception:
+            pass
+
+        return data
+
+    try:
+        row_type = str(row_type or "").strip().lower()
+        obj = None
+        kind = ""
+
+        # 명시 row_type 우선
+        if row_type in ["bp", "billing", "billingperson", "billing_person"]:
+            obj = db.query(BillingPerson).filter(BillingPerson.id == id).first()
+            kind = "billing_person"
+        elif row_type in ["wq", "work", "workqueue", "work_queue"]:
+            obj = db.query(WorkQueue).filter(WorkQueue.id == id).first()
+            kind = "work_queue"
+        elif row_type in ["income", "ledger", "incomeledger", "income_ledger"]:
+            try:
+                _ensure_income_ledger_details(db)
+            except Exception:
+                pass
+            obj = db.query(IncomeLedgerDetail).filter(IncomeLedgerDetail.id == id).first()
+            kind = "income_ledger_detail"
+
+        # row_type 없거나 못 찾으면 순서대로 탐색
+        if not obj:
+            obj = db.query(WorkQueue).filter(WorkQueue.id == id).first()
+            kind = "work_queue" if obj else ""
+
+        if not obj:
+            obj = db.query(BillingPerson).filter(BillingPerson.id == id).first()
+            kind = "billing_person" if obj else ""
+
+        if not obj:
+            try:
+                _ensure_income_ledger_details(db)
+                obj = db.query(IncomeLedgerDetail).filter(IncomeLedgerDetail.id == id).first()
+                kind = "income_ledger_detail" if obj else ""
+            except Exception:
+                obj = None
+
+        if not obj:
+            return {
+                "ok": False,
+                "detail": "not found",
+                "id": id,
+                "row_type": row_type,
+            }
+
+        return {
+            "ok": True,
+            "data": pack(obj, kind),
+        }
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {
+            "ok": False,
+            "detail": "detail error",
+            "error": repr(e),
+            "id": id,
+            "row_type": row_type,
+        }
+
+
+@app.get("/api/work/detail/{row_type}/{id}")
+@app.get("/work/detail/{row_type}/{id}")
+@app.get("/api/work/pending-detail/{row_type}/{id}")
+@app.get("/work/pending-board/detail/{row_type}/{id}")
+def work_item_detail_safe_api_path(
+    row_type: str,
+    id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    return work_item_detail_safe_api(
+        id=id,
+        row_type=row_type,
+        db=db,
+        user=user
+    )
+
+
+
+
 @app.get("/work", response_class=HTMLResponse)
 def work_page(request: Request, tab: str = "전체", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
