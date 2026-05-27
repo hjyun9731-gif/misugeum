@@ -7357,6 +7357,10 @@ def pending_board_page(
                         and r["process_type"] in ["협회비", "관리비"]]
         elif tab == "반영완료":
             filtered = [r for r in rows if r["status"] == "반영완료"]
+        elif tab == "폐지":
+            filtered = [r for r in rows if r["process_type"] in ["폐지", "관리비폐지"]]
+        elif tab == "이관":
+            filtered = [r for r in rows if r["process_type"] in ["이관", "타도"]]
         else:
             filtered = [r for r in rows if r["process_type"] == tab]
     if q:
@@ -7370,6 +7374,10 @@ def pending_board_page(
                             and r["process_type"] in ["협회비", "관리비"])
         elif t == "반영완료":
             counts[t] = sum(1 for r in rows if r["status"] == "반영완료")
+        elif t == "폐지":
+            counts[t] = sum(1 for r in rows if r["process_type"] in ["폐지", "관리비폐지"])
+        elif t == "이관":
+            counts[t] = sum(1 for r in rows if r["process_type"] in ["이관", "타도"])
         else:
             counts[t] = sum(1 for r in rows if r["process_type"] == t)
 
