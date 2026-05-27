@@ -2405,7 +2405,6 @@ def work_page(request: Request, tab: str = "전체", q: str = "",
     else:
         wq = db.query(WorkQueue, Member).join(Member)
         if tab == "반영대기": wq = wq.filter(WorkQueue.status == "반영대기")
-        elif tab == "반영완료": wq = wq.filter(WorkQueue.status == "반영완료")
         elif tab != "전체": wq = wq.filter(WorkQueue.process_type == tab, WorkQueue.status == "반영대기")
         if q:
             like = f"%{q}%"
@@ -7085,14 +7084,6 @@ def _work_tab_match(tab, pt, status=""):
     status = str(status or "").strip()
 
     filtered = [r for r in rows if _work_tab_match(tab, r.get("process_type"), r.get("status"))] == "반영대기"
-        elif tab == "반영완료":
-            filtered = [r for r in rows if r["status"] == "반영완료"]
-        elif tab == "폐지":
-            filtered = [r for r in rows if r["process_type"] in ["폐지", "관리비폐지"]]
-        elif tab == "이관":
-            filtered = [r for r in rows if r["process_type"] in ["이관", "타도"]]
-        else:
-            filtered = [r for r in rows if (r["process_type"] in ["폐지", "관리비폐지"] if tab == "폐지" else r["process_type"] == tab)]
     if q:
         filtered = [r for r in filtered if q in row_text(r)]
 
