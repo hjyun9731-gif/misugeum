@@ -2225,7 +2225,8 @@ def admin_reset_all_billing_pending(
     user: User = Depends(require_user)
 ):
     try:
-        result = db.execute(_text(
+        from sqlalchemy import text as _text2
+        result = db.execute(_text2(
             "UPDATE billing_persons SET reflect_status = '부과대수상세' WHERE reflect_status IN ('반영대기', '처리대기', '보류')"
         ))
         db.commit()
