@@ -2108,226 +2108,6 @@ def collection_generate(db: Session = Depends(get_db), user: User = Depends(requ
 
 
 # ── 자동매칭 전체반영 ─────────────────────────────────────
-@app.post("/bank/apply-auto-all")
-def bank_apply_auto_all(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """
-    자동매칭된 통장내역을 한 번에 실제 반영.
-    - match_status='자동매칭'
-    - matched_member_id 존재
-    - applied False/NULL
-    - Member.excel_arrears에서 입금액 차감
-    """
-    from urllib.parse import quote
-    from datetime import datetime
-    import json as _json
-    import re as _re
-
-    def _num(v):
-        try:
-            if v is None:
-                return 0
-            if isinstance(v, (int, float)):
-                return int(v)
-            t = str(v).replace(",", "").replace("원", "").strip()
-            m = _re.search(r"-?\d+", t)
-            return int(m.group(0)) if m else 0
-        except Exception:
-            return 0
-
-    def _get_tx_amount(tx):
-        # 프로젝트마다 금액 필드명이 다를 수 있어서 후보를 전부 확인
-        for attr in ["amount", "deposit_amount", "in_amount", "paid_amount", "txn_amount", "money"]:
-            if hasattr(tx, attr):
-                v = _num(getattr(tx, attr))
-                if v:
-                    return abs(v)
-
-        # raw_data나 memo에 금액이 들어간 경우 대비
-        for attr in ["raw_data", "memo", "description"]:
-            if hasattr(tx, attr):
-                t = str(getattr(tx, attr) or "")
-                nums = [_num(x) for x in _re.findall(r"\d[\d,]*", t)]
-                nums = [x for x in nums if x > 0]
-                if nums:
-                    return max(nums)
-        return 0
-
-    def _get_paid_date(tx):
-        raw_date = getattr(tx, "txn_date", None) or getattr(tx, "date", None) or getattr(tx, "paid_date", None)
-        y = datetime.now().year
-        mth = datetime.now().month
-        pdate = ""
-
-        if raw_date:
-            try:
-                if hasattr(raw_date, "year"):
-                    y = raw_date.year
-                    mth = raw_date.month
-                    pdate = raw_date.isoformat()[:10]
-                else:
-                    dt = datetime.fromisoformat(str(raw_date)[:10])
-                    y = dt.year
-                    mth = dt.month
-                    pdate = dt.date().isoformat()
-            except Exception:
-                pdate = str(raw_date)[:10]
-
-        return y, mth, pdate
-
-    def _find_member_from_tx(tx):
-        mid = getattr(tx, "matched_member_id", None)
-        if mid:
-            m = db.query(Member).filter(Member.id == mid).first()
-            if m:
-                return m
-
-        # matched_member_id가 꼬였을 경우 후보 JSON 첫 번째 id 사용
-        raw = getattr(tx, "match_candidates_json", "") or ""
-        try:
-            data = _json.loads(raw) if raw else []
-            if isinstance(data, dict):
-                data = data.get("candidates", [])
-            if isinstance(data, list):
-                for c in data:
-                    cid = c.get("id") or c.get("member_id") if isinstance(c, dict) else None
-                    if cid:
-                        m = db.query(Member).filter(Member.id == int(cid)).first()
-                        if m:
-                            tx.matched_member_id = m.id
-                            return m
-        except Exception:
-            pass
-
-        return None
-
-    try:
-        targets = (
-            db.query(BankTransaction)
-            .filter(BankTransaction.match_status == "자동매칭")
-            .filter(or_(BankTransaction.applied == False, BankTransaction.applied == None))
-            .order_by(BankTransaction.txn_date, BankTransaction.id)
-            .all()
-        )
-
-        applied_cnt = 0
-        already_cnt = 0
-        no_member_cnt = 0
-        no_amount_cnt = 0
-        error_cnt = 0
-
-        ledger_cols = set(MonthlyLedger.__table__.columns.keys())
-
-        for tx in targets:
-            try:
-                member = _find_member_from_tx(tx)
-                if not member:
-                    no_member_cnt += 1
-                    continue
-
-                amount = _get_tx_amount(tx)
-                if amount <= 0:
-                    no_amount_cnt += 1
-                    continue
-
-                y, mth, paid_date = _get_paid_date(tx)
-
-                # 같은 통장거래가 이미 반영된 경우: 중복 생성하지 않고 완료 처리
-                exist = None
-                if "source_file" in ledger_cols and "source_row" in ledger_cols:
-                    exist = (
-                        db.query(MonthlyLedger)
-                        .filter(MonthlyLedger.member_id == member.id)
-                        .filter(MonthlyLedger.source_file == "통장반영")
-                        .filter(MonthlyLedger.source_row == tx.id)
-                        .first()
-                    )
-
-                if exist:
-                    tx.applied = True
-                    tx.match_status = "반영완료"
-                    db.add(tx)
-                    already_cnt += 1
-                    continue
-
-                # 원장 기록 생성
-                kwargs = {
-                    "member_id": member.id,
-                    "batch_id": None,
-                    "source_file": "통장반영",
-                    "source_sheet": "자동매칭",
-                    "source_row": tx.id,
-                    "raw_vehicle_no": member.vehicle_no or "",
-                    "raw_name": member.name or "",
-                    "raw_region": member.region or "",
-                    "raw_account": member.account or "",
-                    "raw_note": getattr(tx, "memo", "") or "",
-                    "year": y,
-                    "month": mth,
-                    "carry_over": 0,
-                    "charge_amount": 0,
-                    "paid_amount": amount,
-                    "arrears_amount": 0,
-                    "paid_date": paid_date,
-                    "calc_arrears": 0,
-                }
-                kwargs = {k: v for k, v in kwargs.items() if k in ledger_cols}
-                db.add(MonthlyLedger(**kwargs))
-
-                # 실제 미수금 차감
-                before = int(member.excel_arrears or 0)
-                after = before - amount
-                member.excel_arrears = after
-                member.calc_arrears = after
-                member.arrears_diff = 0
-                member.is_overpay = after < 0
-
-                if hasattr(member, "last_paid_date"):
-                    member.last_paid_date = paid_date
-
-                try:
-                    member.arrears_verified = True
-                    member.verify_reason = ""
-                except Exception:
-                    pass
-
-                tx.applied = True
-                tx.match_status = "반영완료"
-                db.add(member)
-                db.add(tx)
-
-                applied_cnt += 1
-
-            except Exception:
-                error_cnt += 1
-                continue
-
-        db.commit()
-        _invalidate_snap(db, "dashboard")
-
-        try:
-            add_log(
-                db,
-                user.id,
-                "자동매칭전체반영",
-                f"반영 {applied_cnt}건 / 이미반영 {already_cnt}건 / 회원없음 {no_member_cnt}건 / 금액없음 {no_amount_cnt}건 / 오류 {error_cnt}건"
-            )
-        except Exception:
-            pass
-
-        msg = (
-            f"자동매칭 반영 {applied_cnt}건 완료"
-            f" / 이미반영 {already_cnt}건"
-            f" / 회원없음 {no_member_cnt}건"
-            f" / 금액없음 {no_amount_cnt}건"
-            f" / 오류 {error_cnt}건"
-        )
-        return RedirectResponse("/bank?status=자동매칭&msg=" + quote(msg), status_code=302)
-
-    except Exception as e:
-        db.rollback()
-        msg = quote("자동매칭 전체반영 오류: " + str(e)[:180])
-        return RedirectResponse(f"/bank?status=자동매칭&msg={msg}", status_code=302)
-
 
 @app.get("/bank/{tid}/match", response_class=HTMLResponse)
 def bank_manual_match_page(
@@ -3156,40 +2936,6 @@ def bank_reset_unapplied(db: Session = Depends(get_db), user: User = Depends(req
         db.rollback()
         return RedirectResponse("/bank?status=자동매칭&msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
 
-
-@app.post("/bank/reset-match-status")
-def bank_reset_match_status(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """미반영 건의 매칭상태만 초기화. 통장내역은 유지."""
-    from urllib.parse import quote
-
-    try:
-        unapplied = or_(BankTransaction.applied == False, BankTransaction.applied == None)
-        txs = db.query(BankTransaction).filter(unapplied).all()
-        cnt = len(txs)
-
-        for tx in txs:
-            tx.matched_member_id = None
-            tx.match_status = "미매칭"
-            tx.match_candidates_json = ""
-            if hasattr(tx, "match_score"):
-                tx.match_score = 0
-            if hasattr(tx, "match_reason"):
-                tx.match_reason = ""
-            db.add(tx)
-
-        db.commit()
-        _invalidate_snap(db, "dashboard")
-
-        try:
-            add_log(db, user.id, "통장초기화-매칭상태", f"{cnt}건 초기화")
-        except Exception:
-            pass
-
-        return RedirectResponse("/bank?status=자동매칭&msg=" + quote(f"미반영 {cnt}건 매칭상태 초기화완료"), status_code=302)
-
-    except Exception as e:
-        db.rollback()
-        return RedirectResponse("/bank?status=자동매칭&msg=" + quote("초기화 오류: " + str(e)[:100]), status_code=302)
 
 
 @app.post("/bank/reset-all")
@@ -5573,6 +5319,165 @@ def pending_board_add_save(
 
     return RedirectResponse(
         "/work?tab=" + quote("????"),
+        status_code=302
+    )
+
+
+# =========================================================
+# ????: ???? ????
+# =========================================================
+@app.post("/bank/apply-auto")
+@app.post("/bank/auto-apply")
+@app.post("/bank/apply-all")
+@app.post("/bank/apply-auto-all")
+def bank_apply_auto_all_safe(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+    import datetime as _dt
+    import re as _re
+
+    AUTO = "\uc790\ub3d9\ub9e4\uce6d"      # ????
+    DONE = "\ubc18\uc601\uc644\ub8cc"      # ????
+
+    def _num(v):
+        if v is None:
+            return 0
+        if isinstance(v, (int, float)):
+            return int(v)
+        s = str(v).replace(",", "").replace("?", "").strip()
+        m = _re.search(r"-?\d+", s)
+        return int(m.group(0)) if m else 0
+
+    def _get(obj, names):
+        for n in names:
+            if hasattr(obj, n):
+                v = getattr(obj, n)
+                if v not in [None, ""]:
+                    return v
+        return None
+
+    txs = db.query(BankTransaction).all()
+
+    applied_count = 0
+    skipped_count = 0
+    total_amount = 0
+
+    for tx in txs:
+        status = str(getattr(tx, "match_status", "") or "")
+        if status != AUTO:
+            continue
+
+        if getattr(tx, "applied", False) or status == DONE:
+            skipped_count += 1
+            continue
+
+        member_id = _get(tx, ["matched_member_id", "member_id", "target_member_id", "mid"])
+        if not member_id:
+            skipped_count += 1
+            continue
+
+        m = db.query(Member).filter(Member.id == int(member_id)).first()
+        if not m:
+            skipped_count += 1
+            continue
+
+        amount = _num(_get(tx, ["deposit_amount", "amount", "paid_amount", "in_amount", "txn_amount", "money"]))
+        old_arr = _num(getattr(m, "excel_arrears", 0))
+        new_arr = max(0, old_arr - amount)
+
+        if hasattr(m, "excel_arrears"):
+            m.excel_arrears = new_arr
+
+        for attr in ["last_paid_date", "last_payment_date", "paid_date"]:
+            if hasattr(m, attr):
+                try:
+                    setattr(m, attr, _get(tx, ["txn_date", "deposit_date", "date"]) or _dt.date.today())
+                except Exception:
+                    pass
+
+        tx.match_status = DONE
+        if hasattr(tx, "applied"):
+            tx.applied = True
+        if hasattr(tx, "applied_at"):
+            tx.applied_at = _dt.datetime.now()
+
+        old_reason = str(getattr(tx, "match_reason", "") or "")
+        add_reason = f"???? ????: {amount:,}? / ??? {old_arr:,}? / ??? {new_arr:,}?"
+        if hasattr(tx, "match_reason"):
+            tx.match_reason = (old_reason + " / " if old_reason else "") + add_reason
+
+        db.add(m)
+        db.add(tx)
+
+        applied_count += 1
+        total_amount += amount
+
+    db.commit()
+
+    msg = f"???? {applied_count}? ???? / ?? {total_amount:,}? / ?? {skipped_count}?"
+    return RedirectResponse(
+        "/bank?status=" + quote(DONE) + "&msg=" + quote(msg),
+        status_code=302
+    )
+
+
+# =========================================================
+# ????: ???? ???
+# ??? ???? ??. include_applied/on ?? ? ?????? ???.
+# =========================================================
+@app.post("/bank/reset-matches")
+@app.post("/bank/reset-match")
+@app.post("/bank/reset-status")
+@app.post("/bank/reset")
+def bank_reset_match_status_safe(
+    include_applied: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from urllib.parse import quote
+
+    UNMATCHED = "\ubbf8\ub9e4\uce6d"      # ???
+    DONE = "\ubc18\uc601\uc644\ub8cc"     # ????
+
+    include_done = str(include_applied or "").lower() in ["on", "true", "1", "yes", "y"]
+
+    txs = db.query(BankTransaction).all()
+
+    reset_count = 0
+    protected_count = 0
+
+    for tx in txs:
+        status = str(getattr(tx, "match_status", "") or "")
+
+        if not include_done and (getattr(tx, "applied", False) or status == DONE):
+            protected_count += 1
+            continue
+
+        if hasattr(tx, "match_status"):
+            tx.match_status = UNMATCHED
+        if hasattr(tx, "matched_member_id"):
+            tx.matched_member_id = None
+        if hasattr(tx, "match_reason"):
+            tx.match_reason = "???? ???"
+
+        # ?????? ?? ??? ???? applied? ???.
+        # ?, ?? ??? ??? ??? ???? ? ??? ?? ??.
+        if include_done:
+            if hasattr(tx, "applied"):
+                tx.applied = False
+            if hasattr(tx, "applied_at"):
+                tx.applied_at = None
+
+        db.add(tx)
+        reset_count += 1
+
+    db.commit()
+
+    msg = f"???? ??? ?? {reset_count}? / ???? ?? {protected_count}?"
+    return RedirectResponse(
+        "/bank?status=" + quote(UNMATCHED) + "&msg=" + quote(msg),
         status_code=302
     )
 
