@@ -4162,6 +4162,106 @@ def _calc_pending_target(income_type, work_type):
         return "관리비"
     return "없음"
 
+
+def _upsert_income_ledger_detail_from_bank(
+    db,
+    tx,
+    income_type="",
+    work_type="",
+    related_vehicle_no="",
+    related_name="",
+    note=""
+):
+    """
+    통장매칭에서 잡수입/가수금으로 분류하는 순간
+    income_ledger_details에 구조화 상세를 자동 저장한다.
+    실패해도 화면 전체가 죽지 않게 False만 반환.
+    """
+    try:
+        from sqlalchemy import text as _t
+
+        _ensure_income_ledger_details(db)
+
+        income_type = str(income_type or "").strip()
+        work_type = str(work_type or "").strip()
+        related_vehicle_no = str(related_vehicle_no or "").strip()
+        related_name = str(related_name or "").strip()
+        note = str(note or "").strip()
+
+        # 사유가 비어 있으면 match_reason/memo에서 키워드 추정
+        if not work_type:
+            raw = (str(getattr(tx, "match_reason", "") or "") + " " +
+                   str(getattr(tx, "memo", "") or ""))
+            for kw in [
+                "자격증명발급", "자격증명", "택배신규", "신규관리", "관리비",
+                "가입비", "특별회비", "협회가입", "협회비", "입회",
+                "대폐차", "예금이자", "상가임대료", "기타"
+            ]:
+                if kw in raw:
+                    work_type = kw
+                    break
+
+        pending_target = _calc_pending_target(income_type, work_type)
+
+        txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
+        next_billing_date = ""
+        if pending_target in ["협회비", "관리비"]:
+            next_billing_date = _calc_next_billing_date(txn_date)
+
+        row = db.execute(_t("""
+            SELECT id
+            FROM income_ledger_details
+            WHERE bank_transaction_id = :tid
+            LIMIT 1
+        """), {"tid": getattr(tx, "id", None)}).mappings().first()
+
+        params = {
+            "tid": getattr(tx, "id", None),
+            "income_type": income_type,
+            "work_type": work_type,
+            "pending_target": pending_target,
+            "related_vehicle_no": related_vehicle_no,
+            "related_name": related_name,
+            "note": note,
+            "next_billing_date": next_billing_date,
+        }
+
+        if row:
+            params["id"] = row["id"]
+            db.execute(_t("""
+                UPDATE income_ledger_details
+                SET income_type = :income_type,
+                    work_type = :work_type,
+                    pending_target = :pending_target,
+                    related_vehicle_no = :related_vehicle_no,
+                    related_name = :related_name,
+                    note = :note,
+                    next_billing_date = :next_billing_date,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+            """), params)
+        else:
+            db.execute(_t("""
+                INSERT INTO income_ledger_details
+                (bank_transaction_id, income_type, work_type, pending_target,
+                 related_vehicle_no, related_name, note, next_billing_date)
+                VALUES
+                (:tid, :income_type, :work_type, :pending_target,
+                 :related_vehicle_no, :related_name, :note, :next_billing_date)
+            """), params)
+
+        return True
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("income detail upsert from bank error:", repr(e))
+        return False
+
+
+
 @app.get("/income-ledger", response_class=HTMLResponse)
 def income_ledger_page(
     request: Request,
@@ -4657,6 +4757,15 @@ def bank_mark_income_save(
         tx.match_status = new_status
         tx.matched_member_id = None
         tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+        _upsert_income_ledger_detail_from_bank(
+            db=db,
+            tx=tx,
+            income_type=new_status,
+            work_type=locals().get("reason", locals().get("work_type", "")),
+            related_vehicle_no=locals().get("related_vehicle_no", ""),
+            related_name=locals().get("related_name", ""),
+            note=locals().get("note", ""),
+        )
 
         db.add(tx)
         db.commit()
@@ -4677,6 +4786,15 @@ def bank_mark_income_save(
         tx.match_status = new_status
         tx.matched_member_id = None
         tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+        _upsert_income_ledger_detail_from_bank(
+            db=db,
+            tx=tx,
+            income_type=new_status,
+            work_type=locals().get("reason", locals().get("work_type", "")),
+            related_vehicle_no=locals().get("related_vehicle_no", ""),
+            related_name=locals().get("related_name", ""),
+            note=locals().get("note", ""),
+        )
 
         db.add(tx)
         db.commit()
