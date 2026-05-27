@@ -92,7 +92,9 @@ async def redirect_old_work_to_pending_board(request: Request, call_next):
     ? ????? /work/pending-board ? ?? ??.
     """
     if request.method == "GET" and request.url.path == "/work":
-        return RedirectResponse("/work/pending-board", status_code=302)
+        qs = str(request.url.query)
+        target = "/work/pending-board?" + qs if qs else "/work/pending-board"
+        return RedirectResponse(target, status_code=302)
 
     return await call_next(request)
 
