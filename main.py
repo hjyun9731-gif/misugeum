@@ -2851,6 +2851,350 @@ def pending_detail_rowtype_alias_safe(
 
 
 
+
+
+# ── 처리대기목록 응급 안전 화면 ─────────────────────────────────────
+@app.get("/work", response_class=HTMLResponse)
+@app.get("/work/pending-board", response_class=HTMLResponse)
+def emergency_pending_board_page(
+    request: Request,
+    tab: str = "전체",
+    q: str = "",
+    year: int = None,
+    month: int = None,
+    process_type: str = "",
+    status: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from html import escape
+    from sqlalchemy import or_
+
+    def sg(obj, name, default=""):
+        try:
+            v = getattr(obj, name, default)
+            if v is None:
+                return default
+            return v
+        except Exception:
+            return default
+
+    def norm_pt(pt):
+        pt = str(pt or "").strip()
+        if pt in ["협회가입", "협회가입원"]:
+            return "협회비"
+        if pt in ["택배신규", "자격증명발급", "신규관리"]:
+            return "관리비"
+        if pt in ["관리비폐지", "택배폐업", "택배관리비폐지"]:
+            return "폐지"
+        if pt in ["타도", "이관"]:
+            return "이관"
+        return pt
+
+    def tab_match(row):
+        t = tab or "전체"
+        pt = row.get("pt_norm", "")
+        st = row.get("status", "")
+
+        if t == "전체":
+            return st != "부과대수상세"
+
+        if t == "반영대기":
+            return st == "반영대기" and pt in ["협회비", "관리비"]
+
+        if t == "폐업":
+            return pt in ["폐지", "양도", "이관", "사망", "말소"]
+
+        if t == "폐지":
+            return pt == "폐지"
+
+        if t == "관리비폐지":
+            return pt == "폐지"
+
+        if t == "양도":
+            return pt == "양도"
+
+        if t in ["이관", "타도"]:
+            return pt == "이관"
+
+        if t == "협회가입":
+            return pt == "협회비"
+
+        if t == "택배신규":
+            return pt == "관리비"
+
+        if t == "협회비":
+            return pt == "협회비"
+
+        if t == "관리비":
+            return pt == "관리비"
+
+        if t == "부과대수상세":
+            return row.get("kind") == "billing"
+
+        if t == "반영완료":
+            return st == "반영완료"
+
+        return pt == t
+
+    try:
+        page = int(page or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(page_size or 50)
+    except Exception:
+        page_size = 50
+
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
+
+    rows = []
+    err = ""
+
+    # 1) BillingPerson: 부과대수 자료
+    try:
+        bq = db.query(BillingPerson)
+
+        if year:
+            bq = bq.filter(BillingPerson.year == int(year))
+        if month:
+            bq = bq.filter(BillingPerson.month == int(month))
+        if process_type:
+            if process_type == "폐지":
+                bq = bq.filter(BillingPerson.process_type.in_(["폐지", "관리비폐지"]))
+            elif process_type == "이관":
+                bq = bq.filter(BillingPerson.process_type.in_(["이관", "타도"]))
+            elif process_type == "협회비":
+                bq = bq.filter(BillingPerson.process_type.in_(["협회가입", "협회가입원", "협회비"]))
+            elif process_type == "관리비":
+                bq = bq.filter(BillingPerson.process_type.in_(["택배신규", "관리비"]))
+            else:
+                bq = bq.filter(BillingPerson.process_type == process_type)
+        if status:
+            bq = bq.filter(BillingPerson.reflect_status == status)
+
+        if q:
+            like = f"%{q}%"
+            bq = bq.filter(or_(
+                BillingPerson.name.ilike(like),
+                BillingPerson.vehicle_no.ilike(like),
+                BillingPerson.region.ilike(like),
+                BillingPerson.source_sheet.ilike(like),
+                BillingPerson.process_type.ilike(like),
+            ))
+
+        for bp in bq.order_by(BillingPerson.year.desc(), BillingPerson.month.desc(), BillingPerson.id.desc()).limit(3000).all():
+            raw_pt = sg(bp, "process_type")
+            pt = norm_pt(raw_pt)
+            st = sg(bp, "reflect_status") or "부과대수상세"
+
+            # 처리대기 상태인 협회가입/택배신규만 반영대기로 표시
+            if st in ["처리대기", "반영대기"] and pt in ["협회비", "관리비"]:
+                view_status = "반영대기"
+            else:
+                view_status = st
+
+            rows.append({
+                "kind": "billing",
+                "id": sg(bp, "id"),
+                "ym": f'{sg(bp, "year")}-{int(sg(bp, "month") or 0):02d}' if sg(bp, "month") else "",
+                "status": view_status,
+                "pt_raw": raw_pt,
+                "pt_norm": pt,
+                "region": sg(bp, "region"),
+                "name": sg(bp, "name"),
+                "vehicle": sg(bp, "vehicle_no"),
+                "account": sg(bp, "account"),
+                "source": "부과대수",
+                "sheet": sg(bp, "source_sheet"),
+                "row": sg(bp, "source_row"),
+                "note": sg(bp, "note"),
+            })
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        err += "BillingPerson 오류: " + escape(repr(e)) + "<br>"
+
+    # 2) WorkQueue: 일반 처리대기 업무
+    try:
+        wq = db.query(WorkQueue).limit(2000).all()
+        for w in wq:
+            raw_pt = sg(w, "process_type") or sg(w, "work_type")
+            pt = norm_pt(raw_pt)
+            st = sg(w, "status") or "처리대기"
+
+            rows.append({
+                "kind": "work",
+                "id": sg(w, "id"),
+                "ym": "",
+                "status": st,
+                "pt_raw": raw_pt,
+                "pt_norm": pt,
+                "region": sg(w, "region"),
+                "name": sg(w, "name"),
+                "vehicle": sg(w, "vehicle_no"),
+                "account": sg(w, "account"),
+                "source": sg(w, "source_screen") or "처리대기",
+                "sheet": "",
+                "row": "",
+                "note": sg(w, "note") or sg(w, "work_reason"),
+            })
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+    filtered = [r for r in rows if tab_match(r)]
+
+    total = len(filtered)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * page_size
+    page_rows = filtered[start:start + page_size]
+
+    tabs = ["전체", "반영대기", "폐업", "폐지", "양도", "이관", "탈퇴", "사망", "말소",
+            "협회가입", "택배신규", "관리비폐지", "70세", "협회비", "관리비",
+            "부과대수상세", "반영완료"]
+
+    counts = {}
+    for t in tabs:
+        counts[t] = sum(1 for r in rows if (tab == t or True) and (
+            (t == "전체" and r.get("status") != "부과대수상세") or
+            (t == "반영대기" and r.get("status") == "반영대기" and r.get("pt_norm") in ["협회비", "관리비"]) or
+            (t == "폐업" and r.get("pt_norm") in ["폐지", "양도", "이관", "사망", "말소"]) or
+            (t == "폐지" and r.get("pt_norm") == "폐지") or
+            (t == "관리비폐지" and r.get("pt_norm") == "폐지") or
+            (t == "양도" and r.get("pt_norm") == "양도") or
+            (t in ["이관", "타도"] and r.get("pt_norm") == "이관") or
+            (t == "협회가입" and r.get("pt_norm") == "협회비") or
+            (t == "택배신규" and r.get("pt_norm") == "관리비") or
+            (t == "협회비" and r.get("pt_norm") == "협회비") or
+            (t == "관리비" and r.get("pt_norm") == "관리비") or
+            (t == "부과대수상세" and r.get("kind") == "billing") or
+            (t == "반영완료" and r.get("status") == "반영완료")
+        ))
+
+    def h(v):
+        return escape(str(v or ""))
+
+    tab_html = ""
+    for t in tabs:
+        cls = "primary" if t == tab else "ghost"
+        tab_html += f'<a class="btn {cls}" href="/work/pending-board?tab={h(t)}">{h(t)} <b>{counts.get(t,0)}</b></a> '
+
+    row_html = ""
+    for r in page_rows:
+        detail_url = f"/api/work/detail?id={h(r.get('id'))}&row_type={h(r.get('kind'))}"
+        row_html += f"""
+        <tr>
+          <td>{h(r.get('status'))}</td>
+          <td>{h(r.get('pt_norm'))}</td>
+          <td>{h(r.get('ym'))}</td>
+          <td>{h(r.get('region'))}</td>
+          <td>{h(r.get('name'))}</td>
+          <td>{h(r.get('vehicle'))}</td>
+          <td>{h(r.get('account'))}</td>
+          <td>{h(r.get('source'))}</td>
+          <td>{h(r.get('sheet'))}</td>
+          <td>{h(r.get('note'))}</td>
+          <td><a class="btn ghost" href="{detail_url}">상세</a></td>
+        </tr>
+        """
+
+    if not row_html:
+        row_html = '<tr><td colspan="11" style="text-align:center;padding:24px;color:#777;">조회 결과 없음</td></tr>'
+
+    prev_link = ""
+    next_link = ""
+    base = f"/work/pending-board?tab={h(tab)}&q={h(q)}&year={h(year or '')}&month={h(month or '')}&process_type={h(process_type)}&status={h(status)}&page_size={page_size}"
+    if page > 1:
+        prev_link = f'<a class="btn ghost" href="{base}&page={page-1}">이전</a>'
+    if page < total_pages:
+        next_link = f'<a class="btn ghost" href="{base}&page={page+1}">다음</a>'
+
+    html = f"""
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>처리대기목록</title>
+<style>
+body{{font-family:Arial,'Malgun Gothic',sans-serif;background:#f6f7fb;margin:0;padding:18px;}}
+.card{{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin-bottom:14px;}}
+.btn{{display:inline-block;padding:7px 10px;border-radius:9px;border:1px solid #ddd;text-decoration:none;color:#333;background:white;margin:2px;font-size:13px;}}
+.primary{{background:#2563eb!important;color:white!important;border-color:#2563eb!important;}}
+.ghost{{background:white;}}
+table{{width:100%;border-collapse:collapse;background:white;}}
+th,td{{border-bottom:1px solid #eee;padding:8px;font-size:13px;vertical-align:top;}}
+th{{background:#fafafa;text-align:left;}}
+input,select{{padding:7px;border:1px solid #ddd;border-radius:8px;}}
+.err{{color:#e11d48;font-weight:700;}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2 style="margin:0 0 10px 0;">처리대기목록</h2>
+  <div>{tab_html}</div>
+  <div class="err">{err}</div>
+</div>
+
+<div class="card">
+  <form method="get" action="/work/pending-board" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+    <input type="hidden" name="tab" value="{h(tab)}">
+    <div><label>연도</label><br><input type="number" name="year" value="{h(year or '')}" placeholder="2026" style="width:90px;"></div>
+    <div><label>월</label><br><input type="number" name="month" value="{h(month or '')}" placeholder="6" style="width:70px;"></div>
+    <div><label>처리구분</label><br><input type="text" name="process_type" value="{h(process_type)}" placeholder="폐지/관리비"></div>
+    <div><label>상태</label><br><input type="text" name="status" value="{h(status)}" placeholder="반영대기"></div>
+    <div><label>검색</label><br><input type="text" name="q" value="{h(q)}" placeholder="성명, 차량번호, 지역"></div>
+    <div><label>개수</label><br>
+      <select name="page_size">
+        <option value="30" {"selected" if page_size==30 else ""}>30개</option>
+        <option value="50" {"selected" if page_size==50 else ""}>50개</option>
+        <option value="100" {"selected" if page_size==100 else ""}>100개</option>
+      </select>
+    </div>
+    <button class="btn primary" type="submit">조회</button>
+    <a class="btn ghost" href="/work/pending-board?tab={h(tab)}">초기화</a>
+  </form>
+  <div style="margin-top:10px;color:#666;">총 {total}건 · {page}/{total_pages}페이지</div>
+</div>
+
+<div class="card">
+<table>
+<thead>
+<tr>
+<th>상태</th><th>처리구분</th><th>연월</th><th>지역</th><th>성명</th><th>차량번호</th>
+<th>계정</th><th>출처</th><th>원본시트</th><th>비고</th><th>상세</th>
+</tr>
+</thead>
+<tbody>
+{row_html}
+</tbody>
+</table>
+</div>
+
+<div class="card" style="text-align:center;">
+  {prev_link}
+  <span style="padding:8px 12px;">{page} / {total_pages}</span>
+  {next_link}
+</div>
+</body>
+</html>
+"""
+    return HTMLResponse(html)
+
+
+
 @app.get("/work", response_class=HTMLResponse)
 def work_page(request: Request, tab: str = "전체", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
