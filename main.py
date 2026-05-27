@@ -5165,17 +5165,63 @@ def income_ledger_edit_form(
     if not tx:
         raise HTTPException(404)
 
-    MISC = "\uc7a1\uc218\uc785"        # ???
-    SUSP = "\uac00\uc218\uae08"        # ???
+    _ensure_income_ledger_details(db)
+
+    MISC = "잡수입"
+    SUSP = "가수금"
 
     current_status = str(getattr(tx, "match_status", "") or "")
     kind_code = "misc" if current_status == MISC else "suspense"
+
+    detail = None
+    try:
+        detail = db.query(IncomeLedgerDetail).filter(IncomeLedgerDetail.bank_transaction_id == tid).first()
+    except Exception as e:
+        print("income detail load error:", e)
+        detail = None
+
+    parsed = {}
+    try:
+        parsed = _parse_income_reason(str(getattr(tx, "match_reason", "") or ""))
+    except Exception:
+        parsed = {}
+
+    work_type = ""
+    pending_target = "없음"
+    related_vehicle_no = ""
+    related_name = ""
+    note = ""
+    next_billing_date = ""
+
+    if detail:
+        work_type = str(getattr(detail, "work_type", "") or "")
+        pending_target = str(getattr(detail, "pending_target", "") or "없음")
+        related_vehicle_no = str(getattr(detail, "related_vehicle_no", "") or "")
+        related_name = str(getattr(detail, "related_name", "") or "")
+        note = str(getattr(detail, "note", "") or "")
+        next_billing_date = str(getattr(detail, "next_billing_date", "") or "")
+    else:
+        work_type = parsed.get("work_reason") or ""
+        related_vehicle_no = parsed.get("vehicle_no") or ""
+        related_name = parsed.get("name") or ""
+        note = parsed.get("note") or ""
+        pending_target = _calc_pending_target(current_status, work_type)
+
+        txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
+        if pending_target in ["협회비", "관리비"]:
+            next_billing_date = _calc_next_billing_date(txn_date)
 
     return templates.TemplateResponse(request, "income_edit_form.html", {
         "request": request,
         "user": user,
         "tx": tx,
         "kind_code": kind_code,
+        "work_type": work_type,
+        "pending_target": pending_target,
+        "related_vehicle_no": related_vehicle_no,
+        "related_name": related_name,
+        "note": note,
+        "next_billing_date": next_billing_date,
         "fmt_amt": fmt_amt,
     })
 
