@@ -1490,66 +1490,205 @@ def _reconcile_license(db: Session):
 @app.get("/license-check", response_class=HTMLResponse)
 def license_check(request: Request, db: Session = Depends(get_db),
                   user: User = Depends(require_user)):
-    items = (db.query(Member)
-             .filter(_clean_filter(),
-                     Member.user_confirmed_match == False,
-                     or_(Member.match_license_id == None,
-                         Member.match_status == "전체자미확인"))
-             .order_by(Member.region, Member.name).all())
-    lic_count = db.query(LicenseRecord).count()
+    """
+    전체자 대조 미확인 화면.
+    DB 컬럼/데이터 문제로 화면 전체가 Internal Server Error로 죽지 않도록 안전 처리.
+    """
+    msg = request.query_params.get("msg", "")
+    items = []
+    lic_count = 0
+
+    try:
+        lic_count = db.query(LicenseRecord).count()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("license_check lic_count error:", repr(e))
+        lic_count = 0
+        msg = (msg + " / " if msg else "") + "전체자명단 건수 확인 중 오류"
+
+    try:
+        items = (db.query(Member)
+                 .filter(_clean_filter(),
+                         Member.user_confirmed_match == False,
+                         or_(Member.match_license_id == None,
+                             Member.match_status == "전체자미확인"))
+                 .order_by(Member.region, Member.name)
+                 .limit(500)
+                 .all())
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("license_check items error:", repr(e))
+        items = []
+        msg = (msg + " / " if msg else "") + "전체자대조 목록 조회 오류"
+
     return templates.TemplateResponse(request, "license_check.html", {
-        "request": request, "user": user, "items": items, "lic_count": lic_count,
-        "fmt_amt": fmt_amt, "msg": request.query_params.get("msg", ""), "quote": quote,
+        "request": request,
+        "user": user,
+        "items": items or [],
+        "lic_count": lic_count or 0,
+        "fmt_amt": fmt_amt,
+        "msg": msg,
+        "quote": quote,
     })
+
 
 @app.post("/license-check/{mid}/confirm")
 def lic_confirm(mid: int, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    m = db.query(Member).filter(Member.id == mid).first()
-    if not m: raise HTTPException(404)
-    m.user_confirmed_match = True; db.commit()
-    return RedirectResponse("/license-check?msg=확인완료", status_code=302)
+    try:
+        m = db.query(Member).filter(Member.id == mid).first()
+        if not m:
+            return RedirectResponse("/license-check?msg=회원 없음", status_code=302)
+        if hasattr(m, "user_confirmed_match"):
+            m.user_confirmed_match = True
+        db.add(m)
+        db.commit()
+        return RedirectResponse("/license-check?msg=확인완료", status_code=302)
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("license confirm error:", repr(e))
+        return RedirectResponse("/license-check?msg=확인완료 처리 오류", status_code=302)
+
 
 @app.post("/license-check/{mid}/link")
 def lic_link(mid: int, license_id: int = Form(...),
              db: Session = Depends(get_db), user: User = Depends(require_user)):
-    m = db.query(Member).filter(Member.id == mid).first()
-    lic = db.query(LicenseRecord).filter(LicenseRecord.id == license_id).first()
-    if not m or not lic:
-        return RedirectResponse("/license-check?msg=레코드 없음", status_code=302)
-    m.match_license_id = lic.id; m.match_status = "수동매칭"
-    m.match_fail_reason = None; m.user_confirmed_match = True
-    for attr, lattr in [("mobile","mobile"),("address","address"),("official_address","official_address")]:
-        if not getattr(m, attr) and getattr(lic, lattr, None):
-            setattr(m, attr, getattr(lic, lattr))
-    db.commit()
-    _full_recalc(db)
-    return RedirectResponse(f"/license-check?msg={m.name} 연결완료", status_code=302)
+    try:
+        m = db.query(Member).filter(Member.id == mid).first()
+        lic = db.query(LicenseRecord).filter(LicenseRecord.id == license_id).first()
+        if not m or not lic:
+            return RedirectResponse("/license-check?msg=레코드 없음", status_code=302)
+
+        if hasattr(m, "match_license_id"):
+            m.match_license_id = lic.id
+        if hasattr(m, "match_status"):
+            m.match_status = "수동매칭"
+        if hasattr(m, "match_fail_reason"):
+            m.match_fail_reason = None
+        if hasattr(m, "user_confirmed_match"):
+            m.user_confirmed_match = True
+
+        for attr, lattr in [
+            ("mobile", "mobile"),
+            ("address", "address"),
+            ("official_address", "official_address"),
+        ]:
+            try:
+                if hasattr(m, attr) and not getattr(m, attr, None) and getattr(lic, lattr, None):
+                    setattr(m, attr, getattr(lic, lattr))
+            except Exception:
+                pass
+
+        db.add(m)
+        db.commit()
+
+        try:
+            _full_recalc(db)
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print("license link recalc error:", repr(e))
+
+        return RedirectResponse(f"/license-check?msg={getattr(m, 'name', '')} 연결완료", status_code=302)
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("license link error:", repr(e))
+        return RedirectResponse("/license-check?msg=전체자 연결 처리 오류", status_code=302)
+
 
 @app.post("/license-check/{mid}/to-work")
 def lic_to_work(mid: int, process_type: str = Form("폐업"),
                 db: Session = Depends(get_db), user: User = Depends(require_user)):
-    m = db.query(Member).filter(Member.id == mid).first()
-    if not m: raise HTTPException(404)
-    db.add(WorkQueue(member_id=mid, process_type=process_type, status="반영대기",
-                     source_screen="전체자대조", submitted_by=user.id,
-                     arrears_at_submit=m.excel_arrears or 0))
-    db.commit()
-    _invalidate_snap(db, "dashboard")
-    return RedirectResponse("/license-check?msg=부과대수 관리으로 이동", status_code=302)
+    try:
+        m = db.query(Member).filter(Member.id == mid).first()
+        if not m:
+            return RedirectResponse("/license-check?msg=회원 없음", status_code=302)
+
+        allowed = ["폐업", "폐지", "양도", "이관", "탈퇴", "사망", "말소"]
+        if process_type not in allowed:
+            process_type = "폐업"
+
+        w = WorkQueue(
+            member_id=mid,
+            process_type=process_type,
+            status="반영대기",
+            arrears_at_submit=getattr(m, "excel_arrears", 0) or 0,
+        )
+
+        # 컬럼이 있는 경우에만 안전하게 세팅
+        for attr, val in [
+            ("source_screen", "전체자대조"),
+            ("submitted_by", getattr(user, "id", None)),
+            ("note", "전체자대조에서 업무처리 등록"),
+        ]:
+            try:
+                if hasattr(w, attr):
+                    setattr(w, attr, val)
+            except Exception:
+                pass
+
+        db.add(w)
+        db.commit()
+
+        try:
+            _invalidate_snap(db, "dashboard")
+        except Exception:
+            pass
+
+        return RedirectResponse("/license-check?msg=처리대기목록에 등록완료", status_code=302)
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("license to-work error:", repr(e))
+        return RedirectResponse("/license-check?msg=처리대기 등록 오류", status_code=302)
+
 
 @app.get("/api/license-search")
 def api_lic_search(q: str = "", db: Session = Depends(get_db),
                    user: User = Depends(require_user)):
-    if not q: return {"items": []}
-    l4 = "".join(c for c in q if c.isdigit())[-4:]
-    nk = norm_name(q)
-    flt = []
-    if nk: flt.append(LicenseRecord.name_key.ilike(f"%{nk}%"))
-    if l4 and len(l4) >= 3: flt.append(LicenseRecord.vehicle_no.ilike(f"%{l4}%"))
-    if not flt: return {"items": []}
-    recs = db.query(LicenseRecord).filter(or_(*flt)).limit(10).all()
-    return {"items": [{"id":r.id,"name":r.name,"vehicle_no":r.vehicle_no,
-        "mobile":r.mobile or "","address":(r.official_address or r.address or "")} for r in recs]}
+    try:
+        if not q:
+            return {"items": []}
+        l4 = "".join(c for c in q if c.isdigit())[-4:]
+        nk = norm_name(q)
+        flt = []
+        if nk:
+            flt.append(LicenseRecord.name_key.ilike(f"%{nk}%"))
+        if l4 and len(l4) >= 3:
+            flt.append(LicenseRecord.vehicle_no.ilike(f"%{l4}%"))
+        if not flt:
+            return {"items": []}
+        recs = db.query(LicenseRecord).filter(or_(*flt)).limit(10).all()
+        return {"items": [{
+            "id": r.id,
+            "name": getattr(r, "name", "") or "",
+            "vehicle_no": getattr(r, "vehicle_no", "") or "",
+            "mobile": getattr(r, "mobile", "") or "",
+            "address": (getattr(r, "official_address", "") or getattr(r, "address", "") or "")
+        } for r in recs]}
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("api license search error:", repr(e))
+        return {"items": [], "error": "검색 중 오류"}
+
 
 # ── 부과대수 관리 ──────────────────────────────────────────────────────────────
 
