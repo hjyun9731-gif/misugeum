@@ -4248,28 +4248,39 @@ def _billing_count_parse_xlsx(path, default_year=None):
             add_detail(year, month, item, region, vehicle_no, name, row, colmap, sheet_name, r)
 
         # 2) 요약문 보조 파싱
+        # 중요:
+        # 최신 시트는 총부과대수/n월 택배관리 문구가 사람 행 오른쪽 끝에 붙어 있는 경우가 있어
+        # 앞 10칸만 보면 놓치므로 전체 열을 다 훑는다.
         for r in range(1, ws.max_row + 1):
-            vals = [cell_text(ws.cell(r, c).value) for c in range(1, min(ws.max_column, 10) + 1)]
+            vals = [cell_text(ws.cell(r, c).value) for c in range(1, ws.max_column + 1)]
             text = " ".join(x for x in vals if x)
 
             if not text:
                 continue
 
-            if "70세" in text:
-                nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
-                if nums:
-                    summary_by_month[ym]["70세"] = max(summary_by_month[ym].get("70세", 0), nums[-1])
+            nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
 
-            if "협회비" in text and "부과대수" in text:
-                nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
-                if nums:
-                    summary_by_month[ym]["협회기본대수"] = max(summary_by_month[ym].get("협회기본대수", 0), nums[-1])
-                    summary_by_month[ym]["총부과대수"] = max(summary_by_month[ym].get("총부과대수", 0), nums[-1])
+            if "70세" in text and nums:
+                summary_by_month[ym]["70세"] = max(summary_by_month[ym].get("70세", 0), nums[-1])
 
-            if "택배" in text and ("관리" in text or "부과" in text):
-                nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
-                if nums:
-                    summary_by_month[ym]["택배관리"] = max(summary_by_month[ym].get("택배관리", 0), nums[-1])
+            # 예:
+            # 협회비 총부과대수 1,095 + 168 = 1,263
+            # 총부과대수 1262
+            # 총부과대수 1,100 + 139 = 1,239
+            if "총부과대수" in text and nums:
+                total_val = nums[-1]
+                summary_by_month[ym]["총부과대수"] = max(summary_by_month[ym].get("총부과대수", 0), total_val)
+
+                # 협회기본대수는 별도 값이 없으면 총부과대수와 같은 값으로 우선 표시
+                # 예전처럼 DB 전체 회원수 3198로 고정되는 것보다 엑셀 월별 값이 맞음
+                if not summary_by_month[ym].get("협회기본대수"):
+                    summary_by_month[ym]["협회기본대수"] = total_val
+
+            # 예:
+            # 6월 택배관리 1,894 - 29 + 26 = 1,891
+            # n월 택배관리 1981
+            if "택배" in text and "관리" in text and nums:
+                summary_by_month[ym]["택배관리"] = max(summary_by_month[ym].get("택배관리", 0), nums[-1])
 
     return summary_by_month, all_details
 
