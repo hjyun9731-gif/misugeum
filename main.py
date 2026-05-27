@@ -4387,7 +4387,18 @@ async def billing_counts_upload(
 
             month_details = [d for d in details if d["year"] == yy and d["month"] == mm]
 
+            existing_keys = _existing_pending_keys_for_billing(db)
+
             for d in month_details:
+                pending_key = _norm_pending_key(
+                    d.get("item", ""),
+                    d.get("vehicle_no", ""),
+                    d.get("name", "")
+                )
+                if pending_key in existing_keys:
+                    continue
+                existing_keys.add(pending_key)
+
                 db.add(BillingPerson(
                     billing_report_id=r.id,
                     source_file=file.filename,
@@ -4684,9 +4695,21 @@ async def billing_report_upload(
     ).delete()
 
     created = 0
+    existing_keys = _existing_pending_keys_for_billing(db)
+
     for p in persons:
         if p["process_type"] not in BILLING_WORK_TYPES:
             continue
+
+        pending_key = _norm_pending_key(
+            p.get("process_type", ""),
+            p.get("vehicle_no", ""),
+            p.get("name", "")
+        )
+        if pending_key in existing_keys:
+            continue
+        existing_keys.add(pending_key)
+
         db.add(BillingPerson(
             billing_report_id = r.id,
             source_file       = file.filename,
@@ -6554,6 +6577,74 @@ PROCESS_NORM = {
     "반영대기-관리비": "관리비",
 }
 # BillingPerson process_type -> 반영대기 탭용 최종 처리구분 변환
+
+def _norm_pending_key(process_type="", vehicle_no="", name=""):
+    pt = str(process_type or "").strip()
+    pt = PROCESS_NORM.get(pt, pt)
+    pt = BILLING_TO_PENDING_PT.get(pt, pt)
+
+    v = str(vehicle_no or "").strip()
+    v = v.replace(" ", "").replace("-", "").replace("호", "")
+
+    n = str(name or "").strip().replace(" ", "")
+
+    return (pt, v, n)
+
+
+def _existing_pending_keys_for_billing(db):
+    """
+    처리대기목록에 이미 있는 사람 키 수집.
+    통장매칭/잡수입·가수금으로 만든 협회비/관리비 후보를 우선 보호한다.
+    """
+    keys = set()
+
+    try:
+        # 기존 BillingPerson
+        for bp in db.query(BillingPerson).all():
+            keys.add(_norm_pending_key(
+                getattr(bp, "process_type", "") or "",
+                getattr(bp, "vehicle_no", "") or "",
+                getattr(bp, "name", "") or "",
+            ))
+    except Exception as e:
+        print("existing pending keys BillingPerson error:", e)
+
+    try:
+        _ensure_income_ledger_details(db)
+        details = db.query(IncomeLedgerDetail).filter(
+            IncomeLedgerDetail.pending_target.in_(["협회비", "관리비"])
+        ).all()
+
+        for d in details:
+            keys.add(_norm_pending_key(
+                getattr(d, "pending_target", "") or "",
+                getattr(d, "related_vehicle_no", "") or "",
+                getattr(d, "related_name", "") or "",
+            ))
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("existing pending keys IncomeLedgerDetail error:", e)
+
+    try:
+        rows = db.execute(_text("SELECT * FROM bank_income_pending_queue")).mappings().all()
+        for r in rows:
+            keys.add(_norm_pending_key(
+                r.get("process_type", "") or r.get("income_kind", "") or "",
+                r.get("related_vehicle_no", "") or "",
+                r.get("related_name", "") or "",
+            ))
+    except Exception:
+        pass
+
+    # 빈 키 제거
+    keys = {k for k in keys if k[1] or k[2]}
+    return keys
+
+
+
 BILLING_TO_PENDING_PT = {
     "협회가입": "협회비",
     "협회가입원": "협회비",
