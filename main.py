@@ -1491,12 +1491,27 @@ def _reconcile_license(db: Session):
 def license_check(request: Request, db: Session = Depends(get_db),
                   user: User = Depends(require_user)):
     """
-    전체자 대조 미확인 화면.
-    DB 컬럼/데이터 문제로 화면 전체가 Internal Server Error로 죽지 않도록 안전 처리.
+    전체자대조 응급 안전 화면.
+    템플릿/없는 컬럼/관계 문제로 Internal Server Error가 나지 않도록
+    HTML을 직접 반환한다.
     """
-    msg = request.query_params.get("msg", "")
-    items = []
+    from html import escape
+
+    msg = request.query_params.get("msg", "") or ""
+    q = (request.query_params.get("q", "") or "").strip()
+
+    def sg(obj, attr, default=""):
+        try:
+            v = getattr(obj, attr, default)
+            if v is None:
+                return default
+            return str(v)
+        except Exception:
+            return default
+
     lic_count = 0
+    rows_html = ""
+    err_msg = ""
 
     try:
         lic_count = db.query(LicenseRecord).count()
@@ -1505,37 +1520,144 @@ def license_check(request: Request, db: Session = Depends(get_db),
             db.rollback()
         except Exception:
             pass
-        print("license_check lic_count error:", repr(e))
-        lic_count = 0
-        msg = (msg + " / " if msg else "") + "전체자명단 건수 확인 중 오류"
+        err_msg += "전체자명단 건수 오류: " + escape(repr(e)) + "<br>"
 
     try:
-        items = (db.query(Member)
-                 .filter(_clean_filter(),
-                         Member.user_confirmed_match == False,
-                         or_(Member.match_license_id == None,
-                             Member.match_status == "전체자미확인"))
-                 .order_by(Member.region, Member.name)
-                 .limit(500)
-                 .all())
+        query = db.query(Member)
+
+        try:
+            query = query.filter(_clean_filter())
+        except Exception:
+            pass
+
+        try:
+            query = query.filter(
+                or_(
+                    Member.match_license_id == None,
+                    Member.match_status == "전체자미확인"
+                )
+            )
+        except Exception:
+            pass
+
+        try:
+            query = query.filter(Member.user_confirmed_match == False)
+        except Exception:
+            pass
+
+        if q:
+            like = f"%{q}%"
+            try:
+                query = query.filter(or_(
+                    Member.name.ilike(like),
+                    Member.vehicle_no.ilike(like),
+                    Member.region.ilike(like),
+                    Member.mobile.ilike(like),
+                    Member.phone.ilike(like),
+                ))
+            except Exception:
+                pass
+
+        members = query.order_by(Member.id.desc()).limit(500).all()
+
+        for m in members:
+            mid = sg(m, "id")
+            region = escape(sg(m, "region"))
+            name = escape(sg(m, "name"))
+            vehicle = escape(sg(m, "vehicle_no"))
+            phone = escape(sg(m, "mobile") or sg(m, "phone"))
+            address = escape(sg(m, "address") or sg(m, "official_address"))
+            status = escape(sg(m, "match_status"))
+            reason = escape(sg(m, "match_fail_reason"))
+
+            rows_html += f"""
+            <tr>
+              <td>{region}</td>
+              <td>{name}</td>
+              <td>{vehicle}</td>
+              <td>{phone}</td>
+              <td>{address}</td>
+              <td>{status}</td>
+              <td>{reason}</td>
+              <td>
+                <form method="post" action="/license-check/{mid}/confirm" style="display:inline;">
+                  <button type="submit">확인</button>
+                </form>
+                <form method="post" action="/license-check/{mid}/to-work" style="display:inline;">
+                  <button type="submit">처리대기</button>
+                </form>
+              </td>
+            </tr>
+            """
+
+        if not rows_html:
+            rows_html = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#777;">전체자대조 미확인 항목이 없습니다.</td></tr>'
+
     except Exception as e:
         try:
             db.rollback()
         except Exception:
             pass
-        print("license_check items error:", repr(e))
-        items = []
-        msg = (msg + " / " if msg else "") + "전체자대조 목록 조회 오류"
+        err_msg += "전체자대조 목록 오류: " + escape(repr(e)) + "<br>"
+        rows_html = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#d33;">목록 조회 중 오류가 있었지만 화면은 안전하게 열렸습니다.</td></tr>'
 
-    return templates.TemplateResponse(request, "license_check.html", {
-        "request": request,
-        "user": user,
-        "items": items or [],
-        "lic_count": lic_count or 0,
-        "fmt_amt": fmt_amt,
-        "msg": msg,
-        "quote": quote,
-    })
+    if msg:
+        err_msg = escape(msg) + "<br>" + err_msg
+
+    html = f"""
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>전체자대조</title>
+<style>
+body{{font-family:Arial,'Malgun Gothic',sans-serif;background:#f7f7f7;margin:0;padding:20px;}}
+.card{{background:white;border:1px solid #eee;border-radius:14px;padding:16px;margin-bottom:14px;}}
+table{{width:100%;border-collapse:collapse;background:white;}}
+th,td{{border-bottom:1px solid #eee;padding:8px;font-size:13px;vertical-align:top;}}
+th{{background:#fafafa;text-align:left;}}
+input{{padding:8px;border:1px solid #ddd;border-radius:8px;}}
+button,a.btn{{padding:8px 10px;border:1px solid #ddd;border-radius:8px;background:white;text-decoration:none;color:#333;cursor:pointer;}}
+.primary{{background:#2563eb!important;color:white!important;}}
+.err{{color:#e11d48;font-weight:700;margin-top:8px;}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2 style="margin:0 0 8px 0;">전체자대조</h2>
+  <div>전체자명단 {lic_count}건</div>
+  <div class="err">{err_msg}</div>
+  <form method="get" action="/license-check" style="margin-top:12px;display:flex;gap:8px;">
+    <input type="text" name="q" value="{escape(q)}" placeholder="성명, 차량번호, 지역, 연락처" style="min-width:280px;">
+    <button class="primary" type="submit">검색</button>
+    <a class="btn" href="/license-check">초기화</a>
+    <a class="btn" href="/work/pending-board">처리대기목록</a>
+  </form>
+</div>
+
+<div class="card">
+<table>
+<thead>
+<tr>
+<th>지역</th>
+<th>성명</th>
+<th>차량번호</th>
+<th>연락처</th>
+<th>주소</th>
+<th>대조상태</th>
+<th>사유</th>
+<th>처리</th>
+</tr>
+</thead>
+<tbody>
+{rows_html}
+</tbody>
+</table>
+</div>
+</body>
+</html>
+"""
+    return HTMLResponse(html)
 
 
 @app.post("/license-check/{mid}/confirm")
