@@ -5185,16 +5185,72 @@ def _ensure_pending_board_table(db):
 
 
 
+
+def _parse_income_reason(reason):
+    import re as _re
+    result = {'work_reason': '', 'vehicle_no': '', 'name': '', 'note': ''}
+    if not reason: return result
+    LABELS = [
+        (r'사유', 'work_reason'),
+        (r'업무사유', 'work_reason'),
+        (r'관련차량', 'vehicle_no'),
+        (r'차량', 'vehicle_no'),
+        (r'관련성명', 'name'),
+        (r'성명', 'name'),
+        (r'비고', 'note'),
+    ]
+    parts = [p.strip() for p in str(reason).split('/')]
+    for part in parts:
+        for label, key in LABELS:
+            m = _re.match(r'.*' + label + r'[:\s]+(.+)', part)
+            if m and not result[key]:
+                result[key] = m.group(1).strip()
+                break
+    return result
+
+def _calc_next_billing_date(base_date_str):
+    import re as _re
+    from datetime import date as _date
+    if not base_date_str: return ''
+    s = str(base_date_str)[:10].strip()
+    m = _re.match(r'(\d{4})[-./](\d{1,2})[-./](\d{1,2})', s)
+    if not m: return ''
+    try:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if mo == 12: ny, nm = y+1, 1
+        else: ny, nm = y, mo+1
+        import calendar
+        max_d = calendar.monthrange(ny, nm)[1]
+        return '%04d-%02d-%02d' % (ny, nm, min(d, max_d))
+    except: return ''
+
 ALL_PROCESS_TYPES = [
     "포업", "포지", "양도", "이관", "탈퇴",
     "사망", "말소", "협회가입", "택배신규",
     "관리비폐지", "현역복구", "70세",
+    "협회비", "관리비",
 ]
-ALL_TABS = ["전체", "반영대기"] + ALL_PROCESS_TYPES + ["반영완료"]
+ALL_TABS = ["전체", "반영대기",
+    "포업", "포지", "양도", "이관", "탈퇴",
+    "사망", "말소", "협회가입", "택배신규",
+    "관리비폐지", "현역복구", "70세",
+    "협회비", "관리비", "반영완료"]
 PROCESS_NORM = {
-    "타도": "이관", "폐업": "포업",
-    "폐지": "포지", "협회가입원": "협회가입",
+    "타도": "이관",
+    "폐업": "포업",
+    "폐지": "포지",
+    "포업": "포업",
+    "포지": "포지",
+    "협회가입원": "협회가입",
+    "반영대기-협회비": "협회비",
+    "반영대기-관리비": "관리비",
 }
+INCOME_KEYWORDS_ASSOC = [
+    "가입비", "특별회비", "협회가입", "협회비", "가입", "입회"
+]
+MGMT_KEYWORDS = [
+    "자격증명", "자격증명발급", "택배신규", "신규관리", "관리비"
+]
 
 @app.get("/work", response_class=HTMLResponse)
 @app.get("/work/pending-board", response_class=HTMLResponse)
@@ -5208,6 +5264,8 @@ def pending_board_page(
     from sqlalchemy import text as _text
     _ensure_pending_board_table(db)
     rows = []
+
+    # 1) BillingPerson
     try:
         bps = db.query(BillingPerson).order_by(BillingPerson.id.desc()).all()
         for bp in bps:
@@ -5215,20 +5273,23 @@ def pending_board_page(
             pt = PROCESS_NORM.get(pt_raw, pt_raw)
             st = str(getattr(bp, "reflect_status", "") or "반영대기")
             if st == "처리대기": st = "반영대기"
+            rd = str(getattr(bp, "created_at", "") or "")[:10]
             rows.append({
                 "row_type": "bp", "id": bp.id, "status": st, "process_type": pt,
                 "region": getattr(bp, "region", "") or "",
                 "name": getattr(bp, "name", "") or "",
                 "vehicle_no": getattr(bp, "vehicle_no", "") or "",
                 "account": getattr(bp, "account", "") or "",
-                "before_arrears": 0,
-                "request_date": str(getattr(bp, "created_at", "") or "")[:10],
+                "before_arrears": 0, "request_date": rd,
+                "next_billing_date": _calc_next_billing_date(rd),
                 "source": "부과대수업로드",
                 "source_sheet": getattr(bp, "source_sheet", "") or "",
                 "reason": getattr(bp, "note", "") or "", "note": "",
             })
     except Exception as e:
         print("BillingPerson error:", e)
+
+    # 2) WorkQueue
     try:
         wqs = db.query(WorkQueue).order_by(WorkQueue.id.desc()).all()
         for w in wqs:
@@ -5236,6 +5297,7 @@ def pending_board_page(
             pt_raw = str(getattr(w, "process_type", "") or "")
             pt = PROCESS_NORM.get(pt_raw, pt_raw)
             st = str(getattr(w, "status", "") or "반영대기")
+            rd = str(getattr(w, "submitted_at", "") or "")[:10]
             rows.append({
                 "row_type": "wq", "id": w.id, "status": st, "process_type": pt,
                 "region": getattr(m, "region", "") if m else "",
@@ -5243,7 +5305,8 @@ def pending_board_page(
                 "vehicle_no": getattr(m, "vehicle_no", "") if m else "",
                 "account": getattr(m, "account", "") if m else "",
                 "before_arrears": int(getattr(w, "arrears_at_submit", 0) or 0),
-                "request_date": str(getattr(w, "submitted_at", "") or "")[:10],
+                "request_date": rd,
+                "next_billing_date": "",
                 "source": "미수금명단",
                 "source_sheet": getattr(w, "source_screen", "") or "",
                 "reason": getattr(w, "reason", "") or "",
@@ -5251,45 +5314,101 @@ def pending_board_page(
             })
     except Exception as e:
         print("WorkQueue error:", e)
+
+    # 3) BankTransaction 잡수입/가수금 -> 협회비/관리비 반영대기 후보
+    try:
+        btxs = db.query(BankTransaction).filter(
+            BankTransaction.match_status.in_(["잡수입", "가수금"])
+        ).order_by(BankTransaction.id.desc()).all()
+        for tx in btxs:
+            ms = str(getattr(tx, "match_status", "") or "")
+            reason = str(getattr(tx, "match_reason", "") or "")
+            memo = str(getattr(tx, "memo", "") or "")
+            txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
+            parsed = _parse_income_reason(reason)
+            combined = reason + ' ' + memo
+            pt = None
+            if ms == "가수금":
+                if any(kw in combined for kw in INCOME_KEYWORDS_ASSOC):
+                    pt = "협회비"
+            elif ms == "잡수입":
+                if any(kw in combined for kw in MGMT_KEYWORDS):
+                    pt = "관리비"
+            if not pt:
+                continue
+            vno = parsed['vehicle_no'] or memo
+            nm = parsed['name'] or ''
+            acct = "협" if pt == "협회비" else "관"
+            rsn = ("가입비/특별회비 확인 후 협회비 부과대상 반영 필요"
+                   if pt == "협회비" else
+                   "자격증명발급 확인 후 관리비 부과대상 반영 필요")
+            rows.append({
+                "row_type": "income", "id": tx.id, "status": "반영대기",
+                "process_type": pt, "region": "", "name": nm, "vehicle_no": vno,
+                "account": acct,
+                "before_arrears": int(getattr(tx, "deposit_amount", 0) or 0),
+                "request_date": txn_date,
+                "next_billing_date": _calc_next_billing_date(txn_date),
+                "source": ms,
+                "source_sheet": "",
+                "reason": rsn,
+                "note": (parsed["work_reason"] or "") + (" / " + parsed["note"] if parsed["note"] else ""),
+            })
+    except Exception as e:
+        print("income/suspense error:", e)
+
+    # 4) bank_income_pending_queue
     try:
         raw_queue = db.execute(_text("SELECT * FROM bank_income_pending_queue ORDER BY id DESC")).mappings().all()
         for r in raw_queue:
-            rd = dict(r)
-            pt_raw = str(rd.get("process_type", "") or rd.get("income_kind", "") or "")
+            rd2 = dict(r)
+            pt_raw = str(rd2.get("process_type", "") or rd2.get("income_kind", "") or "")
             pt = PROCESS_NORM.get(pt_raw, pt_raw)
+            rdate = str(rd2.get("txn_date", "") or "")[:10]
             rows.append({
-                "row_type": "queue", "id": rd.get("id", 0),
-                "status": str(rd.get("status", "") or "반영대기"),
+                "row_type": "queue", "id": rd2.get("id", 0),
+                "status": str(rd2.get("status", "") or "반영대기"),
                 "process_type": pt, "region": "",
-                "name": str(rd.get("related_name", "") or ""),
-                "vehicle_no": str(rd.get("related_vehicle_no", "") or ""),
+                "name": str(rd2.get("related_name", "") or ""),
+                "vehicle_no": str(rd2.get("related_vehicle_no", "") or ""),
                 "account": "",
-                "before_arrears": int(rd.get("amount", 0) or 0),
-                "request_date": str(rd.get("txn_date", "") or "")[:10],
+                "before_arrears": int(rd2.get("amount", 0) or 0),
+                "request_date": rdate,
+                "next_billing_date": _calc_next_billing_date(rdate),
                 "source": "통장입금", "source_sheet": "",
-                "reason": str(rd.get("reason", "") or ""),
-                "note": str(rd.get("note", "") or ""),
+                "reason": str(rd2.get("reason", "") or ""),
+                "note": str(rd2.get("note", "") or ""),
             })
     except Exception:
         pass
+
     def row_text(r):
         return " ".join(str(r.get(k) or "") for k in [
             "status","process_type","region","name","vehicle_no","account","source","reason","note"])
+
     filtered = rows
     if tab and tab != "전체":
         if tab == "반영대기":
-            filtered = [r for r in rows if r["status"] == "반영대기"]
+            filtered = [r for r in rows if r["status"] == "반영대기"
+                        and r["process_type"] in ["협회비", "관리비"]]
         elif tab == "반영완료":
             filtered = [r for r in rows if r["status"] == "반영완료"]
         else:
             filtered = [r for r in rows if r["process_type"] == tab]
     if q:
         filtered = [r for r in filtered if q in row_text(r)]
-    counts = {"전체": len(rows), "반영대기": 0, "반영완료": 0}
-    for pt in ALL_PROCESS_TYPES:
-        counts[pt] = sum(1 for r in rows if r["process_type"] == pt)
-    counts["반영대기"] = sum(1 for r in rows if r["status"] == "반영대기")
-    counts["반영완료"] = sum(1 for r in rows if r["status"] == "반영완료")
+
+    counts = {"전체": len(rows)}
+    for t in ALL_TABS:
+        if t == "전체": continue
+        if t == "반영대기":
+            counts[t] = sum(1 for r in rows if r["status"] == "반영대기"
+                            and r["process_type"] in ["협회비", "관리비"])
+        elif t == "반영완료":
+            counts[t] = sum(1 for r in rows if r["status"] == "반영완료")
+        else:
+            counts[t] = sum(1 for r in rows if r["process_type"] == t)
+
     return templates.TemplateResponse(request, "pending_board.html", {
         "request": request, "user": user, "rows": filtered,
         "tabs": ALL_TABS, "tab": tab, "q": q, "counts": counts,

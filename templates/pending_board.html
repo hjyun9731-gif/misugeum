@@ -34,6 +34,7 @@
         <th>계정</th>
         <th style="text-align:right;">처리전 미수금</th>
         <th>요청일</th>
+        <th>다음부과일</th>
         <th>출처</th>
         <th>처리사유</th>
         <th>비고</th>
@@ -50,7 +51,7 @@
         </td>
         <td class="nowrap">
           {% set pt = r.process_type %}
-          <span class="badge {% if pt in ['폐업','폐지','탈퇴','사망','말소'] %}b-red{% elif pt in ['양도','이관'] %}b-warn{% elif pt in ['협회가입','택배신규','현역복구'] %}b-blue{% else %}b-gray{% endif %}">
+          <span class="badge {% if pt in ['폐업','폐지','탈퇴','사망','말소'] %}b-red{% elif pt in ['양도','이관'] %}b-warn{% elif pt in ['협회가입','택배신규','현역복구','협회비','관리비'] %}b-blue{% else %}b-gray{% endif %}">
             {{ pt }}
           </span>
         </td>
@@ -62,6 +63,7 @@
           {% if r.before_arrears %}{{ "{:,}".format(r.before_arrears) }}원{% endif %}
         </td>
         <td class="text-sm nowrap">{{ r.request_date or '' }}</td>
+        <td class="text-sm nowrap">{{ r.next_billing_date or '' }}</td>
         <td class="text-xs">
           {{ r.source or '' }}
           {% if r.source_sheet %}<br><span style="color:#9ca3af;">{{ r.source_sheet }}</span>{% endif %}
@@ -94,7 +96,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="12">
+        <td colspan="13">
           <div class="empty-state">
             <div class="ei">⚙️</div>
             <div class="et">{{ tab }} 항목 없음</div>
