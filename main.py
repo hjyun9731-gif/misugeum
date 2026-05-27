@@ -4393,7 +4393,7 @@ async def billing_counts_upload(
             # 해당 월 상세 기존 것 정리 후 재생성
             db.query(BillingPerson).filter(
                 BillingPerson.billing_report_id == r.id,
-                BillingPerson.reflect_status == "부과대수상세",
+                BillingPerson.reflect_status.in_(["부과대수상세", "처리대기"]),
             ).delete(synchronize_session=False)
 
             month_details = [d for d in details if d["year"] == yy and d["month"] == mm]
@@ -4425,7 +4425,7 @@ async def billing_counts_upload(
                     region=d.get("region", ""),
                     from_status="",
                     to_status="",
-                    reflect_status="부과대수상세",
+                    reflect_status="처리대기",
                 ))
                 saved_details += 1
 
