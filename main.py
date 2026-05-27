@@ -4370,9 +4370,9 @@ async def billing_counts_upload(
             r.cnt_delivery_new = counts.get("택배신규", 0)
             r.cnt_mgmt_close = counts.get("관리비폐지", 0)
             r.cnt_age70 = counts.get("70세", 0)
-            r.cnt_base = counts.get("협회기본대수") or cnt_base
-            r.cnt_total = counts.get("총부과대수") or cnt_base
-            r.cnt_delivery = counts.get("택배관리") or cnt_delivery_db
+            r.cnt_base = _billing_count_int(counts.get("협회기본대수"))
+            r.cnt_total = _billing_count_int(counts.get("총부과대수"))
+            r.cnt_delivery = _billing_count_int(counts.get("택배관리"))
             r.source_file = file.filename
             r.upload_type = "billing_counts"
             r.raw_data = json.dumps(counts, ensure_ascii=False, default=str)[:65000]
@@ -4649,9 +4649,9 @@ async def billing_report_upload(
         r.cnt_delivery_new = counts.get("택배신규", r.cnt_delivery_new or 0)
         r.cnt_mgmt_close   = counts.get("관리비폐지", r.cnt_mgmt_close or 0)
         r.cnt_age70        = counts.get("70세", r.cnt_age70 or 0)
-        r.cnt_base   = counts.get("협회기본대수") or cnt_base
-        r.cnt_total  = counts.get("총부과대수") or cnt_base
-        r.cnt_delivery = counts.get("택배관리") or cnt_delivery_db
+        r.cnt_base   = _billing_count_int(counts.get("협회기본대수"))
+        r.cnt_total  = _billing_count_int(counts.get("총부과대수"))
+        r.cnt_delivery = _billing_count_int(counts.get("택배관리"))
         r.source_file = file.filename
         r.raw_data = json.dumps(result, ensure_ascii=False, default=str)[:65000]
         r.upload_type = "file"
@@ -4666,9 +4666,9 @@ async def billing_report_upload(
             cnt_delivery_new = counts.get("택배신규", 0),
             cnt_mgmt_close   = counts.get("관리비폐지", 0),
             cnt_age70        = counts.get("70세", 0),
-            cnt_base   = counts.get("협회기본대수") or cnt_base,
-            cnt_total  = counts.get("총부과대수") or cnt_base,
-            cnt_delivery = counts.get("택배관리") or cnt_delivery_db,
+            cnt_base   = _billing_count_int(counts.get("협회기본대수")),
+            cnt_total  = _billing_count_int(counts.get("총부과대수")),
+            cnt_delivery = _billing_count_int(counts.get("택배관리")),
             source_file = file.filename,
             raw_data = json.dumps(result, ensure_ascii=False, default=str)[:65000],
             upload_type = "file",
