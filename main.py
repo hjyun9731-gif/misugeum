@@ -2308,8 +2308,8 @@ def admin_rebuild_latest_billing_pending(
             raw_pt = str(getattr(bp, "process_type", "") or "")
             mapped_pt = BILLING_TO_PENDING_PT.get(PROCESS_NORM.get(raw_pt, raw_pt), PROCESS_NORM.get(raw_pt, raw_pt))
 
-            # 반영대기 탭에는 협회비/관리비 신규 부과 후보만 올림
-            if mapped_pt not in ["협회비", "관리비"]:
+            # 반영대기 탭에는 협회비/관리비/폐지/양도 후보만 올림
+            if mapped_pt not in ["협회비", "관리비", "폐지", "양도"]:
                 ignored += 1
                 continue
 
@@ -7010,6 +7010,7 @@ BILLING_TO_PENDING_PT = {
     "택배신규": "관리비",
     "자격증명발급": "관리비",
     "신규관리": "관리비",
+    "관리비폐지": "폐지",
 }
 
 def _safe_json_dict(v):
@@ -7152,8 +7153,8 @@ def pending_board_page(
             # 협회가입/택배신규 등은 반영대기 탭에서 협회비/관리비로 표시
             pt = BILLING_TO_PENDING_PT.get(pt_norm, pt_norm)
             st = str(getattr(bp, "reflect_status", "") or "반영대기")
-            # 협회비/관리비만 반영대기 탭에 표시, 나머지(폐지/양도 등)는 제외
-            if pt not in ["협회비", "관리비"]:
+            # 협회비/관리비/폐지/양도만 반영대기 탭에 표시
+            if pt not in ["협회비", "관리비", "폐지", "양도"]:
                 continue
             if st in ["처리대기", "부과대수상세"]:
                 st = "반영대기"
