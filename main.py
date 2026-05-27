@@ -3062,13 +3062,17 @@ def emergency_pending_board_page(
     start = (page - 1) * page_size
     page_rows = filtered[start:start + page_size]
 
-    tabs = ["전체", "반영대기", "폐업", "폐지", "양도", "이관", "탈퇴", "사망", "말소",
-            "협회가입", "택배신규", "관리비폐지", "70세", "협회비", "관리비",
-            "부과대수상세", "반영완료"]
+    main_tabs = ["전체", "반영대기", "폐업", "탈퇴",
+                 "협회가입", "택배신규", "70세", "협회비", "관리비",
+                 "부과대수상세", "반영완료"]
+
+    closure_tabs = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
+
+    tabs = main_tabs + closure_tabs
 
     counts = {}
     for t in tabs:
-        counts[t] = sum(1 for r in rows if (tab == t or True) and (
+        counts[t] = sum(1 for r in rows if (
             (t == "전체" and r.get("status") != "부과대수상세") or
             (t == "반영대기" and r.get("status") == "반영대기" and r.get("pt_norm") in ["협회비", "관리비"]) or
             (t == "폐업" and r.get("pt_norm") in ["폐지", "양도", "이관", "사망", "말소"]) or
@@ -3076,8 +3080,10 @@ def emergency_pending_board_page(
             (t == "관리비폐지" and r.get("pt_norm") == "폐지") or
             (t == "양도" and r.get("pt_norm") == "양도") or
             (t in ["이관", "타도"] and r.get("pt_norm") == "이관") or
+            (t == "탈퇴" and r.get("pt_norm") == "탈퇴") or
             (t == "협회가입" and r.get("pt_norm") == "협회비") or
             (t == "택배신규" and r.get("pt_norm") == "관리비") or
+            (t == "70세" and r.get("pt_norm") == "70세") or
             (t == "협회비" and r.get("pt_norm") == "협회비") or
             (t == "관리비" and r.get("pt_norm") == "관리비") or
             (t == "부과대수상세" and r.get("kind") == "billing") or
@@ -3087,10 +3093,19 @@ def emergency_pending_board_page(
     def h(v):
         return escape(str(v or ""))
 
-    tab_html = ""
-    for t in tabs:
+    tab_html = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+    for t in main_tabs:
         cls = "primary" if t == tab else "ghost"
         tab_html += f'<a class="btn {cls}" href="/work/pending-board?tab={h(t)}">{h(t)} <b>{counts.get(t,0)}</b></a> '
+    tab_html += '</div>'
+
+    if tab in ["폐업", "폐지", "관리비폐지", "양도", "이관", "사망", "말소"]:
+        tab_html += '<div style="margin-top:10px;padding:10px;background:#fff7fb;border:1px solid #ffd6e8;border-radius:12px;">'
+        tab_html += '<b style="margin-right:8px;color:#d63384;">폐업 하위분류</b>'
+        for t in closure_tabs:
+            cls = "primary" if t == tab else "ghost"
+            tab_html += f'<a class="btn {cls}" href="/work/pending-board?tab={h(t)}">{h(t)} <b>{counts.get(t,0)}</b></a> '
+        tab_html += '</div>'
 
     row_html = ""
     for r in page_rows:
