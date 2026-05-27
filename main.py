@@ -4170,7 +4170,8 @@ def _upsert_income_ledger_detail_from_bank(
     work_type="",
     related_vehicle_no="",
     related_name="",
-    note=""
+    note="",
+    billing_date=""
 ):
     """
     통장매칭에서 잡수입/가수금으로 분류하는 순간
@@ -4187,6 +4188,7 @@ def _upsert_income_ledger_detail_from_bank(
         related_vehicle_no = str(related_vehicle_no or "").strip()
         related_name = str(related_name or "").strip()
         note = str(note or "").strip()
+        billing_date = str(billing_date or "").strip()
 
         # 사유가 비어 있으면 match_reason/memo에서 키워드 추정
         if not work_type:
@@ -4206,7 +4208,7 @@ def _upsert_income_ledger_detail_from_bank(
         txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
         next_billing_date = ""
         if pending_target in ["협회비", "관리비"]:
-            next_billing_date = _calc_next_billing_date(txn_date)
+            next_billing_date = billing_date or _calc_next_billing_date(txn_date)
 
         row = db.execute(_t("""
             SELECT id
@@ -4791,6 +4793,7 @@ def bank_mark_income_save(
     tid: int,
     kind: str = Form(...),
     reason: str = Form(""),
+    billing_date: str = Form(""),
     related_vehicle_no: str = Form(""),
     related_name: str = Form(""),
     note: str = Form(""),
@@ -4903,6 +4906,16 @@ def bank_mark_income_save(
         tx.match_status = PENDING
         tx.matched_member_id = None
         tx.match_reason = (old_reason + ", " if old_reason else "") + add_reason
+        _upsert_income_ledger_detail_from_bank(
+            db=db,
+            tx=tx,
+            income_type=new_status,
+            work_type=locals().get("reason", locals().get("work_type", "")),
+            related_vehicle_no=locals().get("related_vehicle_no", ""),
+            related_name=locals().get("related_name", ""),
+            note=locals().get("note", ""),
+            billing_date=locals().get("billing_date", locals().get("next_billing_date", "")),
+        )
 
         db.add(tx)
 
@@ -5661,6 +5674,16 @@ def income_ledger_edit_save(
     if note:
         parts.append("비고: " + note.strip())
     tx.match_reason = " / ".join(parts)
+    _upsert_income_ledger_detail_from_bank(
+        db=db,
+        tx=tx,
+        income_type=new_status,
+        work_type=locals().get("reason", locals().get("work_type", "")),
+        related_vehicle_no=locals().get("related_vehicle_no", ""),
+        related_name=locals().get("related_name", ""),
+        note=locals().get("note", ""),
+        billing_date=locals().get("billing_date", locals().get("next_billing_date", "")),
+    )
 
     detail = None
     try:

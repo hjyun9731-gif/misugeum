@@ -54,12 +54,16 @@
         <div class="field">
           <label>&#xBD84;&#xB958;</label>
           <select name="kind">
-            <option value="misc" {% if kind_code == 'misc' %}selected{% endif %}>&#xC7A1;&#xC218;&#xC785;</option>
-            <option value="suspense" {% if kind_code == 'suspense' %}selected{% endif %}>&#xAC00;&#xC218;&#xAE08;</option>
-            <option value="pending_assoc" {% if kind_code == 'pending_assoc' %}selected{% endif %}>&#xBC18;&#xC601;&#xB300;&#xAE30; - &#xD611;&#xD68C;&#xBE44;</option>
-            <option value="pending_mgmt" {% if kind_code == 'pending_mgmt' %}selected{% endif %}>&#xBC18;&#xC601;&#xB300;&#xAE30; - &#xAD00;&#xB9AC;&#xBE44;</option>
+            <option value="misc" {% if kind_code == 'misc' %}selected{% endif %}>잡수입</option>
+            <option value="suspense" {% if kind_code == 'suspense' %}selected{% endif %}>가수금</option>
           </select>
         </div>
+        <div class="field">
+          <label>부과일자</label>
+          <input type="date" name="billing_date" value="{{ next_billing_date or '' }}">
+          <small style="color:#8b7282;">협회비/관리비 처리대상일 때 이 날짜 기준으로 미수금명단·처리대기목록 부과예정에 들어갑니다.</small>
+        </div>
+
 
         <div class="field">
           <label>&#xC0AC;&#xC720;</label>
