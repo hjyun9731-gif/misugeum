@@ -7493,3 +7493,115 @@ def api_debug_billing_upload_stats_force(
         return result
 
 
+
+# ── 부과대수 상세 조회 전용 ─────────────────────────────────────
+@app.get("/billing-details", response_class=HTMLResponse)
+def billing_details_page(
+    request: Request,
+    year: int = None,
+    month: int = None,
+    process_type: str = "",
+    status: str = "",
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import or_
+
+    try:
+        page = int(page or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(page_size or 50)
+    except Exception:
+        page_size = 50
+
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
+
+    query = db.query(BillingPerson)
+
+    if year:
+        query = query.filter(BillingPerson.year == int(year))
+    if month:
+        query = query.filter(BillingPerson.month == int(month))
+    if process_type:
+        query = query.filter(BillingPerson.process_type == process_type)
+    if status:
+        query = query.filter(BillingPerson.reflect_status == status)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(or_(
+            BillingPerson.name.ilike(like),
+            BillingPerson.vehicle_no.ilike(like),
+            BillingPerson.region.ilike(like),
+            BillingPerson.source_sheet.ilike(like),
+            BillingPerson.process_type.ilike(like),
+        ))
+
+    total = query.count()
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    rows = (
+        query.order_by(
+            BillingPerson.year.desc(),
+            BillingPerson.month.desc(),
+            BillingPerson.id.desc()
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    process_options = [
+        r[0] for r in db.query(BillingPerson.process_type)
+        .distinct()
+        .order_by(BillingPerson.process_type)
+        .all()
+        if r[0]
+    ]
+
+    status_options = [
+        r[0] for r in db.query(BillingPerson.reflect_status)
+        .distinct()
+        .order_by(BillingPerson.reflect_status)
+        .all()
+        if r[0]
+    ]
+
+    years = [
+        r[0] for r in db.query(BillingPerson.year)
+        .distinct()
+        .order_by(BillingPerson.year.desc())
+        .all()
+        if r[0]
+    ]
+
+    return templates.TemplateResponse(request, "billing_count_details.html", {
+        "request": request,
+        "user": user,
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "years": years,
+        "months": list(range(1, 13)),
+        "process_options": process_options,
+        "status_options": status_options,
+        "filter_year": year or "",
+        "filter_month": month or "",
+        "filter_process_type": process_type or "",
+        "filter_status": status or "",
+        "q": q or "",
+        "fmt_amt": fmt_amt,
+    })
+
+
