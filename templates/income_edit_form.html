@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}&#xC785;&#xAE08; &#xBD84;&#xB958; &#xC218;&#xC815;{% endblock %}
-{% block page_title %}&#xC785;&#xAE08; &#xBD84;&#xB958; &#xC218;&#xC815;{% endblock %}
+{% block title %}입금 분류 수정{% endblock %}
+{% block page_title %}입금 분류 수정{% endblock %}
 
 {% block content %}
 <style>
@@ -25,31 +25,26 @@
 
 <div class="edit-wrap">
   <div class="edit-card">
-    <div class="edit-title">&#xC785;&#xAE08; &#xBD84;&#xB958; &#xC218;&#xC815;</div>
+    <div class="edit-title">입금 분류 수정</div>
 
     <div class="info-grid">
       <div class="info-box">
-        <small>&#xC785;&#xAE08;&#xC77C;&#xC790;</small>
+        <small>입금일자</small>
         <b>{{ tx.txn_date or tx.date or tx.paid_date or "-" }}</b>
       </div>
       <div class="info-box">
-        <small>&#xC785;&#xAE08;&#xC561;</small>
-        <b>{{ fmt_amt(tx.deposit_amount or tx.amount or 0) }}&#xC6D0;</b>
+        <small>입금액</small>
+        <b>{{ fmt_amt(tx.deposit_amount or tx.amount or 0) }}원</b>
       </div>
       <div class="info-box">
-        <small>&#xD604;&#xC7AC;&#xC0C1;&#xD0DC;</small>
+        <small>현재상태</small>
         <b>{{ tx.match_status or "-" }}</b>
       </div>
     </div>
 
     <div class="info-box">
-      <small>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</small>
+      <small>이체메모</small>
       <b>{{ tx.memo or "-" }}</b>
-    </div>
-
-    <div class="info-box" style="margin-top:10px;">
-      <small>&#xAE30;&#xC874; &#xC0AC;&#xC720;</small>
-      <b>{{ tx.match_reason or "-" }}</b>
     </div>
   </div>
 
@@ -57,38 +52,56 @@
     <form method="post" action="/income-ledger/{{ tx.id }}/edit">
       <div class="form-grid">
         <div class="field">
-          <label>&#xBD84;&#xB958;</label>
+          <label>구분</label>
           <select name="kind">
-            <option value="misc" {% if kind_code == 'misc' %}selected{% endif %}>&#xC7A1;&#xC218;&#xC785;</option>
-            <option value="suspense" {% if kind_code == 'suspense' %}selected{% endif %}>&#xAC00;&#xC218;&#xAE08;</option>
+            <option value="misc" {% if kind_code == 'misc' %}selected{% endif %}>잡수입</option>
+            <option value="suspense" {% if kind_code == 'suspense' %}selected{% endif %}>가수금</option>
           </select>
         </div>
 
         <div class="field">
-          <label>&#xC0AC;&#xC720;</label>
-          <input type="text" name="reason" placeholder="&#xC608;: &#xC790;&#xACA9;&#xC99D;&#xBA85;, &#xB300;&#xD3D0;&#xCC28;, &#xC608;&#xAE08;&#xC774;&#xC790;">
+          <label>업무사유</label>
+          <select name="work_type">
+            {% for v in ['자격증명발급','대폐차','예금이자','상가임대료','가입비','특별회비','협회가입','기타'] %}
+            <option value="{{ v }}" {% if work_type == v %}selected{% endif %}>{{ v }}</option>
+            {% endfor %}
+          </select>
         </div>
 
         <div class="field">
-          <label>&#xAD00;&#xB828; &#xCC28;&#xB7C9;&#xBC88;&#xD638;</label>
-          <input type="text" name="related_vehicle_no" placeholder="&#xC608;: 87&#xC790;2816">
+          <label>처리대상</label>
+          <select name="pending_target">
+            {% for v in ['없음','협회비','관리비'] %}
+            <option value="{{ v }}" {% if pending_target == v %}selected{% endif %}>{{ v }}</option>
+            {% endfor %}
+          </select>
         </div>
 
         <div class="field">
-          <label>&#xAD00;&#xB828; &#xC131;&#xBA85;</label>
-          <input type="text" name="related_name" placeholder="&#xAD00;&#xB828;&#xC790; &#xC774;&#xB984;">
+          <label>다음부과일</label>
+          <input type="text" name="next_billing_date" value="{{ next_billing_date or '' }}" placeholder="예: 2026-06-25">
+        </div>
+
+        <div class="field">
+          <label>관련 차량번호</label>
+          <input type="text" name="related_vehicle_no" value="{{ related_vehicle_no or '' }}" placeholder="예: 87자2816">
+        </div>
+
+        <div class="field">
+          <label>관련 성명</label>
+          <input type="text" name="related_name" value="{{ related_name or '' }}" placeholder="관련자 이름">
         </div>
 
         <div class="field full">
-          <label>&#xBE44;&#xACE0;</label>
-          <textarea name="note" placeholder="&#xCD94;&#xAC00;&#xB85C; &#xB0A8;&#xAE38; &#xB0B4;&#xC6A9;"></textarea>
+          <label>비고</label>
+          <textarea name="note" placeholder="추가 내용">{{ note or '' }}</textarea>
         </div>
       </div>
 
       <div class="actions">
-        <button class="btn-pink" type="submit">&#xC218;&#xC815; &#xC800;&#xC7A5;</button>
-        <a class="btn-gray" href="/income-ledger?kind={{ tx.match_status }}">&#xBAA9;&#xB85D;&#xC73C;&#xB85C;</a>
-        <a class="btn-gray" href="/bank">&#xD1B5;&#xC7A5;&#xB9E4;&#xCE6D;&#xC73C;&#xB85C;</a>
+        <button class="btn-pink" type="submit">수정 저장</button>
+        <a class="btn-gray" href="/income-ledger?kind={{ tx.match_status }}">목록으로</a>
+        <a class="btn-gray" href="/bank">통장매칭으로</a>
       </div>
     </form>
   </div>

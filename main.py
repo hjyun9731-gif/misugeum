@@ -5184,43 +5184,93 @@ def income_ledger_edit_form(
 def income_ledger_edit_save(
     tid: int,
     kind: str = Form(...),
-    reason: str = Form(""),
+    work_type: str = Form(""),
+    pending_target: str = Form("없음"),
     related_vehicle_no: str = Form(""),
     related_name: str = Form(""),
+    next_billing_date: str = Form(""),
     note: str = Form(""),
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
     from urllib.parse import quote
+    from sqlalchemy import text as _t
 
-    MISC = "\uc7a1\uc218\uc785"        # ???
-    SUSP = "\uac00\uc218\uae08"        # ???
+    _ensure_income_ledger_details(db)
+
+    MISC = "잡수입"
+    SUSP = "가수금"
 
     raw_kind = str(kind or "").strip().lower()
-    new_status = MISC if raw_kind in ["misc", "misc_income"] else SUSP
+    new_status = MISC if raw_kind in ["misc", "misc_income", "잡수입"] else SUSP
 
     tx = db.query(BankTransaction).filter(BankTransaction.id == tid).first()
     if not tx:
         raise HTTPException(404)
 
-    parts = []
-    if reason:
-        parts.append("\uc0ac\uc720: " + reason.strip())              # ??
-    if related_vehicle_no:
-        parts.append("\uad00\ub828\ucc28\ub7c9: " + related_vehicle_no.strip())  # ????
-    if related_name:
-        parts.append("\uad00\ub828\uc131\uba85: " + related_name.strip())        # ????
-    if note:
-        parts.append("\ube44\uace0: " + note.strip())                # ??
+    work_type = str(work_type or "").strip()
+    pending_target = str(pending_target or "없음").strip()
+    if pending_target not in ["없음", "협회비", "관리비"]:
+        pending_target = _calc_pending_target(new_status, work_type)
+
+    txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
+    if pending_target in ["협회비", "관리비"] and not next_billing_date:
+        next_billing_date = _calc_next_billing_date(txn_date)
+    if pending_target == "없음":
+        next_billing_date = ""
 
     tx.match_status = new_status
-    tx.matched_member_id = None
+    if hasattr(tx, "matched_member_id"):
+        tx.matched_member_id = None
 
-    base_reason = "\uc218\ub3d9\ubd84\ub958 \uc218\uc815: " + new_status  # ???? ??
-    if parts:
-        base_reason += " / " + " / ".join(parts)
+    parts = ["수동분류 수정: " + new_status]
+    if work_type:
+        parts.append("업무사유: " + work_type)
+    if pending_target:
+        parts.append("처리대상: " + pending_target)
+    if related_vehicle_no:
+        parts.append("관련차량: " + related_vehicle_no.strip())
+    if related_name:
+        parts.append("관련성명: " + related_name.strip())
+    if next_billing_date:
+        parts.append("다음부과일: " + next_billing_date.strip())
+    if note:
+        parts.append("비고: " + note.strip())
+    tx.match_reason = " / ".join(parts)
 
-    tx.match_reason = base_reason
+    detail = None
+    try:
+        detail = db.query(IncomeLedgerDetail).filter(IncomeLedgerDetail.bank_transaction_id == tid).first()
+    except Exception:
+        detail = None
+
+    if detail:
+        detail.income_type = new_status
+        detail.work_type = work_type
+        detail.pending_target = pending_target
+        detail.related_vehicle_no = related_vehicle_no
+        detail.related_name = related_name
+        detail.note = note
+        detail.next_billing_date = next_billing_date
+        db.add(detail)
+    else:
+        db.execute(_t("""
+            INSERT INTO income_ledger_details
+            (bank_transaction_id, income_type, work_type, pending_target,
+             related_vehicle_no, related_name, note, next_billing_date)
+            VALUES
+            (:tid, :income_type, :work_type, :pending_target,
+             :related_vehicle_no, :related_name, :note, :next_billing_date)
+        """), {
+            "tid": tid,
+            "income_type": new_status,
+            "work_type": work_type,
+            "pending_target": pending_target,
+            "related_vehicle_no": related_vehicle_no,
+            "related_name": related_name,
+            "note": note,
+            "next_billing_date": next_billing_date,
+        })
 
     db.add(tx)
     db.commit()
