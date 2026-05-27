@@ -1738,8 +1738,8 @@ def debug_billing_upload_stats(
 
         result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
 
-        source_year_col = "source_year" if "source_year" in cols else "''"
-        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_year_col = "source_year" if "source_year" in cols else ("year" if "year" in cols else "''")
+        source_month_col = "source_month" if "source_month" in cols else ("month" if "month" in cols else "''")
         source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
         process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
 
@@ -1832,8 +1832,8 @@ def api_debug_billing_upload_stats(
 
         result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
 
-        source_year_col = "source_year" if "source_year" in cols else "''"
-        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_year_col = "source_year" if "source_year" in cols else ("year" if "year" in cols else "''")
+        source_month_col = "source_month" if "source_month" in cols else ("month" if "month" in cols else "''")
         source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
         process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
 
@@ -3746,8 +3746,8 @@ def debug_billing_upload_stats(
 
         result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
 
-        source_year_col = "source_year" if "source_year" in cols else "''"
-        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_year_col = "source_year" if "source_year" in cols else ("year" if "year" in cols else "''")
+        source_month_col = "source_month" if "source_month" in cols else ("month" if "month" in cols else "''")
         source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
         process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
 
@@ -3840,8 +3840,8 @@ def api_debug_billing_upload_stats(
 
         result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
 
-        source_year_col = "source_year" if "source_year" in cols else "''"
-        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_year_col = "source_year" if "source_year" in cols else ("year" if "year" in cols else "''")
+        source_month_col = "source_month" if "source_month" in cols else ("month" if "month" in cols else "''")
         source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
         process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
 
@@ -3933,8 +3933,8 @@ def debug_billing_upload_stats(
 
         result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
 
-        source_year_col = "source_year" if "source_year" in cols else "''"
-        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_year_col = "source_year" if "source_year" in cols else ("year" if "year" in cols else "''")
+        source_month_col = "source_month" if "source_month" in cols else ("month" if "month" in cols else "''")
         source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
         process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
 
@@ -4027,8 +4027,8 @@ def api_debug_billing_upload_stats(
 
         result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
 
-        source_year_col = "source_year" if "source_year" in cols else "''"
-        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_year_col = "source_year" if "source_year" in cols else ("year" if "year" in cols else "''")
+        source_month_col = "source_month" if "source_month" in cols else ("month" if "month" in cols else "''")
         source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
         process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
 
@@ -7453,8 +7453,8 @@ def api_debug_billing_upload_stats_force(
 
         result["total"] = db.execute(text(f"SELECT COUNT(*) FROM {target}")).scalar() or 0
 
-        source_year_col = "source_year" if "source_year" in cols else "''"
-        source_month_col = "source_month" if "source_month" in cols else "''"
+        source_year_col = "source_year" if "source_year" in cols else ("year" if "year" in cols else "''")
+        source_month_col = "source_month" if "source_month" in cols else ("month" if "month" in cols else "''")
         source_sheet_col = "source_sheet" if "source_sheet" in cols else "''"
         process_col = "process_type" if "process_type" in cols else ("account" if "account" in cols else "''")
 
