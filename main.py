@@ -2163,6 +2163,61 @@ def work_reflect_redirect(
         return RedirectResponse("/work?tab=반영대기&msg=" + quote("반영 오류: " + str(e)[:180]), status_code=302)
 
 
+
+@app.post("/admin/fix-billing-pending-latest-only")
+def admin_fix_billing_pending_latest_only(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    잘못 들어간 과거월 부과대수 처리대기 정리.
+    최신 연월 BillingPerson만 처리대기 유지하고,
+    과거월은 부과대수상세로 되돌린다.
+    잡수입/가수금 IncomeLedgerDetail은 건드리지 않는다.
+    """
+    try:
+        latest = (
+            db.query(BillingPerson.year, BillingPerson.month)
+            .order_by(BillingPerson.year.desc(), BillingPerson.month.desc())
+            .first()
+        )
+        if not latest:
+            return {"ok": True, "msg": "BillingPerson 없음", "changed": 0}
+
+        latest_y, latest_m = int(latest[0]), int(latest[1])
+
+        changed = (
+            db.query(BillingPerson)
+            .filter(
+                BillingPerson.reflect_status.in_(["처리대기", "반영대기"]),
+                or_(BillingPerson.year != latest_y, BillingPerson.month != latest_m)
+            )
+            .update(
+                {BillingPerson.reflect_status: "부과대수상세"},
+                synchronize_session=False
+            )
+        )
+
+        db.commit()
+
+        return {
+            "ok": True,
+            "latest_year": latest_y,
+            "latest_month": latest_m,
+            "changed": changed,
+            "msg": "과거월 처리대기를 부과대수상세로 정리했습니다."
+        }
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": repr(e)}
+
+
+
+
 @app.get("/work", response_class=HTMLResponse)
 def work_page(request: Request, tab: str = "전체", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
@@ -4357,6 +4412,13 @@ async def billing_counts_upload(
         saved_reports = 0
         saved_details = 0
 
+        # 여러 월 시트가 들어있는 부과대수 파일은 최신월만 처리대기목록에 올린다.
+        # 과거월은 부과대수 이력/상세로만 보관한다.
+        target_pending_ym = None
+        if details:
+            target_pending_ym = max((int(d.get("year", 0) or 0), int(d.get("month", 0) or 0)) for d in details)
+
+
         # 월별 BillingReport 저장
         for (yy, mm), counts in summary_by_month.items():
             cnt_base = db.query(Member).filter(_clean_filter()).count()
@@ -4425,7 +4487,7 @@ async def billing_counts_upload(
                     region=d.get("region", ""),
                     from_status="",
                     to_status="",
-                    reflect_status="처리대기",
+                    reflect_status=("처리대기" if target_pending_ym == (yy, mm) else "부과대수상세"),
                 ))
                 saved_details += 1
 
@@ -6691,7 +6753,12 @@ def pending_board_page(
 
     # 1) BillingPerson
     try:
-        bps = db.query(BillingPerson).order_by(BillingPerson.id.desc()).all()
+        bps = (
+            db.query(BillingPerson)
+            .filter(BillingPerson.reflect_status.in_(["처리대기", "반영대기", "반영완료", "보류"]))
+            .order_by(BillingPerson.id.desc())
+            .all()
+        )
         for bp in bps:
             pt_raw = str(getattr(bp, "process_type", "") or "")
             pt_norm = PROCESS_NORM.get(pt_raw, pt_raw)
