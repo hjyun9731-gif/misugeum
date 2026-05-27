@@ -5184,6 +5184,18 @@ def _ensure_pending_board_table(db):
         """))
 
 
+
+ALL_PROCESS_TYPES = [
+    "포업", "포지", "양도", "이관", "탈퇴",
+    "사망", "말소", "협회가입", "택배신규",
+    "관리비폐지", "현역복구", "70세",
+]
+ALL_TABS = ["전체", "반영대기"] + ALL_PROCESS_TYPES + ["반영완료"]
+PROCESS_NORM = {
+    "타도": "이관", "폐업": "포업",
+    "폐지": "포지", "협회가입원": "협회가입",
+}
+
 @app.get("/work", response_class=HTMLResponse)
 @app.get("/work/pending-board", response_class=HTMLResponse)
 def pending_board_page(
@@ -5193,83 +5205,96 @@ def pending_board_page(
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
-    from sqlalchemy import text
-
+    from sqlalchemy import text as _text
     _ensure_pending_board_table(db)
-
-    # bank_income_pending_queue 항목
+    rows = []
     try:
-        raw_queue = db.execute(text("""
-            SELECT *
-            FROM bank_income_pending_queue
-            ORDER BY id DESC
-        """)).mappings().all()
-        queue_rows = [dict(r, row_type="queue") for r in raw_queue]
-    except Exception:
-        queue_rows = []
-
-    # WorkQueue (부과대수 업로드 항목)
+        bps = db.query(BillingPerson).order_by(BillingPerson.id.desc()).all()
+        for bp in bps:
+            pt_raw = str(getattr(bp, "process_type", "") or "")
+            pt = PROCESS_NORM.get(pt_raw, pt_raw)
+            st = str(getattr(bp, "reflect_status", "") or "반영대기")
+            if st == "처리대기": st = "반영대기"
+            rows.append({
+                "row_type": "bp", "id": bp.id, "status": st, "process_type": pt,
+                "region": getattr(bp, "region", "") or "",
+                "name": getattr(bp, "name", "") or "",
+                "vehicle_no": getattr(bp, "vehicle_no", "") or "",
+                "account": getattr(bp, "account", "") or "",
+                "before_arrears": 0,
+                "request_date": str(getattr(bp, "created_at", "") or "")[:10],
+                "source": "부과대수업로드",
+                "source_sheet": getattr(bp, "source_sheet", "") or "",
+                "reason": getattr(bp, "note", "") or "", "note": "",
+            })
+    except Exception as e:
+        print("BillingPerson error:", e)
     try:
-        wq_items = db.query(WorkQueue).order_by(WorkQueue.id.desc()).all()
-        wq_rows = []
-        for w in wq_items:
+        wqs = db.query(WorkQueue).order_by(WorkQueue.id.desc()).all()
+        for w in wqs:
             m = db.query(Member).filter(Member.id == w.member_id).first() if w.member_id else None
-            wq_rows.append({
-                "row_type": "wq",
-                "status": getattr(w, "status", "") or "",
-                "process_type": getattr(w, "process_type", "") or "",
-                "income_kind": getattr(w, "process_type", "") or "",
-                "txn_date": None,
-                "event_date": getattr(w, "event_date_raw", "") or "",
-                "amount": None,
-                "memo": "",
-                "related_vehicle_no": getattr(m, "vehicle_no", "") if m else "",
-                "related_name": getattr(m, "name", "") if m else "",
+            pt_raw = str(getattr(w, "process_type", "") or "")
+            pt = PROCESS_NORM.get(pt_raw, pt_raw)
+            st = str(getattr(w, "status", "") or "반영대기")
+            rows.append({
+                "row_type": "wq", "id": w.id, "status": st, "process_type": pt,
+                "region": getattr(m, "region", "") if m else "",
+                "name": getattr(m, "name", "") if m else "",
                 "vehicle_no": getattr(m, "vehicle_no", "") if m else "",
-                "member_name": getattr(m, "name", "") if m else "",
+                "account": getattr(m, "account", "") if m else "",
+                "before_arrears": int(getattr(w, "arrears_at_submit", 0) or 0),
+                "request_date": str(getattr(w, "submitted_at", "") or "")[:10],
+                "source": "미수금명단",
+                "source_sheet": getattr(w, "source_screen", "") or "",
                 "reason": getattr(w, "reason", "") or "",
-                "note": "",
-                "id": getattr(w, "id", 0),
+                "note": getattr(w, "note", "") or "",
+            })
+    except Exception as e:
+        print("WorkQueue error:", e)
+    try:
+        raw_queue = db.execute(_text("SELECT * FROM bank_income_pending_queue ORDER BY id DESC")).mappings().all()
+        for r in raw_queue:
+            rd = dict(r)
+            pt_raw = str(rd.get("process_type", "") or rd.get("income_kind", "") or "")
+            pt = PROCESS_NORM.get(pt_raw, pt_raw)
+            rows.append({
+                "row_type": "queue", "id": rd.get("id", 0),
+                "status": str(rd.get("status", "") or "반영대기"),
+                "process_type": pt, "region": "",
+                "name": str(rd.get("related_name", "") or ""),
+                "vehicle_no": str(rd.get("related_vehicle_no", "") or ""),
+                "account": "",
+                "before_arrears": int(rd.get("amount", 0) or 0),
+                "request_date": str(rd.get("txn_date", "") or "")[:10],
+                "source": "통장입금", "source_sheet": "",
+                "reason": str(rd.get("reason", "") or ""),
+                "note": str(rd.get("note", "") or ""),
             })
     except Exception:
-        wq_rows = []
-
-    rows = queue_rows + wq_rows
-
-    tabs = ["전체", "반영대기", "협회비", "관리비", "반영완료"]
-
+        pass
     def row_text(r):
         return " ".join(str(r.get(k) or "") for k in [
-            "status", "process_type", "income_kind", "txn_date", "amount",
-            "memo", "related_vehicle_no", "related_name", "reason", "note"
-        ])
-
-    counts = {}
-    for t in tabs:
-        if t == "전체":
-            counts[t] = len(rows)
-        else:
-            counts[t] = sum(1 for r in rows if t in row_text(r))
-
+            "status","process_type","region","name","vehicle_no","account","source","reason","note"])
     filtered = rows
-
     if tab and tab != "전체":
-        filtered = [r for r in filtered if tab in row_text(r)]
-
+        if tab == "반영대기":
+            filtered = [r for r in rows if r["status"] == "반영대기"]
+        elif tab == "반영완료":
+            filtered = [r for r in rows if r["status"] == "반영완료"]
+        else:
+            filtered = [r for r in rows if r["process_type"] == tab]
     if q:
         filtered = [r for r in filtered if q in row_text(r)]
-
+    counts = {"전체": len(rows), "반영대기": 0, "반영완료": 0}
+    for pt in ALL_PROCESS_TYPES:
+        counts[pt] = sum(1 for r in rows if r["process_type"] == pt)
+    counts["반영대기"] = sum(1 for r in rows if r["status"] == "반영대기")
+    counts["반영완료"] = sum(1 for r in rows if r["status"] == "반영완료")
     return templates.TemplateResponse(request, "pending_board.html", {
-        "request": request,
-        "user": user,
-        "rows": filtered,
-        "tabs": tabs,
-        "tab": tab,
-        "q": q,
-        "counts": counts,
-        "fmt_amt": fmt_amt,
+        "request": request, "user": user, "rows": filtered,
+        "tabs": ALL_TABS, "tab": tab, "q": q, "counts": counts,
+        "fmt_amt": fmt_amt, "msg": request.query_params.get("msg", ""),
     })
-
 
 @app.get("/work/pending-board/add", response_class=HTMLResponse)
 def pending_board_add_form(

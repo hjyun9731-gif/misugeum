@@ -1,74 +1,111 @@
-{% extends "base.html" %}
-{% block title %}&#xCC98;&#xB9AC; &#xB300;&#xAE30;&#xBAA9;&#xB85D;{% endblock %}
-{% block page_title %}&#xCC98;&#xB9AC; &#xB300;&#xAE30;&#xBAA9;&#xB85D;{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}처리대기목록{% endblock %}
 {% block content %}
-<style>
-.pb-card{background:#fff;border:1px solid #f2d7e3;border-radius:18px;box-shadow:0 8px 22px rgba(255,79,147,.08);padding:18px;margin-bottom:14px}
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.tab{padding:10px 14px;border-radius:999px;text-decoration:none;font-weight:900;background:#fff;border:1px solid #ffd0e2;color:#7b5b70}
-.tab.active{background:#ff5b9e;color:#fff}
-.cnt{margin-left:4px;font-size:12px}
-.btn-pink{height:38px;border:0;border-radius:12px;padding:0 14px;background:#ff5b9e;color:#fff!important;font-weight:900;text-decoration:none;display:inline-flex;align-items:center;cursor:pointer}
-.btn-gray{height:38px;border:0;border-radius:12px;padding:0 14px;background:#7d7080;color:#fff!important;font-weight:900;text-decoration:none;display:inline-flex;align-items:center;cursor:pointer}
-.tbl{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #f1d4df;border-radius:16px;overflow:hidden;background:#fff}
-.tbl th{background:#fff0f6;color:#d8216b;font-weight:900;text-align:left;padding:12px;border-bottom:2px solid #ff9ac5}
-.tbl td{padding:11px 12px;border-bottom:1px solid #f5e3eb}
-.money{text-align:right;color:#e33162;font-weight:900}
-.empty{padding:50px;text-align:center;color:#8b7282}
-.tag-wq{display:inline-block;background:#fff0f6;border:1px solid #ffc0d9;border-radius:8px;padding:2px 8px;font-size:12px;color:#c0457a;margin-right:4px}
-</style>
-<div class="pb-card" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-  <a class="btn-pink" href="/work/pending-board/add">&#xCD94;&#xAC00;</a>
-  <form method="get" style="display:inline-flex;gap:8px;">
+<div class="container-fluid mt-3">
+  <h4>처리대기목록</h4>
+
+  {% if msg %}
+  <div class="alert alert-info py-1">{{ msg }}</div>
+  {% endif %}
+
+  <!-- 탭 -->
+  <ul class="nav nav-tabs mb-3" style="flex-wrap:wrap;">
+    {% for t in tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab == t %}active{% endif %}"
+         href="/work?tab={{ t|urlencode }}">
+        {{ t }}
+        {% if counts.get(t, 0) %}
+        <span class="badge bg-secondary">{{ counts.get(t, 0) }}</span>
+        {% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <!-- 검색 -->
+  <form method="get" action="/work" class="mb-3 d-flex gap-2">
     <input type="hidden" name="tab" value="{{ tab }}">
-    <input name="q" value="{{ q }}" placeholder="&#xAC80;&#xC0C9;" style="height:38px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px;">
-    <button class="btn-gray" type="submit">&#xAC80;&#xC0C9;</button>
+    <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:240px" placeholder="성명/차량번호/처리구분 검색">
+    <button class="btn btn-sm btn-outline-secondary">검색</button>
   </form>
-</div>
-<div class="tabs">
-{% for t in tabs %}
-  <a class="tab {% if tab == t %}active{% endif %}" href="/work?tab={{ t }}">
-    {{ t }} <span class="cnt">{{ counts.get(t,0) }}</span>
-  </a>
-{% endfor %}
-</div>
-<div class="pb-card">
-{% if rows %}
-<table class="tbl">
-  <thead>
-    <tr>
-      <th>&#xC0C1;&#xD0DC;</th>
-      <th>&#xAD6C;&#xBD84;</th>
-      <th>&#xC785;&#xAE08;&#xC77C;</th>
-      <th>&#xAE08;&#xC561;</th>
-      <th>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</th>
-      <th>&#xCC28;&#xB7C9;&#xBC88;&#xD638;</th>
-      <th>&#xC131;&#xBA85;</th>
-      <th>&#xC0AC;&#xC720;</th>
-      <th>&#xBE44;&#xACE0;</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for r in rows %}
-    <tr>
-      <td>{{ r.status or "" }}</td>
-      <td>
-        {% if r.row_type == "wq" %}<span class="tag-wq">&#xBD80;&#xACFC;</span>{% endif %}
-        <b>{{ r.income_kind or r.process_type or "" }}</b>
-      </td>
-      <td>{{ r.txn_date or r.event_date or "" }}</td>
-      <td class="money">{% if r.amount %}{{ fmt_amt(r.amount) }}&#xC6D0;{% endif %}</td>
-      <td>{{ r.memo or "" }}</td>
-      <td>{{ r.related_vehicle_no or r.vehicle_no or "" }}</td>
-      <td>{{ r.related_name or r.member_name or "" }}</td>
-      <td>{{ r.reason or "" }}</td>
-      <td>{{ r.note or "" }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% else %}
-  <div class="empty">&#xD574;&#xB2F9; &#xD56D;&#xBAA9;&#xC774; &#xC5C6;&#xC2B5;&#xB2C8;&#xB2E4;.</div>
-{% endif %}
+
+  <!-- 표 -->
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered table-hover">
+      <thead class="table-light">
+        <tr>
+          <th>상태</th>
+          <th>처리구분</th>
+          <th>지역</th>
+          <th>성명</th>
+          <th>차량번호</th>
+          <th>계정</th>
+          <th>처리전미수금</th>
+          <th>요청일</th>
+          <th>출처</th>
+          <th>처리사유</th>
+          <th>비고</th>
+          <th>반영</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>
+            {% if r.status == "반영대기" %}
+            <span class="badge bg-warning text-dark">{{ r.status }}</span>
+            {% elif r.status == "반영완료" %}
+            <span class="badge bg-success">{{ r.status }}</span>
+            {% else %}
+            <span class="badge bg-secondary">{{ r.status }}</span>
+            {% endif %}
+          </td>
+          <td><strong>{{ r.process_type }}</strong></td>
+          <td>{{ r.region }}</td>
+          <td>{{ r.name }}</td>
+          <td>{{ r.vehicle_no }}</td>
+          <td>{{ r.account }}</td>
+          <td>
+            {% if r.before_arrears %}
+            {{ "{:,}".format(r.before_arrears) }}원
+            {% endif %}
+          </td>
+          <td>{{ r.request_date }}</td>
+          <td><small>{{ r.source }}</small><br><small class="text-muted">{{ r.source_sheet }}</small></td>
+          <td><small>{{ r.reason }}</small></td>
+          <td><small>{{ r.note }}</small></td>
+          <td>
+            {% if r.status == "반영대기" %}
+              {% if r.row_type == "wq" %}
+              <form method="post" action="/work/{{ r.id }}/reflect" style="display:inline">
+                <button class="btn btn-xs btn-primary btn-sm py-0">반영</button>
+              </form>
+              <form method="post" action="/work/{{ r.id }}/cancel" style="display:inline">
+                <button class="btn btn-xs btn-outline-danger btn-sm py-0">취소</button>
+              </form>
+              {% elif r.row_type == "bp" %}
+              <form method="post" action="/billing-person/{{ r.id }}/reflect" style="display:inline">
+                <button class="btn btn-xs btn-primary btn-sm py-0">반영</button>
+              </form>
+              <form method="post" action="/billing-person/{{ r.id }}/hold" style="display:inline">
+                <button class="btn btn-xs btn-outline-secondary btn-sm py-0">보류</button>
+              </form>
+              {% endif %}
+            {% else %}
+            <span class="text-muted">-</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12" class="text-center text-muted py-3">항목이 없습니다.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-2">
+    <a href="/work/pending-board/add" class="btn btn-sm btn-outline-primary">+ 수동 추가</a>
+  </div>
 </div>
 {% endblock %}
