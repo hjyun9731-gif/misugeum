@@ -1635,7 +1635,7 @@ button,a.btn{{padding:8px 10px;border:1px solid #ddd;border-radius:8px;backgroun
   </form>
 </div>
 
-<div class="card">
+<div class="card" style="overflow:auto;">
 <table>
 <thead>
 <tr>
@@ -3131,7 +3131,7 @@ input,select{{padding:7px;border:1px solid #ddd;border-radius:8px;}}
 
 <div class="card" style="text-align:center;">
   {prev_link}
-  <span style="padding:8px 12px;">{page} / {total_pages}</span>
+  <span class="pager-pill">{page} / {total_pages}</span>
   {next_link}
 </div>
 </body>
@@ -3448,21 +3448,137 @@ def emergency_pending_board_page(
 <meta charset="utf-8">
 <title>처리대기목록</title>
 <style>
-body{{font-family:Arial,'Malgun Gothic',sans-serif;background:#f6f7fb;margin:0;padding:18px;}}
-.card{{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin-bottom:14px;}}
-.btn{{display:inline-block;padding:7px 10px;border-radius:9px;border:1px solid #ddd;text-decoration:none;color:#333;background:white;margin:2px;font-size:13px;}}
-.primary{{background:#2563eb!important;color:white!important;border-color:#2563eb!important;}}
-.ghost{{background:white;}}
-table{{width:100%;border-collapse:collapse;background:white;}}
-th,td{{border-bottom:1px solid #eee;padding:8px;font-size:13px;vertical-align:top;}}
-th{{background:#fafafa;text-align:left;}}
-input,select{{padding:7px;border:1px solid #ddd;border-radius:8px;}}
-.err{{color:#e11d48;font-weight:700;}}
+:root{
+  --pink:#ff7eb6;
+  --pink2:#fff0f7;
+  --purple:#8b5cf6;
+  --blue:#7aa7ff;
+  --line:#f1dce8;
+  --text:#302636;
+}
+body{
+  font-family:Arial,'Malgun Gothic',sans-serif;
+  background:linear-gradient(180deg,#fff6fb 0%,#f8f7ff 45%,#f4f7fb 100%);
+  margin:0;
+  padding:24px;
+  color:var(--text);
+}
+.card{
+  background:rgba(255,255,255,.97);
+  border:1px solid var(--line);
+  border-radius:22px;
+  padding:18px;
+  margin-bottom:16px;
+  box-shadow:0 10px 28px rgba(210,120,160,.12);
+}
+h2{
+  margin:0 0 6px 0;
+  font-size:24px;
+  letter-spacing:-.8px;
+}
+.small-desc{
+  color:#8c7180;
+  font-size:13px;
+  margin-bottom:12px;
+}
+.btn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:8px 13px;
+  border-radius:999px;
+  border:1px solid #ead6e2;
+  text-decoration:none;
+  color:#493b47;
+  background:#fff;
+  margin:3px;
+  font-size:13px;
+  font-weight:800;
+  box-shadow:0 2px 8px rgba(0,0,0,.035);
+}
+.btn b{
+  background:#fff0f7;
+  color:#c24b82;
+  border-radius:999px;
+  padding:2px 7px;
+  font-size:12px;
+}
+.primary{
+  background:linear-gradient(135deg,var(--pink),var(--blue))!important;
+  color:white!important;
+  border-color:transparent!important;
+}
+.primary b{
+  background:rgba(255,255,255,.25);
+  color:white;
+}
+.ghost{
+  background:white;
+}
+table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  background:white;
+  border-radius:18px;
+  overflow:hidden;
+}
+th,td{
+  border-bottom:1px solid #f2e9ef;
+  padding:10px 9px;
+  font-size:13px;
+  vertical-align:top;
+}
+th{
+  background:linear-gradient(180deg,#fff0f7,#fff7fb);
+  color:#6d4058;
+  text-align:left;
+  font-weight:900;
+  white-space:nowrap;
+}
+tr:hover td{
+  background:#fffafd;
+}
+input,select{
+  padding:9px 10px;
+  border:1px solid #ead6e2;
+  border-radius:12px;
+  background:white;
+  outline:none;
+}
+input:focus,select:focus{
+  border-color:var(--pink);
+  box-shadow:0 0 0 3px rgba(255,126,182,.16);
+}
+label{
+  color:#7b6473;
+  font-size:12px;
+  font-weight:900;
+}
+.err{
+  color:#e11d48;
+  font-weight:800;
+}
+.pager-pill{
+  display:inline-block;
+  padding:8px 14px;
+  background:#fff0f7;
+  border-radius:999px;
+  color:#7b3e5c;
+  font-weight:900;
+}
+.subbox{
+  margin-top:10px;
+  padding:10px;
+  background:#fff7fb;
+  border:1px solid #ffd6e8;
+  border-radius:14px;
+}
 </style>
 </head>
 <body>
 <div class="card">
-  <h2 style="margin:0 0 10px 0;">처리대기목록</h2>
+  <h2>처리대기목록 ✨</h2><div class="small-desc">반영대기 · 폐업 · 부과대수상세를 한 곳에서 확인합니다.</div>
   <div>{tab_html}</div>
   <div class="err">{err}</div>
 </div>
