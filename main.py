@@ -7044,6 +7044,84 @@ def _existing_pending_keys_for_billing(db):
 
 
 
+
+# ── 처리대기목록/부과대수 탭 분류 기준 ─────────────────────────────
+def _normalize_work_process_type(pt):
+    """
+    화면 표시용 처리구분 정규화.
+    협회가입 -> 협회비
+    택배신규 -> 관리비
+    관리비폐지 -> 폐지
+    타도 -> 이관
+    """
+    pt = str(pt or "").strip()
+    pt = PROCESS_NORM.get(pt, pt)
+
+    if pt in ["협회가입", "협회가입원", "반영대기-협회비"]:
+        return "협회비"
+    if pt in ["택배신규", "자격증명발급", "신규관리", "반영대기-관리비"]:
+        return "관리비"
+    if pt in ["관리비폐지", "택배폐업", "택배 관리비 폐지", "택배관리비폐지"]:
+        return "폐지"
+    if pt in ["타도", "이관", "등록이관", "전입", "이전전입"]:
+        return "이관"
+    if pt in ["폐업", "포업"]:
+        return "폐업"
+    if pt in ["폐지", "포지"]:
+        return "폐지"
+    return pt
+
+
+def _work_tab_match(tab, pt, status=""):
+    """
+    처리대기목록 탭별 매칭 기준.
+    부과대수상세는 별도 분기에서 조회해야 하며, 일반 rows에 섞지 않는다.
+    """
+    tab = str(tab or "전체").strip()
+    pt = _normalize_work_process_type(pt)
+    status = str(status or "").strip()
+
+    if tab == "전체":
+        # 전체는 실제 처리대기 업무만. 부과대수상세는 섞지 않음.
+        return status != "부과대수상세"
+
+    if tab == "반영대기":
+        return status == "반영대기" and pt in ["협회비", "관리비"]
+
+    if tab == "폐업":
+        return pt in ["폐지", "양도", "이관", "사망", "말소"]
+
+    if tab == "폐지":
+        return pt == "폐지"
+
+    if tab == "양도":
+        return pt == "양도"
+
+    if tab == "이관":
+        return pt == "이관"
+
+    if tab == "협회가입":
+        return pt == "협회비"
+
+    if tab == "택배신규":
+        return pt == "관리비"
+
+    if tab == "관리비폐지":
+        # 관리비폐지는 폐지로 합쳐 보지만 기존 탭을 눌렀을 때도 조회 가능하게 함
+        return pt == "폐지"
+
+    if tab == "협회비":
+        return pt == "협회비"
+
+    if tab == "관리비":
+        return pt == "관리비"
+
+    if tab == "반영완료":
+        return status == "반영완료"
+
+    return pt == tab
+
+
 BILLING_TO_PENDING_PT = {
     "협회가입": "협회비",
     "협회가입원": "협회비",
@@ -7303,6 +7381,7 @@ def pending_board_page(
             pt_norm = PROCESS_NORM.get(pt_raw, pt_raw)
             # 협회가입/택배신규 등은 반영대기 탭에서 협회비/관리비로 표시
             pt = BILLING_TO_PENDING_PT.get(pt_norm, pt_norm)
+            pt = _normalize_work_process_type(pt)
             st = str(getattr(bp, "reflect_status", "") or "반영대기")
             # 협회비/관리비만 반영대기 탭에 표시, 폐지/양도는 제외
             if pt not in ["협회비", "관리비"]:
