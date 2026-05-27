@@ -2634,6 +2634,17 @@ def admin_merge_monthly_ledgers(
 @app.get("/bank", response_class=HTMLResponse)
 def bank_page(request: Request, status: str = "", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
+
+    # SAFE DEFAULT BANK STATUS TABS
+    # /bank ??? ? status_tabs? ??? ????? ???? 500 ?? ?? ??
+    status_tabs = [
+        ("", "??"),
+        ("????", "????"),
+        ("????", "????"),
+        ("???", "???"),
+        ("????", "????"),
+    ]
+
     bq = db.query(BankTransaction)
     if status: bq = bq.filter(BankTransaction.match_status == status)
     if q:
