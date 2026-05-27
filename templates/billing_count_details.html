@@ -1,0 +1,115 @@
+﻿{% extends "base.html" %}
+{% block title %}부과대수 상세 조회{% endblock %}
+{% block page_title %}부과대수 상세 조회{% endblock %}
+
+{% block content %}
+<div style="background:#fff;border:1px solid #eee;border-radius:14px;padding:14px;margin-bottom:14px;">
+  <form method="get" action="/billing-counts/details" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+    <div>
+      <label>연도</label>
+      <select name="year">
+        <option value="">전체</option>
+        {% for y in years %}
+        <option value="{{ y }}" {% if filter_year|string == y|string %}selected{% endif %}>{{ y }}년</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label>월</label>
+      <select name="month">
+        <option value="">전체</option>
+        {% for m in months %}
+        <option value="{{ m }}" {% if filter_month|string == m|string %}selected{% endif %}>{{ m }}월</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label>처리구분</label>
+      <select name="process_type">
+        <option value="">전체</option>
+        {% for p in process_options %}
+        <option value="{{ p }}" {% if filter_process_type == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label>상태</label>
+      <select name="status">
+        <option value="">전체</option>
+        {% for s in status_options %}
+        <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label>검색</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역">
+    </div>
+
+    <div>
+      <label>개수</label>
+      <select name="page_size">
+        {% for n in [30,50,100] %}
+        <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}개</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <button class="btn btn-primary" type="submit">조회</button>
+    <a class="btn btn-ghost" href="/billing-counts/details">초기화</a>
+  </form>
+
+  <div style="margin-top:10px;color:#777;font-size:13px;">
+    총 {{ total }}건 · {{ page }} / {{ total_pages }}페이지
+  </div>
+</div>
+
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr>
+        <th>연월</th>
+        <th>상태</th>
+        <th>처리구분</th>
+        <th>지역</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>원본시트</th>
+        <th>원본행</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.year }}-{{ "%02d"|format(r.month) }}</td>
+        <td>{{ r.reflect_status or "" }}</td>
+        <td>{{ r.process_type or "" }}</td>
+        <td>{{ r.region or "" }}</td>
+        <td>{{ r.name or "" }}</td>
+        <td>{{ r.vehicle_no or "" }}</td>
+        <td>{{ r.source_sheet or "" }}</td>
+        <td>{{ r.source_row or "" }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" style="text-align:center;padding:20px;color:#888;">조회 결과 없음</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="display:flex;gap:8px;justify-content:center;margin:16px 0;">
+  {% if page > 1 %}
+  <a class="btn btn-ghost" href="/billing-counts/details?year={{ filter_year }}&month={{ filter_month }}&process_type={{ filter_process_type }}&status={{ filter_status }}&q={{ q }}&page={{ page-1 }}&page_size={{ page_size }}">이전</a>
+  {% endif %}
+  <span style="padding:8px 12px;">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a class="btn btn-ghost" href="/billing-counts/details?year={{ filter_year }}&month={{ filter_month }}&process_type={{ filter_process_type }}&status={{ filter_status }}&q={{ q }}&page={{ page+1 }}&page_size={{ page_size }}">다음</a>
+  {% endif %}
+</div>
+{% endblock %}
