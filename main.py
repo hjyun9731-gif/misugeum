@@ -1496,7 +1496,7 @@ def license_check(request: Request, db: Session = Depends(get_db),
     lic_count = db.query(LicenseRecord).count()
     return templates.TemplateResponse(request, "license_check.html", {
         "request": request, "user": user, "items": items, "lic_count": lic_count,
-        "fmt_amt": fmt_amt, "msg": request.query_params.get("msg", ""),
+        "fmt_amt": fmt_amt, "msg": request.query_params.get("msg", ""), "quote": quote,
     })
 
 @app.post("/license-check/{mid}/confirm")
@@ -5270,7 +5270,13 @@ def pending_board_page(
     user: User = Depends(require_user)
 ):
     from sqlalchemy import text as _text
+    from urllib.parse import quote
     _ensure_pending_board_table(db)
+
+    # SAFE TAB NORMALIZE
+    tab = str(tab or "??").strip()
+    if not tab:
+        tab = "??"
     rows = []
 
     # 1) BillingPerson
