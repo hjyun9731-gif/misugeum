@@ -2332,8 +2332,8 @@ def admin_rebuild_latest_billing_pending(
             raw_pt = str(getattr(bp, "process_type", "") or "")
             mapped_pt = BILLING_TO_PENDING_PT.get(PROCESS_NORM.get(raw_pt, raw_pt), PROCESS_NORM.get(raw_pt, raw_pt))
 
-            # 반영대기 탭에는 협회비/관리비/폐지/양도 후보만 올림
-            if mapped_pt not in ["협회비", "관리비", "폐지", "양도"]:
+            # 반영대기 탭에는 협회비/관리비 신규 부과 후보만 올림
+            if mapped_pt not in ["협회비", "관리비"]:
                 ignored += 1
                 continue
 
