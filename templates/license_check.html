@@ -1,106 +1,72 @@
 {% extends "base.html" %}
-{% set active = "license" %}
-{% block title %}전체자 대조{% endblock %}
-{% block page_title %}전체자 대조 미확인{% endblock %}
+{% block title %}전체자대조{% endblock %}
+{% block page_title %}전체자대조{% endblock %}
+
 {% block content %}
-{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
-{% if lic_count == 0 %}
-<div class="msg-box msg-warn">전체자명단이 업로드되지 않았습니다. <a href="/upload" style="color:var(--blue);font-weight:600;">업로드 →</a></div>
-{% endif %}
+<div class="card" style="padding:16px;margin-bottom:14px;">
+  <h2 style="margin:0 0 8px 0;">전체자대조</h2>
+  <div style="color:#777;font-size:13px;">
+    전체자명단 {{ lic_count|default(0) }}건 · 미확인 {{ items|length }}건
+  </div>
+
+  {% if msg %}
+  <div style="margin-top:8px;color:#e91e63;font-weight:700;">{{ msg }}</div>
+  {% endif %}
+
+  <form method="get" action="/license-check" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+    <input type="text" name="q" value="{{ q|default('') }}" placeholder="성명, 차량번호, 지역, 연락처" style="min-width:260px;">
+    <button class="btn btn-primary" type="submit">검색</button>
+    <a class="btn btn-ghost" href="/license-check">초기화</a>
+  </form>
+</div>
 
 <div class="tbl-card">
   <table>
     <thead>
-      <tr><th>지역</th><th>계정</th><th>차량번호</th><th>성명</th>
-      <th style="text-align:right;">미수금</th><th>연락처</th><th>실패사유</th><th>처리</th></tr>
+      <tr>
+        <th>지역</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>연락처</th>
+        <th>주소</th>
+        <th>대조상태</th>
+        <th>사유</th>
+        <th>처리</th>
+      </tr>
     </thead>
     <tbody>
-      {% for m in items %}
-      <tr id="lrow-{{ m.id }}">
-        <td class="text-sm">{{ m.region or '–' }}</td>
-        <td><span class="badge b-{{ m.account }}">{{ {'협':'협회비','관':'관리비'}.get(m.account,m.account) }}</span></td>
-        <td class="text-sm nowrap" style="font-family:monospace;">{{ m.vehicle_no or '–' }}</td>
-        <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
-        <td class="amount text-right">{{ fmt_amt(m.excel_arrears) }}원</td>
-        <td class="text-sm">{{ m.mobile or '–' }}</td>
-        <td class="text-xs" style="color:var(--amber);">{{ m.match_fail_reason or '' }}</td>
-        <td class="nowrap">
-          <button class="btn btn-search btn-sm" onclick="toggleLicRow({{ m.id }})">전체자 검색</button>
-          <form method="post" action="/license-check/{{ m.id }}/confirm" style="display:inline;">
-            <button type="submit" class="btn btn-ghost btn-sm">확인완료</button>
-          </form>
-          <button class="btn btn-warn btn-sm" onclick="openWorkModal({{ m.id }}, '{{ m.name }}')">업무처리</button>
+      {% for r in items %}
+      <tr>
+        <td>{{ r.region|default('') }}</td>
+        <td>{{ r.name|default('') }}</td>
+        <td>{{ r.vehicle_no|default('') }}</td>
+        <td>{{ r.mobile|default(r.phone|default('')) }}</td>
+        <td style="max-width:280px;white-space:normal;">
+          {{ r.address|default(r.official_address|default('')) }}
         </td>
-      </tr>
-      <tr class="expand-row" id="lexp-{{ m.id }}">
-        <td colspan="8">
-          <div style="display:flex;gap:8px;align-items:flex-end;">
-            <div class="fg" style="flex:1;">
-              <label>이름 또는 차량번호 뒷자리 검색</label>
-              <div style="display:flex;gap:6px;">
-                <input type="text" id="lq-{{ m.id }}" placeholder="이름 or 차량번호" style="flex:1;height:30px;padding:0 9px;border:1px solid var(--border-2);border-radius:var(--r-sm);font-size:12.5px;">
-                <button class="btn btn-search btn-sm" onclick="searchLic({{ m.id }})">검색</button>
-              </div>
-            </div>
-          </div>
-          <div id="lres-{{ m.id }}" style="margin-top:8px;"></div>
+        <td>{{ r.match_status|default('') }}</td>
+        <td style="max-width:240px;white-space:normal;">
+          {{ r.match_fail_reason|default('') }}
+        </td>
+        <td>
+          {% if r.id %}
+          <form method="post" action="/license-check/{{ r.id }}/confirm" style="display:inline;">
+            <button class="btn btn-primary" type="submit">확인</button>
+          </form>
+          <form method="post" action="/license-check/{{ r.id }}/to-work" style="display:inline;">
+            <button class="btn btn-ghost" type="submit">처리대기</button>
+          </form>
+          {% endif %}
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="8"><div class="empty-state"><div class="ei">✅</div><div class="et">전체자 미대조 없음</div></div></td></tr>
+      <tr>
+        <td colspan="8" style="text-align:center;padding:28px;color:#888;">
+          전체자대조 미확인 항목이 없습니다.
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
-  <div class="tbl-footer"><span>{{ items|length }}명 · 전체자명단 {{ lic_count }}건</span></div>
 </div>
-
-<!-- 업무처리 모달 -->
-<div class="modal-bg" id="lwork-modal">
-  <div class="modal">
-    <h3>⚙️ 업무처리 — <span id="lw-name"></span></h3>
-    <form method="post" id="lw-form" action="">
-      <div class="fg" style="margin-bottom:12px;"><label>처리 구분</label>
-        <select name="process_type">
-          <option value="폐업">폐업</option><option value="양도">양도</option>
-          <option value="이관">이관</option><option value="탈퇴">탈퇴</option>
-          <option value="사망">사망</option><option value="말소">말소</option>
-        </select>
-      </div>
-      <div style="padding:9px 12px;background:var(--amber-lt);border-radius:6px;font-size:12px;color:var(--amber);">⚠ 업무처리현황에 반영대기로 등록됩니다.</div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" onclick="document.getElementById('lwork-modal').classList.remove('open')">취소</button>
-        <button type="submit" class="btn btn-primary">등록</button>
-      </div>
-    </form>
-  </div>
-</div>
-{% endblock %}
-{% block scripts %}
-<script>
-function toggleLicRow(mid) { document.getElementById('lexp-'+mid).classList.toggle('open'); }
-function openWorkModal(mid, name) {
-  document.getElementById('lw-name').textContent = name;
-  document.getElementById('lw-form').action = '/license-check/'+mid+'/to-work';
-  document.getElementById('lwork-modal').classList.add('open');
-}
-document.getElementById('lwork-modal').addEventListener('click', function(e) { if (e.target===this) this.classList.remove('open'); });
-async function searchLic(mid) {
-  const q = document.getElementById('lq-'+mid).value;
-  const res = document.getElementById('lres-'+mid);
-  const r = await fetch('/api/license-search?q='+encodeURIComponent(q));
-  const d = await r.json();
-  if (!d.items.length) { res.innerHTML='<span class="text-sm">결과 없음</span>'; return; }
-  res.innerHTML = d.items.map(l => `
-    <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
-      <strong style="min-width:60px;">${l.name}</strong>
-      <span style="font-family:monospace;font-size:12px;color:var(--text-3);min-width:100px;">${l.vehicle_no}</span>
-      <span class="text-sm">${l.mobile}</span>
-      <form method="post" action="/license-check/${mid}/link" style="display:inline;margin-left:auto;">
-        <input type="hidden" name="license_id" value="${l.id}">
-        <button type="submit" class="btn btn-primary btn-sm">연결</button>
-      </form>
-    </div>
-  `).join('');
-}
-</script>
 {% endblock %}
