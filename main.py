@@ -2653,6 +2653,204 @@ def work_item_detail_safe_api_path(
 
 
 
+
+
+# ── 처리대기목록 상세보기 / 처리현황 안전 라우트 전체 별칭 ─────────────
+def _pack_pending_detail_obj(obj, kind=""):
+    def sg(o, name, default=""):
+        try:
+            v = getattr(o, name, default)
+            if v is None:
+                return default
+            return v
+        except Exception:
+            return default
+
+    if not obj:
+        return None
+
+    return {
+        "kind": kind,
+        "id": sg(obj, "id", ""),
+        "status": sg(obj, "status", "") or sg(obj, "reflect_status", ""),
+        "process_type": sg(obj, "process_type", "") or sg(obj, "pending_target", "") or sg(obj, "income_kind", ""),
+        "region": sg(obj, "region", ""),
+        "name": sg(obj, "name", "") or sg(obj, "related_name", ""),
+        "vehicle_no": sg(obj, "vehicle_no", "") or sg(obj, "related_vehicle_no", ""),
+        "account": sg(obj, "account", ""),
+        "before_arrears": sg(obj, "before_arrears", ""),
+        "request_date": sg(obj, "request_date", "") or sg(obj, "billing_date", ""),
+        "next_billing_date": sg(obj, "next_billing_date", ""),
+        "source": sg(obj, "source", "") or sg(obj, "source_screen", ""),
+        "source_sheet": sg(obj, "source_sheet", ""),
+        "source_row": sg(obj, "source_row", ""),
+        "reason": sg(obj, "reason", "") or sg(obj, "work_reason", ""),
+        "note": sg(obj, "note", ""),
+        "amount": sg(obj, "amount", "") or sg(obj, "deposit_amount", ""),
+        "created_at": str(sg(obj, "created_at", ""))[:19],
+        "updated_at": str(sg(obj, "updated_at", ""))[:19],
+        "raw_data": sg(obj, "raw_data", ""),
+    }
+
+
+def _find_pending_detail_obj(db, id: int, row_type: str = ""):
+    row_type = str(row_type or "").lower().strip()
+
+    if row_type in ["bp", "billing", "billingperson", "billing_person"]:
+        return db.query(BillingPerson).filter(BillingPerson.id == id).first(), "billing_person"
+
+    if row_type in ["wq", "work", "workqueue", "work_queue", "queue"]:
+        return db.query(WorkQueue).filter(WorkQueue.id == id).first(), "work_queue"
+
+    if row_type in ["income", "ledger", "incomeledger", "income_ledger", "income_ledger_detail"]:
+        try:
+            _ensure_income_ledger_details(db)
+        except Exception:
+            pass
+        return db.query(IncomeLedgerDetail).filter(IncomeLedgerDetail.id == id).first(), "income_ledger_detail"
+
+    # row_type이 없으면 순서대로 탐색
+    obj = db.query(WorkQueue).filter(WorkQueue.id == id).first()
+    if obj:
+        return obj, "work_queue"
+
+    obj = db.query(BillingPerson).filter(BillingPerson.id == id).first()
+    if obj:
+        return obj, "billing_person"
+
+    try:
+        _ensure_income_ledger_details(db)
+        obj = db.query(IncomeLedgerDetail).filter(IncomeLedgerDetail.id == id).first()
+        if obj:
+            return obj, "income_ledger_detail"
+    except Exception:
+        pass
+
+    return None, ""
+
+
+@app.get("/api/work/detail")
+@app.post("/api/work/detail")
+@app.get("/work/detail")
+@app.post("/work/detail")
+@app.get("/api/work/pending-detail")
+@app.post("/api/work/pending-detail")
+@app.get("/api/pending/detail")
+@app.post("/api/pending/detail")
+@app.get("/pending/detail")
+@app.post("/pending/detail")
+@app.get("/api/pending-board/detail")
+@app.post("/api/pending-board/detail")
+@app.get("/pending-board/detail")
+@app.post("/pending-board/detail")
+@app.get("/work/pending-board/detail")
+@app.post("/work/pending-board/detail")
+@app.get("/api/work/status/detail")
+@app.post("/api/work/status/detail")
+def pending_detail_all_alias_safe(
+    id: int = 0,
+    row_type: str = "",
+    type: str = "",
+    kind: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    처리대기목록 상세보기 not found 방지용.
+    프론트가 어떤 detail URL을 호출해도 최대한 같은 응답을 반환한다.
+    """
+    try:
+        rt = row_type or type or kind
+        obj, obj_kind = _find_pending_detail_obj(db, int(id or 0), rt)
+        if not obj:
+            return {
+                "ok": False,
+                "detail": "not found",
+                "id": id,
+                "row_type": rt,
+            }
+
+        return {
+            "ok": True,
+            "data": _pack_pending_detail_obj(obj, obj_kind),
+        }
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {
+            "ok": False,
+            "detail": "detail error",
+            "error": repr(e),
+            "id": id,
+            "row_type": row_type or type or kind,
+        }
+
+
+@app.get("/api/work/detail/{id}")
+@app.post("/api/work/detail/{id}")
+@app.get("/work/detail/{id}")
+@app.post("/work/detail/{id}")
+@app.get("/api/pending/detail/{id}")
+@app.post("/api/pending/detail/{id}")
+@app.get("/pending/detail/{id}")
+@app.post("/pending/detail/{id}")
+@app.get("/api/pending-board/detail/{id}")
+@app.post("/api/pending-board/detail/{id}")
+@app.get("/pending-board/detail/{id}")
+@app.post("/pending-board/detail/{id}")
+@app.get("/work/pending-board/detail/{id}")
+@app.post("/work/pending-board/detail/{id}")
+def pending_detail_id_alias_safe(
+    id: int,
+    row_type: str = "",
+    type: str = "",
+    kind: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    return pending_detail_all_alias_safe(
+        id=id,
+        row_type=row_type,
+        type=type,
+        kind=kind,
+        db=db,
+        user=user
+    )
+
+
+@app.get("/api/work/detail/{row_type}/{id}")
+@app.post("/api/work/detail/{row_type}/{id}")
+@app.get("/work/detail/{row_type}/{id}")
+@app.post("/work/detail/{row_type}/{id}")
+@app.get("/api/pending/detail/{row_type}/{id}")
+@app.post("/api/pending/detail/{row_type}/{id}")
+@app.get("/pending/detail/{row_type}/{id}")
+@app.post("/pending/detail/{row_type}/{id}")
+@app.get("/api/pending-board/detail/{row_type}/{id}")
+@app.post("/api/pending-board/detail/{row_type}/{id}")
+@app.get("/pending-board/detail/{row_type}/{id}")
+@app.post("/pending-board/detail/{row_type}/{id}")
+@app.get("/work/pending-board/detail/{row_type}/{id}")
+@app.post("/work/pending-board/detail/{row_type}/{id}")
+def pending_detail_rowtype_alias_safe(
+    row_type: str,
+    id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    return pending_detail_all_alias_safe(
+        id=id,
+        row_type=row_type,
+        db=db,
+        user=user
+    )
+
+
+
+
 @app.get("/work", response_class=HTMLResponse)
 def work_page(request: Request, tab: str = "전체", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
