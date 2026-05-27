@@ -1,111 +1,114 @@
 ﻿{% extends "base.html" %}
+{% set active = "work" %}
 {% block title %}처리대기목록{% endblock %}
+{% block page_title %}처리대기목록{% endblock %}
 {% block content %}
-<div class="container-fluid mt-3">
-  <h4>처리대기목록</h4>
 
-  {% if msg %}
-  <div class="alert alert-info py-1">{{ msg }}</div>
-  {% endif %}
+{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
 
-  <!-- 탭 -->
-  <ul class="nav nav-tabs mb-3" style="flex-wrap:wrap;">
-    {% for t in tabs %}
-    <li class="nav-item">
-      <a class="nav-link {% if tab == t %}active{% endif %}"
-         href="/work?tab={{ t|urlencode }}">
-        {{ t }}
-        {% if counts.get(t, 0) %}
-        <span class="badge bg-secondary">{{ counts.get(t, 0) }}</span>
-        {% endif %}
-      </a>
-    </li>
-    {% endfor %}
-  </ul>
+<div class="tabs" style="flex-wrap:wrap;gap:4px;">
+  {% for t in tabs %}
+  <a href="/work?tab={{ t|urlencode }}" class="tab-btn {% if tab==t %}active{% endif %}">
+    {{ t }}
+    {% if counts.get(t, 0) %}<span class="tab-cnt has">{{ counts.get(t, 0) }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
 
-  <!-- 검색 -->
-  <form method="get" action="/work" class="mb-3 d-flex gap-2">
-    <input type="hidden" name="tab" value="{{ tab }}">
-    <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:240px" placeholder="성명/차량번호/처리구분 검색">
-    <button class="btn btn-sm btn-outline-secondary">검색</button>
-  </form>
+<form method="get" action="/work" class="filter-bar">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 처리구분" class="fi">
+  <button type="submit" class="btn btn-search btn-sm">검색</button>
+  <a href="/work?tab={{ tab|urlencode }}" class="btn btn-ghost btn-sm">초기화</a>
+</form>
 
-  <!-- 표 -->
-  <div class="table-responsive">
-    <table class="table table-sm table-bordered table-hover">
-      <thead class="table-light">
-        <tr>
-          <th>상태</th>
-          <th>처리구분</th>
-          <th>지역</th>
-          <th>성명</th>
-          <th>차량번호</th>
-          <th>계정</th>
-          <th>처리전미수금</th>
-          <th>요청일</th>
-          <th>출처</th>
-          <th>처리사유</th>
-          <th>비고</th>
-          <th>반영</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
-        <tr>
-          <td>
-            {% if r.status == "반영대기" %}
-            <span class="badge bg-warning text-dark">{{ r.status }}</span>
-            {% elif r.status == "반영완료" %}
-            <span class="badge bg-success">{{ r.status }}</span>
-            {% else %}
-            <span class="badge bg-secondary">{{ r.status }}</span>
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr>
+        <th>상태</th>
+        <th>처리구분</th>
+        <th>지역</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>계정</th>
+        <th style="text-align:right;">처리전 미수금</th>
+        <th>요청일</th>
+        <th>출처</th>
+        <th>처리사유</th>
+        <th>비고</th>
+        <th>반영</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="nowrap">
+          {% if r.status == "반영대기" %}<span class="badge b-warn">반영대기</span>
+          {% elif r.status == "반영완료" %}<span class="badge b-ok">반영완료</span>
+          {% else %}<span class="badge b-gray">{{ r.status }}</span>{% endif %}
+        </td>
+        <td class="nowrap">
+          {% set pt = r.process_type %}
+          <span class="badge {% if pt in ['폐업','폐지','탈퇴','사망','말소'] %}b-red{% elif pt in ['양도','이관'] %}b-warn{% elif pt in ['협회가입','택배신규','현역복구'] %}b-blue{% else %}b-gray{% endif %}">
+            {{ pt }}
+          </span>
+        </td>
+        <td class="text-sm">{{ r.region or '' }}</td>
+        <td class="nowrap">{{ r.name or '' }}</td>
+        <td class="nowrap text-sm" style="font-family:monospace;">{{ r.vehicle_no or '' }}</td>
+        <td class="text-sm">{{ r.account or '' }}</td>
+        <td style="text-align:right;font-weight:700;">
+          {% if r.before_arrears %}{{ "{:,}".format(r.before_arrears) }}원{% endif %}
+        </td>
+        <td class="text-sm nowrap">{{ r.request_date or '' }}</td>
+        <td class="text-xs">
+          {{ r.source or '' }}
+          {% if r.source_sheet %}<br><span style="color:#9ca3af;">{{ r.source_sheet }}</span>{% endif %}
+        </td>
+        <td class="text-sm" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.reason or '' }}">{{ r.reason or '' }}</td>
+        <td class="text-sm" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ r.note or '' }}</td>
+        <td class="nowrap">
+          {% if r.status == "반영대기" %}
+            {% if r.row_type == "wq" %}
+              <form method="post" action="/work/{{ r.id }}/reflect" style="display:inline;">
+                <button type="submit" class="btn btn-primary btn-sm"
+                  onclick="return confirm('{{ r.name }} → {{ r.process_type }} 반영하시겠습니까?')">반영</button>
+              </form>
+              <form method="post" action="/work/{{ r.id }}/cancel" style="display:inline;">
+                <button type="submit" class="btn btn-ghost btn-sm">취소</button>
+              </form>
+            {% elif r.row_type == "bp" %}
+              <form method="post" action="/billing-person/{{ r.id }}/reflect" style="display:inline;">
+                <button type="submit" class="btn btn-primary btn-sm"
+                  onclick="return confirm('{{ r.name }} → {{ r.process_type }} 반영하시겠습니까?')">반영</button>
+              </form>
+              <form method="post" action="/billing-person/{{ r.id }}/hold" style="display:inline;">
+                <button type="submit" class="btn btn-ghost btn-sm">보류</button>
+              </form>
             {% endif %}
-          </td>
-          <td><strong>{{ r.process_type }}</strong></td>
-          <td>{{ r.region }}</td>
-          <td>{{ r.name }}</td>
-          <td>{{ r.vehicle_no }}</td>
-          <td>{{ r.account }}</td>
-          <td>
-            {% if r.before_arrears %}
-            {{ "{:,}".format(r.before_arrears) }}원
-            {% endif %}
-          </td>
-          <td>{{ r.request_date }}</td>
-          <td><small>{{ r.source }}</small><br><small class="text-muted">{{ r.source_sheet }}</small></td>
-          <td><small>{{ r.reason }}</small></td>
-          <td><small>{{ r.note }}</small></td>
-          <td>
-            {% if r.status == "반영대기" %}
-              {% if r.row_type == "wq" %}
-              <form method="post" action="/work/{{ r.id }}/reflect" style="display:inline">
-                <button class="btn btn-xs btn-primary btn-sm py-0">반영</button>
-              </form>
-              <form method="post" action="/work/{{ r.id }}/cancel" style="display:inline">
-                <button class="btn btn-xs btn-outline-danger btn-sm py-0">취소</button>
-              </form>
-              {% elif r.row_type == "bp" %}
-              <form method="post" action="/billing-person/{{ r.id }}/reflect" style="display:inline">
-                <button class="btn btn-xs btn-primary btn-sm py-0">반영</button>
-              </form>
-              <form method="post" action="/billing-person/{{ r.id }}/hold" style="display:inline">
-                <button class="btn btn-xs btn-outline-secondary btn-sm py-0">보류</button>
-              </form>
-              {% endif %}
-            {% else %}
-            <span class="text-muted">-</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="12" class="text-center text-muted py-3">항목이 없습니다.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+          {% else %}
+            <span class="text-xs" style="color:var(--text-4);">-</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="12">
+          <div class="empty-state">
+            <div class="ei">⚙️</div>
+            <div class="et">{{ tab }} 항목 없음</div>
+            <div class="es">부과대수 업로드 또는 미수금명단에서 등록하세요</div>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="tbl-footer"><span>{{ rows|length }}건</span></div>
+</div>
 
-  <div class="mt-2">
-    <a href="/work/pending-board/add" class="btn btn-sm btn-outline-primary">+ 수동 추가</a>
-  </div>
+<div style="margin-top:10px;">
+  <a href="/work/pending-board/add" class="btn btn-ghost btn-sm">+ 수동 추가</a>
 </div>
 {% endblock %}
