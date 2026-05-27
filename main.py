@@ -2275,9 +2275,9 @@ def admin_rebuild_latest_billing_pending(
         latest_y = int(latest[0])
         latest_m = int(latest[1])
 
-        # 1) 전체 부과대수 자료는 우선 상세로 돌림
+        # 1) 전체 부과대수 자료는 우선 상세로 돌림 (반영대기 포함)
         db.query(BillingPerson).filter(
-            BillingPerson.reflect_status.in_(["처리대기", "반영대기", "부과대수상세"])
+            BillingPerson.reflect_status.in_(["처리대기", "반영대기", "부과대수상세", "보류"])
         ).update(
             {BillingPerson.reflect_status: "부과대수상세"},
             synchronize_session=False
