@@ -2219,6 +2219,21 @@ def admin_fix_billing_pending_latest_only(
 
 
 
+@app.post("/admin/reset-all-billing-pending")
+def admin_reset_all_billing_pending(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    try:
+        result = db.execute(_text(
+            "UPDATE billing_persons SET reflect_status = '부과대수상세' WHERE reflect_status IN ('반영대기', '처리대기', '보류')"
+        ))
+        db.commit()
+        return {"ok": True, "updated": result.rowcount}
+    except Exception as e:
+        db.rollback()
+        return {"ok": False, "msg": str(e)}
+
 @app.post("/admin/fix-billing-reflect-status")
 def admin_fix_billing_reflect_status(
     db: Session = Depends(get_db),
