@@ -358,3 +358,19 @@ class BillingReport(Base):
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now())
 
+
+class IncomeLedgerDetail(Base):
+    """잡수입/가수금 구조화 상세"""
+    __tablename__ = "income_ledger_details"
+    id                  = Column(Integer, primary_key=True)
+    bank_transaction_id = Column(Integer, ForeignKey("bank_transactions.id"), nullable=True, index=True)
+    income_type         = Column(String(20), index=True)   # 잡수입 / 가수금
+    work_type           = Column(String(50), index=True)   # 자격증명발급 / 대폐차 / 예금이자 / 가입비 / 특별회비 / 기타
+    pending_target      = Column(String(20), default="없음", index=True)  # 없음 / 협회비 / 관리비
+    related_vehicle_no  = Column(String(100))
+    related_name        = Column(String(100))
+    note                = Column(Text)
+    next_billing_date   = Column(String(20))
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
+    bank_transaction    = relationship("BankTransaction", foreign_keys=[bank_transaction_id])

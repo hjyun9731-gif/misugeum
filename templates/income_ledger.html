@@ -1,7 +1,7 @@
-{% extends "base.html" %}
-
-{% block title %}&#xC7A1;&#xC218;&#xC785;&middot;&#xAC00;&#xC218;&#xAE08;{% endblock %}
-{% block page_title %}&#xC7A1;&#xC218;&#xC785;&middot;&#xAC00;&#xC218;&#xAE08;{% endblock %}
+﻿{% extends "base.html" %}
+{% set active = "income" %}
+{% block title %}잡수입·가수금{% endblock %}
+{% block page_title %}잡수입·가수금{% endblock %}
 
 {% block content %}
 <style>
@@ -17,71 +17,96 @@
 .income-summary b{font-size:18px;color:#2d2230}
 .income-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .income-actions input{height:38px;min-width:260px;border:1px solid #e9c9d8;border-radius:12px;padding:0 12px}
-.btn-pink{height:38px;border:0;border-radius:12px;padding:0 14px;background:#ff5b9e;color:#fff!important;font-weight:900;text-decoration:none;display:inline-flex;align-items:center}
+.btn-pink{height:38px;border:0;border-radius:12px;padding:0 14px;background:#ff5b9e;color:#fff!important;font-weight:900;text-decoration:none;display:inline-flex;align-items:center;cursor:pointer}
 .btn-gray{height:38px;border:0;border-radius:12px;padding:0 14px;background:#7d7080;color:#fff!important;font-weight:900;text-decoration:none;display:inline-flex;align-items:center}
 .income-table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #f1d4df;border-radius:16px;overflow:hidden;background:#fff}
-.income-table th{background:#fff0f6;color:#d8216b;font-weight:900;text-align:left;padding:12px;border-bottom:2px solid #ff9ac5}
-.income-table td{padding:11px 12px;border-bottom:1px solid #f5e3eb;vertical-align:middle}
+.income-table th{background:#fff0f6;color:#d8216b;font-weight:900;text-align:left;padding:10px 12px;border-bottom:2px solid #ff9ac5;white-space:nowrap}
+.income-table td{padding:9px 12px;border-bottom:1px solid #f5e3eb;vertical-align:middle;font-size:14px}
 .income-table tr:hover td{background:#fff8fb}
 .money{text-align:right;color:#e33162;font-weight:900}
 .empty{padding:40px;text-align:center;color:#8b7282;border:1px dashed #efc9d9;border-radius:16px;background:#fff}
+.badge-assoc{background:#dbeafe;color:#1e40af;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700}
+.badge-mgmt{background:#dcfce7;color:#166534;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700}
+.badge-none{background:#f3f4f6;color:#6b7280;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700}
 </style>
 
 <div class="income-wrap">
   <div class="income-card">
-    <div class="income-title">&#xC7A1;&#xC218;&#xC785;&middot;&#xAC00;&#xC218;&#xAE08; &#xAD00;&#xB9AC;</div>
+    <div class="income-title">잡수입·가수금 관리</div>
 
     <div class="income-tabs">
-      <a class="income-tab {% if kind == '???' %}active{% endif %}" href="/income-ledger?kind=%EC%9E%A1%EC%88%98%EC%9E%85">&#xC7A1;&#xC218;&#xC785;</a>
-      <a class="income-tab {% if kind == '???' %}active{% endif %}" href="/income-ledger?kind=%EA%B0%80%EC%88%98%EA%B8%88">&#xAC00;&#xC218;&#xAE08;</a>
+      <a class="income-tab {% if kind == '잡수입' %}active{% endif %}" href="/income-ledger?kind=%EC%9E%A1%EC%88%98%EC%9E%85">잡수입</a>
+      <a class="income-tab {% if kind == '가수금' %}active{% endif %}" href="/income-ledger?kind=%EA%B0%80%EC%88%98%EA%B8%88">가수금</a>
     </div>
 
     <div class="income-summary">
-      <div><small>&#xD604;&#xC7AC; &#xAD6C;&#xBD84;</small><b>{{ kind }}</b></div>
-      <div><small>&#xAC74;&#xC218;</small><b>{{ total_count }}&#xAC74;</b></div>
-      <div><small>&#xAE08;&#xC561; &#xD569;&#xACC4;</small><b>{{ fmt_amt(total_amount) }}&#xC6D0;</b></div>
+      <div><small>현재 구분</small><b>{{ kind }}</b></div>
+      <div><small>건수</small><b>{{ total_count }}건</b></div>
+      <div><small>금액 합계</small><b>{{ fmt_amt(total_amount) }}원</b></div>
     </div>
 
-    <form method="get" class="income-actions">
+    <form method="get" action="/income-ledger" class="income-actions">
       <input type="hidden" name="kind" value="{{ kind }}">
-      <input type="text" name="q" value="{{ q }}" placeholder="&#xC774;&#xCCB4;&#xBA54;&#xBAA8; &#xAC80;&#xC0C9;">
-      <button class="btn-pink" type="submit">&#xAC80;&#xC0C9;</button>
-      <a class="btn-gray" href="/income-ledger/export?kind={{ kind }}">&#xC5D1;&#xC140; &#xB2E4;&#xC6B4;&#xB85C;&#xB4DC;</a>
-      <a class="btn-gray" href="/bank">&#xD1B5;&#xC7A5;&#xB9E4;&#xCE6D;&#xC73C;&#xB85C;</a>
+      <input type="text" name="q" value="{{ q }}" placeholder="이체메모 검색">
+      <button class="btn-pink" type="submit">검색</button>
+      <a class="btn-gray" href="/income-ledger/export?kind={{ kind }}">엑셀 다운로드</a>
+      <a class="btn-gray" href="/bank">통장매칭으로</a>
     </form>
   </div>
 
   <div class="income-card">
-    {% if txs %}
+    {% if rows %}
+    <div style="overflow-x:auto;">
     <table class="income-table">
       <thead>
         <tr>
-          <th>&#xC785;&#xAE08;&#xC77C;&#xC790;</th>
-          <th>&#xC785;&#xAE08;&#xC561;</th>
-          <th>&#xC774;&#xCCB4;&#xBA54;&#xBAA8;</th>
-          <th>&#xD604;&#xC7AC; &#xAD6C;&#xBD84;</th>
-          <th>&#xC0AC;&#xC720;</th>
-          <th>&#xCC98;&#xB9AC;</th>
+          <th>입금일자</th>
+          <th>입금액</th>
+          <th>이체메모</th>
+          <th>구분</th>
+          <th>업무사유</th>
+          <th>처리대상</th>
+          <th>관련차량</th>
+          <th>관련성명</th>
+          <th>다음부과일</th>
+          <th>비고</th>
+          <th>처리</th>
         </tr>
       </thead>
       <tbody>
-        {% for tx in txs %}
+        {% for r in rows %}
         <tr>
-          <td>{{ tx_date(tx) }}</td>
-          <td class="money">{{ fmt_amt(tx_amount(tx)) }}&#xC6D0;</td>
-          <td>{{ tx_memo(tx) }}</td>
-          <td>{{ kind }}</td>
-          <td>{{ income_reason_display(tx.match_reason) }}</td>
-          <td><a class="btn-gray" href="/income-ledger/{{ tx.id }}/edit">&#xC218;&#xC815;</a>
-            <form method="post" action="/income-ledger/{{ tx.id }}/delete" style="display:inline;margin-left:6px;" onsubmit="return confirm('??????');">
-              <button type="submit" class="btn-pink" style="background:#ef4444;">&#xC0AD;&#xC81C;</button>
-            </form></td>
+          <td>{{ r.txn_date }}</td>
+          <td class="money">{{ fmt_amt(r.amount) }}원</td>
+          <td>{{ r.memo }}</td>
+          <td>{{ r.income_type }}</td>
+          <td>{{ r.work_type or '' }}</td>
+          <td>
+            {% if r.pending_target == '협회비' %}
+            <span class="badge-assoc">협회비</span>
+            {% elif r.pending_target == '관리비' %}
+            <span class="badge-mgmt">관리비</span>
+            {% else %}
+            <span class="badge-none">없음</span>
+            {% endif %}
+          </td>
+          <td>{{ r.related_vehicle_no or '' }}</td>
+          <td>{{ r.related_name or '' }}</td>
+          <td>{{ r.next_billing_date or '' }}</td>
+          <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.note or '' }}">{{ r.note or '' }}</td>
+          <td style="white-space:nowrap;">
+            <a class="btn-gray" href="/income-ledger/{{ r.id }}/edit" style="font-size:13px;height:32px;padding:0 10px;">수정</a>
+            <form method="post" action="/income-ledger/{{ r.id }}/delete" style="display:inline;margin-left:4px;" onsubmit="return confirm('삭제하시겠습니까?');">
+              <button type="submit" class="btn-pink" style="background:#ef4444;font-size:13px;height:32px;padding:0 10px;">삭제</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
-      <div class="empty">&#xD574;&#xB2F9; &#xBAA9;&#xB85D;&#xC774; &#xC5C6;&#xC2B5;&#xB2C8;&#xB2E4;.</div>
+      <div class="empty">해당 목록이 없습니다.</div>
     {% endif %}
   </div>
 </div>

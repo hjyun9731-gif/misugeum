@@ -19,7 +19,8 @@ import pandas as pd
 from database import engine, SessionLocal, Base, get_db, IS_SQLITE
 from models import (User, UploadBatch, RawImportRow, Member, MonthlyLedger,
                     MemberStatusEvent, WorkQueue, LicenseRecord, BillingPerson,
-                    BankTransaction, CollectionTarget, Snapshot, AuditLog, BillingReport)
+                    BankTransaction, CollectionTarget, Snapshot, AuditLog, BillingReport,
+                    IncomeLedgerDetail)
 from auth import hash_pw, verify_pw, ensure_admin, require_user
 from core import (
     _s, norm_name, norm_vehicle, veh_last4, normalize_region, parse_amount,
@@ -3954,6 +3955,39 @@ def _tx_memo_for_income(tx):
     return ""
 
 
+
+def _ensure_income_ledger_details(db):
+    try:
+        from sqlalchemy import text as _t2
+        db.execute(_t2(
+            "CREATE TABLE IF NOT EXISTS income_ledger_details ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "bank_transaction_id INTEGER,"
+            "income_type VARCHAR(20),"
+            "work_type VARCHAR(50),"
+            "pending_target VARCHAR(20) DEFAULT '없음',"
+            "related_vehicle_no VARCHAR(100),"
+            "related_name VARCHAR(100),"
+            "note TEXT,"
+            "next_billing_date VARCHAR(20),"
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            "updated_at TIMESTAMP)"
+        ))
+        db.commit()
+    except Exception:
+        pass
+
+def _calc_pending_target(income_type, work_type):
+    ASSOC_KW = ["가입비", "특별회비", "협회가입", "협회비", "입회"]
+    MGMT_KW  = ["자격증명발급", "자격증명", "택배신규", "신규관리", "관리비"]
+    wt = str(work_type or "")
+    it = str(income_type or "")
+    if it == "가수금" and any(k in wt for k in ASSOC_KW):
+        return "협회비"
+    if it == "잡수입" and any(k in wt for k in MGMT_KW):
+        return "관리비"
+    return "없음"
+
 @app.get("/income-ledger", response_class=HTMLResponse)
 def income_ledger_page(
     request: Request,
@@ -3962,34 +3996,88 @@ def income_ledger_page(
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
-    MISC = "\uc7a1\uc218\uc785"      # ???
-    SUSP = "\uac00\uc218\uae08"      # ???
+    from sqlalchemy import text as _t3
+    MISC = "잡수입"
+    SUSP = "가수금"
 
     if kind not in [MISC, SUSP]:
         kind = MISC
 
-    bq = db.query(BankTransaction).filter(BankTransaction.match_status == kind)
+    _ensure_income_ledger_details(db)
 
+    bq = db.query(BankTransaction).filter(BankTransaction.match_status == kind)
     if q:
         like = f"%{q}%"
         bq = bq.filter(BankTransaction.memo.ilike(like))
-
     txs = bq.order_by(BankTransaction.id.desc()).all()
     total_amount = sum(_tx_amount_for_income(tx) for tx in txs)
+
+    # IncomeLedgerDetail 맵 (bank_transaction_id -> detail)
+    detail_map = {}
+    try:
+        all_details = db.query(IncomeLedgerDetail).all()
+        for d in all_details:
+            if d.bank_transaction_id:
+                detail_map[d.bank_transaction_id] = d
+    except Exception:
+        pass
+
+    # 상세 없는 tx는 match_reason에서 자동 생성
+    rows = []
+    for tx in txs:
+        d = detail_map.get(tx.id)
+        if d:
+            rows.append({
+                "tx": tx,
+                "id": tx.id,
+                "txn_date": str(getattr(tx, "txn_date", "") or "")[:10],
+                "amount": int(getattr(tx, "deposit_amount", 0) or 0),
+                "memo": str(getattr(tx, "memo", "") or ""),
+                "income_type": d.income_type or kind,
+                "work_type": d.work_type or "",
+                "pending_target": d.pending_target or "없음",
+                "related_vehicle_no": d.related_vehicle_no or "",
+                "related_name": d.related_name or "",
+                "next_billing_date": d.next_billing_date or "",
+                "note": d.note or "",
+                "has_detail": True,
+            })
+        else:
+            parsed = _parse_income_reason(str(getattr(tx, "match_reason", "") or ""))
+            memo = str(getattr(tx, "memo", "") or "")
+            combined = str(getattr(tx, "match_reason", "") or "") + " " + memo
+            wt = parsed.get("work_reason") or ""
+            if not wt:
+                for kw in ["가입비","특별회비","협회가입","협회비","자격증명발급","자격증명","택배신규","신규관리","예금이자","상가임대료","대폐차"]:
+                    if kw in combined:
+                        wt = kw; break
+            pt = _calc_pending_target(kind, wt)
+            txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
+            rows.append({
+                "tx": tx,
+                "id": tx.id,
+                "txn_date": txn_date,
+                "amount": int(getattr(tx, "deposit_amount", 0) or 0),
+                "memo": str(getattr(tx, "memo", "") or ""),
+                "income_type": kind,
+                "work_type": wt,
+                "pending_target": pt,
+                "related_vehicle_no": parsed.get("vehicle_no") or "",
+                "related_name": parsed.get("name") or "",
+                "next_billing_date": _calc_next_billing_date(txn_date) if pt != "없음" else "",
+                "note": parsed.get("note") or "",
+                "has_detail": False,
+            })
 
     return templates.TemplateResponse(request, "income_ledger.html", {
         "request": request,
         "user": user,
         "kind": kind,
         "q": q,
-        "txs": txs,
-        "total_count": len(txs),
+        "rows": rows,
+        "total_count": len(rows),
         "total_amount": total_amount,
         "fmt_amt": fmt_amt,
-        "tx_amount": _tx_amount_for_income,
-        "tx_date": _tx_date_for_income,
-        "tx_memo": _tx_memo_for_income,
-        "income_reason_display": income_reason_display,
     })
 
 
@@ -5335,18 +5423,55 @@ def pending_board_page(
     except Exception as e:
         print("WorkQueue error:", e)
 
-    # 3) BankTransaction 잡수입/가수금 -> 협회비/관리비 반영대기 후보
+    # 3) IncomeLedgerDetail -> 협회비/관리비 반영대기 후보
     try:
+        _ensure_income_ledger_details(db)
+        details = db.query(IncomeLedgerDetail).filter(
+            IncomeLedgerDetail.pending_target.in_(["협회비", "관리비"])
+        ).order_by(IncomeLedgerDetail.id.desc()).all()
+        for d in details:
+            pt = d.pending_target or ""
+            if pt not in ["협회비", "관리비"]:
+                continue
+            tx = d.bank_transaction
+            txn_date = str(getattr(d, "next_billing_date", "") or "")
+            req_date = ""
+            if tx:
+                req_date = str(getattr(tx, "txn_date", "") or "")[:10]
+                if not txn_date:
+                    txn_date = _calc_next_billing_date(req_date)
+            acct = "협" if pt == "협회비" else "관"
+            rsn = ("가입비/특별회비 확인 후 협회비 부과대상 반영 필요"
+                   if pt == "협회비" else
+                   "자격증명발급 확인 후 관리비 부과대상 반영 필요")
+            rows.append({
+                "row_type": "income", "id": d.id, "status": "반영대기",
+                "process_type": pt, "region": "",
+                "name": d.related_name or "",
+                "vehicle_no": d.related_vehicle_no or "",
+                "account": acct,
+                "before_arrears": int(getattr(tx, "deposit_amount", 0) or 0) if tx else 0,
+                "request_date": req_date,
+                "next_billing_date": txn_date,
+                "source": d.income_type or "",
+                "source_sheet": "",
+                "reason": rsn,
+                "note": d.work_type or "",
+            })
+        # 상세 없는 BankTransaction도 보조로 읽기 (detail 없는 것만)
+        detail_tx_ids = {d.bank_transaction_id for d in details if d.bank_transaction_id}
         btxs = db.query(BankTransaction).filter(
             BankTransaction.match_status.in_(["잡수입", "가수금"])
         ).order_by(BankTransaction.id.desc()).all()
         for tx in btxs:
+            if tx.id in detail_tx_ids:
+                continue
             ms = str(getattr(tx, "match_status", "") or "")
             reason = str(getattr(tx, "match_reason", "") or "")
             memo = str(getattr(tx, "memo", "") or "")
             txn_date = str(getattr(tx, "txn_date", "") or "")[:10]
             parsed = _parse_income_reason(reason)
-            combined = reason + ' ' + memo
+            combined = reason + " " + memo
             pt = None
             if ms == "가수금":
                 if any(kw in combined for kw in INCOME_KEYWORDS_ASSOC):
@@ -5356,23 +5481,22 @@ def pending_board_page(
                     pt = "관리비"
             if not pt:
                 continue
-            vno = parsed['vehicle_no'] or memo
-            nm = parsed['name'] or ''
             acct = "협" if pt == "협회비" else "관"
             rsn = ("가입비/특별회비 확인 후 협회비 부과대상 반영 필요"
                    if pt == "협회비" else
                    "자격증명발급 확인 후 관리비 부과대상 반영 필요")
             rows.append({
                 "row_type": "income", "id": tx.id, "status": "반영대기",
-                "process_type": pt, "region": "", "name": nm, "vehicle_no": vno,
+                "process_type": pt, "region": "",
+                "name": parsed.get("name") or "",
+                "vehicle_no": parsed.get("vehicle_no") or memo,
                 "account": acct,
                 "before_arrears": int(getattr(tx, "deposit_amount", 0) or 0),
                 "request_date": txn_date,
                 "next_billing_date": _calc_next_billing_date(txn_date),
-                "source": ms,
-                "source_sheet": "",
+                "source": ms, "source_sheet": "",
                 "reason": rsn,
-                "note": (parsed["work_reason"] or "") + (" / " + parsed["note"] if parsed["note"] else ""),
+                "note": parsed.get("work_reason") or "",
             })
     except Exception as e:
         print("income/suspense error:", e)
