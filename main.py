@@ -3122,6 +3122,23 @@ def emergency_pending_board_page(
     if page < total_pages:
         next_link = f'<a class="btn ghost" href="{base}&page={page+1}">다음</a>'
 
+    # 필터 드롭다운 옵션
+    year_options = '<option value="">전체</option>'
+    for y in sorted({r.get("ym", "")[:4] for r in rows if r.get("ym")}, reverse=True):
+        year_options += f'<option value="{h(y)}" {"selected" if str(year or "") == str(y) else ""}>{h(y)}년</option>'
+
+    month_options = '<option value="">전체</option>'
+    for m in range(1, 13):
+        month_options += f'<option value="{m}" {"selected" if str(month or "") == str(m) else ""}>{m}월</option>'
+
+    process_options = '<option value="">전체</option>'
+    for pt in ["협회비", "관리비", "폐업", "폐지", "관리비폐지", "양도", "이관", "탈퇴", "사망", "말소", "70세", "협회가입", "택배신규"]:
+        process_options += f'<option value="{h(pt)}" {"selected" if str(process_type or "") == pt else ""}>{h(pt)}</option>'
+
+    status_options = '<option value="">전체</option>'
+    for st_opt in ["반영대기", "부과대수상세", "반영완료", "처리대기", "보류"]:
+        status_options += f'<option value="{h(st_opt)}" {"selected" if str(status or "") == st_opt else ""}>{h(st_opt)}</option>'
+
     html = f"""
 <!doctype html>
 <html lang="ko">
@@ -3151,10 +3168,10 @@ input,select{{padding:7px;border:1px solid #ddd;border-radius:8px;}}
 <div class="card">
   <form method="get" action="/work/pending-board" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
     <input type="hidden" name="tab" value="{h(tab)}">
-    <div><label>연도</label><br><input type="number" name="year" value="{h(year or '')}" placeholder="2026" style="width:90px;"></div>
-    <div><label>월</label><br><input type="number" name="month" value="{h(month or '')}" placeholder="6" style="width:70px;"></div>
-    <div><label>처리구분</label><br><input type="text" name="process_type" value="{h(process_type)}" placeholder="폐지/관리비"></div>
-    <div><label>상태</label><br><input type="text" name="status" value="{h(status)}" placeholder="반영대기"></div>
+    <div><label>연도</label><br><select name="year">{year_options}</select></div>
+    <div><label>월</label><br><select name="month">{month_options}</select></div>
+    <div><label>처리구분</label><br><select name="process_type">{process_options}</select></div>
+    <div><label>상태</label><br><select name="status">{status_options}</select></div>
     <div><label>검색</label><br><input type="text" name="q" value="{h(q)}" placeholder="성명, 차량번호, 지역"></div>
     <div><label>개수</label><br>
       <select name="page_size">
