@@ -2218,6 +2218,134 @@ def admin_fix_billing_pending_latest_only(
 
 
 
+
+@app.post("/admin/rebuild-latest-billing-pending")
+def admin_rebuild_latest_billing_pending(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    부과대수 엑셀 전체월 중 최신월만 처리대기목록에 올린다.
+    기존 잡수입/가수금으로 만든 협회비/관리비 후보는 유지하고,
+    최신월 엑셀 사람 중 중복 아닌 사람만 처리대기로 만든다.
+    """
+    def _k(pt, vehicle_no, name):
+        pt = str(pt or "").strip()
+        pt = PROCESS_NORM.get(pt, pt)
+        pt = BILLING_TO_PENDING_PT.get(pt, pt)
+
+        v = str(vehicle_no or "").replace(" ", "").replace("-", "").replace("호", "").strip()
+        n = str(name or "").replace(" ", "").strip()
+        return (pt, v, n)
+
+    try:
+        latest = (
+            db.query(BillingPerson.year, BillingPerson.month)
+            .order_by(BillingPerson.year.desc(), BillingPerson.month.desc())
+            .first()
+        )
+
+        if not latest:
+            return {"ok": False, "msg": "BillingPerson 자료 없음"}
+
+        latest_y = int(latest[0])
+        latest_m = int(latest[1])
+
+        # 1) 전체 부과대수 자료는 우선 상세로 돌림
+        db.query(BillingPerson).filter(
+            BillingPerson.reflect_status.in_(["처리대기", "반영대기", "부과대수상세"])
+        ).update(
+            {BillingPerson.reflect_status: "부과대수상세"},
+            synchronize_session=False
+        )
+
+        # 2) 기존 잡수입/가수금 후보 키 수집
+        existing = set()
+
+        try:
+            _ensure_income_ledger_details(db)
+            details = db.query(IncomeLedgerDetail).filter(
+                IncomeLedgerDetail.pending_target.in_(["협회비", "관리비"])
+            ).all()
+
+            for d in details:
+                existing.add(_k(
+                    getattr(d, "pending_target", "") or "",
+                    getattr(d, "related_vehicle_no", "") or "",
+                    getattr(d, "related_name", "") or "",
+                ))
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print("income duplicate key load error:", e)
+
+        try:
+            rows = db.execute(_text("SELECT * FROM bank_income_pending_queue")).mappings().all()
+            for r in rows:
+                existing.add(_k(
+                    r.get("process_type", "") or r.get("income_kind", "") or "",
+                    r.get("related_vehicle_no", "") or "",
+                    r.get("related_name", "") or "",
+                ))
+        except Exception:
+            pass
+
+        existing = {x for x in existing if x[1] or x[2]}
+
+        # 3) 최신월의 협회가입/택배신규만 처리대기 후보
+        latest_people = db.query(BillingPerson).filter(
+            BillingPerson.year == latest_y,
+            BillingPerson.month == latest_m
+        ).all()
+
+        made_pending = 0
+        skipped_duplicate = 0
+        ignored = 0
+
+        for bp in latest_people:
+            raw_pt = str(getattr(bp, "process_type", "") or "")
+            mapped_pt = BILLING_TO_PENDING_PT.get(PROCESS_NORM.get(raw_pt, raw_pt), PROCESS_NORM.get(raw_pt, raw_pt))
+
+            # 반영대기 탭에는 협회비/관리비 신규 부과 후보만 올림
+            if mapped_pt not in ["협회비", "관리비"]:
+                ignored += 1
+                continue
+
+            key = _k(mapped_pt, getattr(bp, "vehicle_no", ""), getattr(bp, "name", ""))
+
+            if key in existing:
+                bp.reflect_status = "부과대수상세"
+                skipped_duplicate += 1
+                continue
+
+            bp.reflect_status = "처리대기"
+            existing.add(key)
+            made_pending += 1
+
+        db.commit()
+
+        return {
+            "ok": True,
+            "latest_year": latest_y,
+            "latest_month": latest_m,
+            "made_pending": made_pending,
+            "skipped_duplicate": skipped_duplicate,
+            "ignored_not_new_billing": ignored,
+            "msg": "최신월 부과대수 신규 부과 후보만 처리대기로 재구성했습니다."
+        }
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": repr(e)}
+
+
+
+
 @app.get("/work", response_class=HTMLResponse)
 def work_page(request: Request, tab: str = "전체", q: str = "",
               db: Session = Depends(get_db), user: User = Depends(require_user)):
