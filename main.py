@@ -1943,7 +1943,7 @@ def _reflect_workqueue_item(db: Session, wq, user: User):
     if not member:
         return False, "회원 없음"
 
-    if getattr(wq, "status", "") == "반영완료":
+    if getattr(wq, "status", "") == "부과대수상세", "반영완료":
         return True, "이미 반영완료"
 
     ptype_raw = (getattr(wq, "process_type", "") or "").strip()
@@ -5244,6 +5244,112 @@ def income_ledger_page(
         pass
 
     # 상세 없는 tx는 match_reason에서 자동 생성
+
+    # 부과대수상세 탭: 처리대기목록 안에서 부과대수 전체 자료를 조회한다.
+    if tab == "부과대수상세":
+        try:
+            page = int(request.query_params.get("page", 1) or 1)
+        except Exception:
+            page = 1
+        try:
+            page_size = int(request.query_params.get("page_size", 50) or 50)
+        except Exception:
+            page_size = 50
+
+        if page_size not in [30, 50, 100]:
+            page_size = 50
+        if page < 1:
+            page = 1
+
+        filter_year = request.query_params.get("year", "") or ""
+        filter_month = request.query_params.get("month", "") or ""
+        filter_process_type = request.query_params.get("process_type", "") or ""
+        filter_status = request.query_params.get("status", "") or ""
+        qq = request.query_params.get("q", "") or ""
+
+        from sqlalchemy import or_
+
+        query = db.query(BillingPerson)
+
+        if filter_year:
+            query = query.filter(BillingPerson.year == int(filter_year))
+        if filter_month:
+            query = query.filter(BillingPerson.month == int(filter_month))
+        if filter_process_type:
+            query = query.filter(BillingPerson.process_type == filter_process_type)
+        if filter_status:
+            query = query.filter(BillingPerson.reflect_status == filter_status)
+        if qq:
+            like = f"%{qq}%"
+            query = query.filter(or_(
+                BillingPerson.name.ilike(like),
+                BillingPerson.vehicle_no.ilike(like),
+                BillingPerson.region.ilike(like),
+                BillingPerson.source_sheet.ilike(like),
+                BillingPerson.process_type.ilike(like),
+            ))
+
+        total = query.count()
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        if page > total_pages:
+            page = total_pages
+
+        details = (
+            query.order_by(
+                BillingPerson.year.desc(),
+                BillingPerson.month.desc(),
+                BillingPerson.id.desc()
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
+        process_options = [
+            r[0] for r in db.query(BillingPerson.process_type)
+            .distinct()
+            .order_by(BillingPerson.process_type)
+            .all()
+            if r[0]
+        ]
+
+        status_options = [
+            r[0] for r in db.query(BillingPerson.reflect_status)
+            .distinct()
+            .order_by(BillingPerson.reflect_status)
+            .all()
+            if r[0]
+        ]
+
+        years = [
+            r[0] for r in db.query(BillingPerson.year)
+            .distinct()
+            .order_by(BillingPerson.year.desc())
+            .all()
+            if r[0]
+        ]
+
+        return templates.TemplateResponse(request, "pending_board_billing_details.html", {
+            "request": request,
+            "user": user,
+            "tab": tab,
+            "rows": details,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "years": years,
+            "months": list(range(1, 13)),
+            "process_options": process_options,
+            "status_options": status_options,
+            "filter_year": filter_year,
+            "filter_month": filter_month,
+            "filter_process_type": filter_process_type,
+            "filter_status": filter_status,
+            "q": qq,
+        })
+
+
     rows = []
     for tx in txs:
         d = detail_map.get(tx.id)
