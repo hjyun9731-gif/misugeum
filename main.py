@@ -7085,7 +7085,6 @@ def _work_tab_match(tab, pt, status=""):
     status = str(status or "").strip()
 
     filtered = [r for r in rows if _work_tab_match(tab, r.get("process_type"), r.get("status"))] == "반영대기"
-                        and r["process_type"] in ["협회비", "관리비"]]
         elif tab == "반영완료":
             filtered = [r for r in rows if r["status"] == "반영완료"]
         elif tab == "폐지":
