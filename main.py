@@ -308,17 +308,7 @@ def dashboard(request: Request, db: Session = Depends(get_db),
     _set_snap(db, "dashboard", snap)
 
     return templates.TemplateResponse(request, "dashboard.html", {
-        "request": request, "user": user, "snap": snap,         "page": page,
-        "page_size": page_size,
-        "total_filtered": total_filtered,
-        "total_pages": total_pages,
-        "process_options": process_options,
-        "status_options": status_options,
-        "filter_year": year or "",
-        "filter_month": month or "",
-        "filter_process_type": process_type or "",
-        "filter_status": status_filter or "",
-        "fmt_amt": fmt_amt,
+        "request": request, "user": user, "snap": snap, "fmt_amt": fmt_amt,
     })
 
 
@@ -6977,12 +6967,6 @@ def pending_board_page(
     request: Request,
     tab: str = "전체",
     q: str = "",
-    year: int = None,
-    month: int = None,
-    process_type: str = "",
-    status_filter: str = "",
-    page: int = 1,
-    page_size: int = 50,
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
@@ -6998,28 +6982,10 @@ def pending_board_page(
 
     # 1) BillingPerson
     try:
-        bq = db.query(BillingPerson)
-
-        if year:
-            bq = bq.filter(BillingPerson.year == int(year))
-        if month:
-            bq = bq.filter(BillingPerson.month == int(month))
-        if process_type:
-            reverse_map = {
-                "협회비": ["협회가입", "협회가입원", "협회비"],
-                "관리비": ["택배신규", "자격증명발급", "신규관리", "관리비"],
-            }
-            pts = reverse_map.get(process_type, [process_type])
-            bq = bq.filter(BillingPerson.process_type.in_(pts))
-        if status_filter:
-            bq = bq.filter(BillingPerson.reflect_status == status_filter)
-
         bps = (
-            bq.order_by(
-                BillingPerson.year.desc(),
-                BillingPerson.month.desc(),
-                BillingPerson.id.desc()
-            )
+            db.query(BillingPerson)
+            .filter(BillingPerson.reflect_status.in_(["처리대기", "반영대기", "반영완료", "보류"]))
+            .order_by(BillingPerson.id.desc())
             .all()
         )
         for bp in bps:
@@ -7027,18 +6993,16 @@ def pending_board_page(
             pt_norm = PROCESS_NORM.get(pt_raw, pt_raw)
             # 협회가입/택배신규 등은 반영대기 탭에서 협회비/관리비로 표시
             pt = BILLING_TO_PENDING_PT.get(pt_norm, pt_norm)
-            raw_st = str(getattr(bp, "reflect_status", "") or "부과대수상세")
-            st = raw_st
-            if raw_st in ["처리대기", "반영대기"] and pt in ["협회비", "관리비"]:
+            st = str(getattr(bp, "reflect_status", "") or "반영대기")
+            if st in ["처리대기", "부과대수상세"] and pt in ["협회비", "관리비"]:
+                st = "반영대기"
+            elif st == "처리대기":
                 st = "반영대기"
             rd, nb_date = _bp_request_and_next_dates(bp, pt)
             acct_map = {"협회비": "협", "관리비": "관"}
             acct = acct_map.get(pt, getattr(bp, "account", "") or "")
             rows.append({
-                "row_type": "bp", "id": bp.id, "status": st, "raw_status": raw_st,
-                "year": getattr(bp, "year", "") or "",
-                "month": getattr(bp, "month", "") or "",
-                "process_type": pt,
+                "row_type": "bp", "id": bp.id, "status": st, "process_type": pt,
                 "region": getattr(bp, "region", "") or "",
                 "name": getattr(bp, "name", "") or "",
                 "vehicle_no": getattr(bp, "vehicle_no", "") or "",
@@ -7184,7 +7148,7 @@ def pending_board_page(
 
     def row_text(r):
         return " ".join(str(r.get(k) or "") for k in [
-            "year","month","status","raw_status","process_type","region","name","vehicle_no","account","source","reason","note"])
+            "status","process_type","region","name","vehicle_no","account","source","reason","note"])
 
     filtered = rows
     if tab and tab != "전체":
@@ -7209,37 +7173,8 @@ def pending_board_page(
         else:
             counts[t] = sum(1 for r in rows if r["process_type"] == t)
 
-    try:
-        page = int(page or 1)
-    except Exception:
-        page = 1
-    try:
-        page_size = int(page_size or 50)
-    except Exception:
-        page_size = 50
-
-    if page_size not in [30, 50, 100]:
-        page_size = 50
-    if page < 1:
-        page = 1
-
-    total_filtered = len(filtered)
-    total_pages = max(1, (total_filtered + page_size - 1) // page_size)
-    if page > total_pages:
-        page = total_pages
-
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
-    page_rows = filtered[start_idx:end_idx]
-
-    process_options = [
-        "협회비", "관리비", "폐지", "양도", "이관", "탈퇴",
-        "관리비폐지", "70세", "사망", "말소", "택배신규", "협회가입"
-    ]
-    status_options = ["반영대기", "부과대수상세", "처리대기", "반영완료", "보류"]
-
     return templates.TemplateResponse(request, "pending_board.html", {
-        "request": request, "user": user, "rows": page_rows,
+        "request": request, "user": user, "rows": filtered,
         "tabs": ALL_TABS, "tab": tab, "q": q, "counts": counts,
         "fmt_amt": fmt_amt, "msg": request.query_params.get("msg", ""),
     })

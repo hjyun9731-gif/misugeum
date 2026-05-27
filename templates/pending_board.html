@@ -1,74 +1,8 @@
 ﻿{% extends "base.html" %}
 {% set active = "work" %}
-{% block title %}처리대기목록
-<div class="pager" style="display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0;">
-  {% if page > 1 %}
-  <a class="btn btn-ghost" href="/work/pending-board?tab={{ tab }}&q={{ q }}&year={{ filter_year }}&month={{ filter_month }}&process_type={{ filter_process_type }}&status_filter={{ filter_status }}&page={{ page-1 }}&page_size={{ page_size }}">이전</a>
-  {% endif %}
-  <span>{{ page }} / {{ total_pages }}</span>
-  {% if page < total_pages %}
-  <a class="btn btn-ghost" href="/work/pending-board?tab={{ tab }}&q={{ q }}&year={{ filter_year }}&month={{ filter_month }}&process_type={{ filter_process_type }}&status_filter={{ filter_status }}&page={{ page+1 }}&page_size={{ page_size }}">다음</a>
-  {% endif %}
-</div>
-
-{% endblock %}
+{% block title %}처리대기목록{% endblock %}
 {% block page_title %}처리대기목록{% endblock %}
 {% block content %}
-
-<div class="filter-card" style="background:#fff;border:1px solid #eee;border-radius:14px;padding:12px;margin:12px 0;">
-  <form method="get" action="/work/pending-board" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
-    <input type="hidden" name="tab" value="{{ tab }}">
-    <div>
-      <label>연도</label>
-      <input type="number" name="year" value="{{ filter_year }}" placeholder="2026" style="width:90px;">
-    </div>
-    <div>
-      <label>월</label>
-      <select name="month">
-        <option value="">전체</option>
-        {% for m in range(1,13) %}
-        <option value="{{ m }}" {% if filter_month|string == m|string %}selected{% endif %}>{{ m }}월</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label>처리구분</label>
-      <select name="process_type">
-        <option value="">전체</option>
-        {% for p in process_options %}
-        <option value="{{ p }}" {% if filter_process_type == p %}selected{% endif %}>{{ p }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label>상태</label>
-      <select name="status_filter">
-        <option value="">전체</option>
-        {% for st in status_options %}
-        <option value="{{ st }}" {% if filter_status == st %}selected{% endif %}>{{ st }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label>검색</label>
-      <input type="text" name="q" value="{{ q or '' }}" placeholder="성명, 차량번호, 처리구분">
-    </div>
-    <div>
-      <label>개수</label>
-      <select name="page_size">
-        {% for n in [30,50,100] %}
-        <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}개</option>
-        {% endfor %}
-      </select>
-    </div>
-    <button class="btn btn-primary" type="submit">조회</button>
-    <a class="btn btn-ghost" href="/work/pending-board?tab={{ tab }}">초기화</a>
-  </form>
-  <div style="margin-top:8px;color:#777;font-size:13px;">
-    조회 {{ total_filtered }}건 / {{ page }}페이지 / 총 {{ total_pages }}페이지
-  </div>
-</div>
-
 
 {% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
 
