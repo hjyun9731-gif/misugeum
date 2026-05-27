@@ -5274,9 +5274,9 @@ def pending_board_page(
     _ensure_pending_board_table(db)
 
     # SAFE TAB NORMALIZE
-    tab = str(tab or "??").strip()
+    tab = str(tab or "전체").strip()
     if not tab:
-        tab = "??"
+        tab = "전체"
     rows = []
 
     # 1) BillingPerson
