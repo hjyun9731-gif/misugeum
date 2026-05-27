@@ -5438,6 +5438,7 @@ def bank_apply_auto_all_safe(
 # ????: ???? ???
 # ??? ???? ??. include_applied/on ?? ? ?????? ???.
 # =========================================================
+@app.post("/bank/reset-match-status")
 @app.post("/bank/reset-matches")
 @app.post("/bank/reset-match")
 @app.post("/bank/reset-status")
