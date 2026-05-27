@@ -3952,16 +3952,24 @@ def _billing_count_sheet_year_month(sheet_name, default_year=None):
 def _billing_count_parse_xlsx(path, default_year=None):
     """
     [사용]부과대수 엑셀 파서.
-    최근 양식: 지역/차량번호/성명/.../입금액/항목/비고
-    과거 양식: 하단 요약문 일부 포함 가능.
+    2025년 6월~2026년 6월 전체 시트 대응.
+    - 최신 항목 컬럼형
+    - 과거 구역 제목형
+    둘 다 읽어서 BillingReport/BillingPerson용 데이터로 반환한다.
     """
-    import json
     import re
     from openpyxl import load_workbook
 
     wb = load_workbook(path, data_only=True)
     all_details = []
     summary_by_month = {}
+
+    sheet_names = [ws.title for ws in wb.worksheets]
+    skip_sheet_names = set()
+
+    # 3월부과(1)이 있으면 일반 3월부과는 중복 방지를 위해 스킵
+    if "3월부과(1)" in sheet_names and "3월부과" in sheet_names:
+        skip_sheet_names.add("3월부과")
 
     header_aliases = {
         "region": ["지역", "시군", "시·군"],
@@ -3978,28 +3986,92 @@ def _billing_count_parse_xlsx(path, default_year=None):
         "note": ["비고", "메모"],
     }
 
+    regions = [
+        "춘천시","강릉시","원주시","동해시","태백시","속초시","삼척시",
+        "홍천군","횡성군","영월군","평창군","정선군","철원군","화천군",
+        "양구군","인제군","고성군","양양군"
+    ]
+
+    vehicle_re = re.compile(r"(?:[가-힣]{2,3})?\s*\d{2,3}\s*[가-힣]\s*\d{3,4}\s*호?")
+
     def cell_text(v):
         return _billing_count_norm_text(v)
 
+    def clean_vehicle(v):
+        t = cell_text(v)
+        return t.replace(" ", "").replace("-", "")
+
+    def is_noise(t):
+        t2 = cell_text(t).replace(" ", "")
+        if not t2:
+            return True
+        bad = [
+            "합계","총계","소계","누계","구분","항목","비고","성명","차량번호",
+            "지역","인가일자","가입일자","주소","주민","부과차량","폐지차량",
+            "관리비","협회비","양도양수","자료","대수","월부과"
+        ]
+        return any(x in t2 for x in bad)
+
+    def section_item(text):
+        t = cell_text(text).replace(" ", "")
+        if not t:
+            return ""
+
+        if "70세" in t:
+            return "70세"
+
+        if "관리비폐지" in t or "관리비폐업" in t:
+            return "관리비폐지"
+
+        if "택배관리비폐지" in t:
+            return "관리비폐지"
+
+        if "관리비" in t and ("폐지" in t or "폐업" in t):
+            return "관리비폐지"
+
+        if "택배신규" in t:
+            return "택배신규"
+
+        if ("택배" in t and "관리비" in t and ("부과" in t or "신규" in t)) or "관리비부과차량" in t:
+            return "택배신규"
+
+        if "협회가입원" in t or "협회가입" in t:
+            return "협회가입"
+
+        if "협회비" in t and ("부과" in t or "가입" in t or "신규" in t):
+            return "협회가입"
+
+        if "양도양수" in t or "양도" in t:
+            return "양도"
+
+        if "타도" in t or "이관" in t or "전입" in t:
+            return "타도"
+
+        if "탈퇴" in t:
+            return "탈퇴"
+
+        if "폐지" in t or "폐업" in t:
+            return "폐지"
+
+        return _billing_count_item(t)
+
     def find_header(ws):
-        best_row = None
-        best_map = {}
-        max_scan = min(ws.max_row, 40)
+        max_scan = min(ws.max_row, 60)
 
         for r in range(1, max_scan + 1):
             vals = [cell_text(ws.cell(r, c).value) for c in range(1, ws.max_column + 1)]
             joined = " ".join(vals)
             score = 0
-            if "지역" in joined:
+            if "지역" in joined or "시군" in joined:
                 score += 1
             if "차량번호" in joined or "등록번호" in joined:
                 score += 1
-            if "성명" in joined or "대표자" in joined:
+            if "성명" in joined or "대표자" in joined or "이름" in joined:
                 score += 1
-            if "항목" in joined or "처리구분" in joined:
+            if "항목" in joined or "처리구분" in joined or "구분" in joined:
                 score += 1
 
-            if score >= 3:
+            if score >= 2:
                 colmap = {}
                 for idx, txt in enumerate(vals, start=1):
                     key_txt = txt.replace(" ", "")
@@ -4007,20 +4079,113 @@ def _billing_count_parse_xlsx(path, default_year=None):
                         for a in aliases:
                             if a.replace(" ", "") in key_txt:
                                 colmap[key] = idx
-                best_row = r
-                best_map = colmap
-                break
+                return r, colmap
 
-        return best_row, best_map
+        return None, {}
 
     def get(row, colmap, key):
         c = colmap.get(key)
         if not c:
             return ""
+        if c - 1 >= len(row):
+            return ""
         return cell_text(row[c - 1])
+
+    def infer_from_row(vals):
+        texts = [cell_text(v) for v in vals]
+        joined = " ".join(texts)
+
+        region = ""
+        for t in texts:
+            t2 = t.strip()
+            if t2 in regions:
+                region = t2
+                break
+            if any(rg in t2 for rg in regions):
+                for rg in regions:
+                    if rg in t2:
+                        region = rg
+                        break
+            if region:
+                break
+
+        vehicle_no = ""
+        m = vehicle_re.search(joined)
+        if m:
+            vehicle_no = clean_vehicle(m.group(0))
+
+        name = ""
+        # 차량번호 근처 또는 한국 이름처럼 보이는 값 추정
+        for t in texts:
+            tt = t.strip()
+            compact = tt.replace(" ", "")
+            if not compact:
+                continue
+            if compact == region:
+                continue
+            if vehicle_no and vehicle_no.replace("호", "") in compact.replace(" ", ""):
+                continue
+            if is_noise(compact):
+                continue
+            if re.fullmatch(r"[가-힣]{2,5}", compact):
+                name = compact
+                break
+
+        return region, vehicle_no, name
+
+    def add_detail(year, month, item, region, vehicle_no, name, row, colmap, sheet_name, source_row):
+        if not item:
+            return
+
+        vehicle_no = clean_vehicle(vehicle_no)
+        name = cell_text(name)
+        region = cell_text(region)
+
+        joined = " ".join(cell_text(x) for x in row)
+        if any(x in joined for x in ["합계", "총계", "소계"]):
+            return
+
+        if not vehicle_no and not name:
+            return
+
+        ym = (year, month)
+        if ym not in summary_by_month:
+            summary_by_month[ym] = {k: 0 for k in BILLING_COUNT_ITEMS}
+            summary_by_month[ym]["협회기본대수"] = 0
+            summary_by_month[ym]["총부과대수"] = 0
+            summary_by_month[ym]["택배관리"] = 0
+
+        summary_by_month[ym][item] = summary_by_month[ym].get(item, 0) + 1
+
+        detail = {
+            "year": year,
+            "month": month,
+            "item": item,
+            "region": region,
+            "vehicle_no": vehicle_no,
+            "name": name,
+            "resident_no": get(row, colmap, "resident_no"),
+            "address": get(row, colmap, "address"),
+            "permit_date": get(row, colmap, "permit_date"),
+            "join_date": get(row, colmap, "join_date"),
+            "cert_issue_date": get(row, colmap, "cert_issue_date"),
+            "cert_no": get(row, colmap, "cert_no"),
+            "amount": _billing_count_int(get(row, colmap, "amount")),
+            "note": get(row, colmap, "note") or joined,
+            "source_sheet": sheet_name,
+            "source_row": source_row,
+            "raw_data": {str(i + 1): cell_text(v) for i, v in enumerate(row)},
+        }
+        all_details.append(detail)
+
+    seen_keys = set()
 
     for ws in wb.worksheets:
         sheet_name = ws.title
+
+        if sheet_name in skip_sheet_names:
+            continue
+
         year, month = _billing_count_sheet_year_month(sheet_name, default_year)
         ym = (year, month)
 
@@ -4031,68 +4196,70 @@ def _billing_count_parse_xlsx(path, default_year=None):
             summary_by_month[ym]["택배관리"] = 0
 
         header_row, colmap = find_header(ws)
+        current_section = ""
 
-        # 1) 표 형태 상세행 파싱
-        if header_row:
-            for r in range(header_row + 1, ws.max_row + 1):
-                row = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
+        # 1) 표/구역 혼합 파싱
+        start_row = header_row + 1 if header_row else 1
 
-                item = _billing_count_item(get(row, colmap, "item"))
+        for r in range(start_row, ws.max_row + 1):
+            row = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
+            vals = [cell_text(x) for x in row]
+            row_text = " ".join(x for x in vals if x)
 
-                # 항목 칸이 없거나 비어 있으면 행 전체에서 항목 찾기
-                if not item:
-                    row_text = " ".join(cell_text(x) for x in row)
-                    item = _billing_count_item(row_text)
+            if not row_text:
+                continue
 
-                if not item:
-                    continue
+            inferred_region, inferred_vehicle, inferred_name = infer_from_row(vals)
+            has_person_like = bool(inferred_vehicle or inferred_name)
 
-                region = get(row, colmap, "region")
-                vehicle_no = get(row, colmap, "vehicle_no")
-                name = get(row, colmap, "name")
+            sec = section_item(row_text)
+            # 구역 제목은 사람 행이 아닐 때만 current_section으로 잡음
+            if sec and not has_person_like:
+                current_section = sec
+                continue
 
-                # 합계/설명행 제외
-                if any(x in (name + vehicle_no + region) for x in ["합계", "총계", "소계"]):
-                    continue
+            item = ""
+            if colmap:
+                item = section_item(get(row, colmap, "item"))
+            if not item:
+                item = current_section
+            if not item:
+                item = section_item(row_text)
 
-                summary_by_month[ym][item] = summary_by_month[ym].get(item, 0) + 1
+            if not item:
+                continue
 
-                detail = {
-                    "year": year,
-                    "month": month,
-                    "item": item,
-                    "region": region,
-                    "vehicle_no": vehicle_no,
-                    "name": name,
-                    "resident_no": get(row, colmap, "resident_no"),
-                    "address": get(row, colmap, "address"),
-                    "permit_date": get(row, colmap, "permit_date"),
-                    "join_date": get(row, colmap, "join_date"),
-                    "cert_issue_date": get(row, colmap, "cert_issue_date"),
-                    "cert_no": get(row, colmap, "cert_no"),
-                    "amount": _billing_count_int(get(row, colmap, "amount")),
-                    "note": get(row, colmap, "note"),
-                    "source_sheet": sheet_name,
-                    "source_row": r,
-                    "raw_data": {str(i + 1): cell_text(v) for i, v in enumerate(row)},
-                }
-                all_details.append(detail)
+            region = get(row, colmap, "region") if colmap else ""
+            vehicle_no = get(row, colmap, "vehicle_no") if colmap else ""
+            name = get(row, colmap, "name") if colmap else ""
 
-        # 2) 과거 양식 하단 요약문 보조 파싱
+            if not region:
+                region = inferred_region
+            if not vehicle_no:
+                vehicle_no = inferred_vehicle
+            if not name:
+                name = inferred_name
+
+            key = (year, month, item, clean_vehicle(vehicle_no), cell_text(name))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+
+            add_detail(year, month, item, region, vehicle_no, name, row, colmap, sheet_name, r)
+
+        # 2) 요약문 보조 파싱
         for r in range(1, ws.max_row + 1):
-            vals = [cell_text(ws.cell(r, c).value) for c in range(1, min(ws.max_column, 8) + 1)]
+            vals = [cell_text(ws.cell(r, c).value) for c in range(1, min(ws.max_column, 10) + 1)]
             text = " ".join(x for x in vals if x)
 
             if not text:
                 continue
 
-            # 예: "70세이상 139 + 33 - 4 = 168"
             if "70세" in text:
                 nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
                 if nums:
                     summary_by_month[ym]["70세"] = max(summary_by_month[ym].get("70세", 0), nums[-1])
 
-            # 예: "협회비 부과대수 1,106 + 8 - 6 = 1,108"
             if "협회비" in text and "부과대수" in text:
                 nums = [int(x.replace(",", "")) for x in re.findall(r"\d[\d,]*", text)]
                 if nums:
@@ -4105,6 +4272,8 @@ def _billing_count_parse_xlsx(path, default_year=None):
                     summary_by_month[ym]["택배관리"] = max(summary_by_month[ym].get("택배관리", 0), nums[-1])
 
     return summary_by_month, all_details
+
+
 
 
 @app.get("/billing-counts", response_class=HTMLResponse)
@@ -4224,7 +4393,7 @@ async def billing_counts_upload(
                     source_file=file.filename,
                     source_sheet=d.get("source_sheet", ""),
                     source_row=d.get("source_row", 0),
-                    raw_data=json.dumps(d.get("raw_data", {}), ensure_ascii=False),
+                    raw_data=json.dumps(d, ensure_ascii=False, default=str),
                     year=yy,
                     month=mm,
                     process_type=d.get("item", ""),
