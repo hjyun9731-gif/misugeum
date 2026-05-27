@@ -4911,6 +4911,54 @@ async def billing_report_upload(
             continue
         existing_keys.add(pending_key)
 
+        # 기준일자 파싱 및 다음부과일 계산
+        import re as _re_bd
+        import calendar as _cal_bd
+
+        def _parse_korean_date_bd(s):
+            if not s: return ""
+            s2 = str(s).strip().split("\n")[0].strip()
+            m = _re_bd.search(r"(\d{2,4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})", s2)
+            if not m: return ""
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if y < 100:
+                y = 2000 + y if y <= 30 else 1900 + y
+            try:
+                max_d = _cal_bd.monthrange(y, mo)[1]
+                return "%04d-%02d-%02d" % (y, mo, min(d, max_d))
+            except: return ""
+
+        def _next_billing_bd(base_str):
+            s = _parse_korean_date_bd(base_str)
+            if not s: return ""
+            try:
+                y, mo, d = int(s[:4]), int(s[5:7]), int(s[8:10])
+                if mo == 12: ny, nm = y+1, 1
+                else: ny, nm = y, mo+1
+                max_d = _cal_bd.monthrange(ny, nm)[1]
+                return "%04d-%02d-%02d" % (ny, nm, min(d, max_d))
+            except: return ""
+
+        pt = p["process_type"]
+        MGMT_T = {"택배신규", "자격증명발급", "신규관리"}
+        ASSOC_T = {"협회가입", "협회가입원"}
+        NEED_NEXT = MGMT_T | ASSOC_T
+
+        permit_date = _parse_korean_date_bd(p.get("permit_date_raw", ""))
+        join_date   = _parse_korean_date_bd(p.get("join_date_raw", ""))
+        note_raw    = p.get("note_raw", "")
+
+        if pt in MGMT_T:
+            request_date = permit_date or join_date
+        elif pt in ASSOC_T:
+            request_date = join_date or permit_date
+        else:
+            # 비고란 날짜 추출
+            mn = _re_bd.search(r"(\d{2,4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})", str(note_raw or ""))
+            request_date = _parse_korean_date_bd(mn.group(0)) if mn else (permit_date or join_date)
+
+        next_billing = _next_billing_bd(request_date) if pt in NEED_NEXT else ""
+
         db.add(BillingPerson(
             billing_report_id = r.id,
             source_file       = file.filename,
@@ -4924,6 +4972,10 @@ async def billing_report_upload(
             name              = p.get("name", ""),
             vehicle_no        = p.get("vehicle_no", ""),
             region            = p.get("region", ""),
+            permit_date_raw   = p.get("permit_date_raw", ""),
+            join_date_raw     = p.get("join_date_raw", ""),
+            note              = note_raw,
+            charge_start_month= request_date[:7] if request_date else "",
             from_status       = p.get("from_status", "정상"),
             to_status         = p.get("to_status", ""),
             reflect_status    = "처리대기",

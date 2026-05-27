@@ -682,6 +682,62 @@ def parse_billing_file(xl_path: str, base_year: int, base_month: int) -> Dict:
 
             if veh_found and name_found and current_section:
                 raw_dict = {str(i): _nc(v) for i, v in enumerate(raw_row) if _nc(v)}
+
+                # 날짜 컬럼 추출 (신형식: 지역/차량/성명/주민/인가일자/가입일자/자격증명발급일자/발급번호/입금액/항목/비고)
+                def _pick_date(idx_list):
+                    for idx in idx_list:
+                        if idx < len(cells):
+                            v = cells[idx].strip()
+                            if v and v not in ("x", "X", "O", "o", "-", ""):
+                                return v
+                    return ""
+
+                # 컬럼 위치 자동 탐지
+                permit_date_raw = ""   # 인가일자
+                join_date_raw = ""     # 가입일자
+                note_raw = ""          # 비고
+
+                # 헤더 기반 위치 탐지 시도
+                # 신형식 (6월, 5월, 4월, 3월부과(1)): 인가일자=4, 가입일자=5, 비고=10 또는 11
+                # 구형식 (번호/지역/차량/성명/주소/가입일자/자격증명발급일자): 가입일자=5
+                for ci2, cv2 in enumerate(cells):
+                    cv2s = cv2.replace(" ", "")
+                    if ci2 > 0 and len(cv2s) >= 2:
+                        # 날짜 패턴 감지: YY.MM.DD 또는 YYYY-MM-DD
+                        import re as _re2
+                        if _re2.match(r"^\d{2,4}[\.\-/]\s*\d{1,2}[\.\-/]\s*\d{1,2}", cv2s):
+                            # 처음 발견된 날짜들을 순서대로 인가일자/가입일자로 배정
+                            if not permit_date_raw:
+                                permit_date_raw = cv2.strip()
+                            elif not join_date_raw:
+                                join_date_raw = cv2.strip()
+
+                # 비고: 마지막에서 2번째 또는 마지막 비어있지 않은 셀
+                non_empty_cells = [(i, c) for i, c in enumerate(cells) if c.strip()]
+                if non_empty_cells:
+                    # 항목 컬럼 이후의 마지막 셀을 비고로
+                    last_idx, last_val = non_empty_cells[-1]
+                    if last_val not in ("x","X","O","o") and not _is_vehicle_no(last_val) and not _is_name(last_val.replace(" ","")):
+                        note_raw = last_val.strip()
+
+                # 처리구분별 기준일자 결정
+                MGMT_TYPES = {"택배신규", "자격증명발급", "신규관리"}
+                ASSOC_TYPES = {"협회가입", "협회가입원"}
+
+                if current_section in MGMT_TYPES:
+                    request_date_raw = permit_date_raw or join_date_raw  # 관리비: 인가일자 우선
+                elif current_section in ASSOC_TYPES:
+                    request_date_raw = join_date_raw or permit_date_raw  # 협회비: 가입일자 우선
+                else:
+                    # 폐지/양도/관리비폐지 등: 비고란 날짜 우선
+                    import re as _re3
+                    date_in_note = ""
+                    if note_raw:
+                        m = _re3.search(r"(\d{2,4}[\.\-/]\s*\d{1,2}[\.\-/]\s*\d{1,2})", note_raw)
+                        if m:
+                            date_in_note = m.group(1)
+                    request_date_raw = date_in_note or permit_date_raw or join_date_raw
+
                 persons.append({
                     "process_type": current_section,
                     "account": BILLING_ACCOUNT_MAP.get(current_section, ""),
@@ -693,8 +749,12 @@ def parse_billing_file(xl_path: str, base_year: int, base_month: int) -> Dict:
                     "raw_data": raw_dict,
                     "to_status": BILLING_TO_STATUS_MAP.get(current_section, ""),
                     "from_status": "정상",
+                    "permit_date_raw": permit_date_raw,
+                    "join_date_raw": join_date_raw,
+                    "note_raw": note_raw,
+                    "request_date_raw": request_date_raw,
                 })
-                parse_log.append(f"{sname}[{ri}] 개인행: {current_section} {name_found} {veh_found}")
+                parse_log.append(f"{sname}[{ri}] 개인행: {current_section} {name_found} {veh_found} 기준일={request_date_raw}")
 
             # 빈 행이면 섹션 리셋 (다음 섹션으로 넘어감)
             non_empty = [c for c in cells if c.strip()]
