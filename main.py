@@ -7217,9 +7217,9 @@ def pending_board_page(
     except Exception as e:
         print("BillingPerson error:", e)
 
-    # 2) WorkQueue
+    # 2) WorkQueue - 반영대기/처리대기 상태만
     try:
-        wqs = db.query(WorkQueue).order_by(WorkQueue.id.desc()).all()
+        wqs = db.query(WorkQueue).filter(WorkQueue.status.in_(["반영대기", "처리대기", "보류"])).order_by(WorkQueue.id.desc()).all()
         for w in wqs:
             m = db.query(Member).filter(Member.id == w.member_id).first() if w.member_id else None
             pt_raw = str(getattr(w, "process_type", "") or "")
