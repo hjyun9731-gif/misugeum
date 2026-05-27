@@ -1611,20 +1611,182 @@ def license_check(request: Request, db: Session = Depends(get_db),
 <meta charset="utf-8">
 <title>전체자대조</title>
 <style>
-body{{font-family:Arial,'Malgun Gothic',sans-serif;background:#f7f7f7;margin:0;padding:20px;}}
-.card{{background:white;border:1px solid #eee;border-radius:14px;padding:16px;margin-bottom:14px;}}
-table{{width:100%;border-collapse:collapse;background:white;}}
-th,td{{border-bottom:1px solid #eee;padding:8px;font-size:13px;vertical-align:top;}}
-th{{background:#fafafa;text-align:left;}}
-input{{padding:8px;border:1px solid #ddd;border-radius:8px;}}
-button,a.btn{{padding:8px 10px;border:1px solid #ddd;border-radius:8px;background:white;text-decoration:none;color:#333;cursor:pointer;}}
-.primary{{background:#2563eb!important;color:white!important;}}
-.err{{color:#e11d48;font-weight:700;margin-top:8px;}}
+:root{{
+  --bg1:#fff7fb;
+  --bg2:#f7f8ff;
+  --card:#ffffff;
+  --line:#efd9e6;
+  --line2:#f4e8ef;
+  --text:#302636;
+  --muted:#8c7180;
+  --pink:#ff7eb6;
+  --pink2:#fff0f7;
+  --blue:#7aa7ff;
+  --purple:#9b7bff;
+  --danger:#e11d48;
+}}
+*{{box-sizing:border-box;}}
+body{{
+  font-family:Arial,'Malgun Gothic',sans-serif;
+  background:
+    radial-gradient(circle at top left,rgba(255,126,182,.18),transparent 28%),
+    radial-gradient(circle at top right,rgba(122,167,255,.18),transparent 30%),
+    linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 55%,#f5f7fb 100%);
+  margin:0;
+  padding:24px;
+  color:var(--text);
+}}
+.card{{
+  background:rgba(255,255,255,.96);
+  border:1px solid var(--line);
+  border-radius:22px;
+  padding:18px;
+  margin-bottom:16px;
+  box-shadow:0 12px 30px rgba(190,110,150,.12);
+}}
+h2{{
+  margin:0 0 6px 0;
+  font-size:24px;
+  letter-spacing:-.8px;
+  color:#34273a;
+}}
+.card > div:first-child,
+.card h2 + div{{
+  color:var(--muted);
+}}
+.btn{{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:8px 13px;
+  border-radius:999px;
+  border:1px solid #ead6e2;
+  text-decoration:none;
+  color:#4a3d48;
+  background:#fff;
+  margin:3px;
+  font-size:13px;
+  font-weight:800;
+  cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.035);
+  transition:.12s ease;
+}}
+.btn:hover,button:hover{{
+  transform:translateY(-1px);
+  box-shadow:0 5px 12px rgba(180,100,140,.12);
+}}
+.btn b{{
+  background:#fff0f7;
+  color:#c24b82;
+  border-radius:999px;
+  padding:2px 7px;
+  font-size:12px;
+}}
+.primary{{
+  background:linear-gradient(135deg,var(--pink),var(--blue))!important;
+  color:white!important;
+  border-color:transparent!important;
+}}
+.primary b{{
+  background:rgba(255,255,255,.25);
+  color:white;
+}}
+.ghost{{
+  background:white;
+}}
+table{{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  background:white;
+  border-radius:18px;
+  overflow:hidden;
+}}
+th,td{{
+  border-bottom:1px solid var(--line2);
+  padding:10px 9px;
+  font-size:13px;
+  vertical-align:top;
+}}
+th{{
+  background:linear-gradient(180deg,#fff0f7,#fff9fc);
+  color:#6d4058;
+  text-align:left;
+  font-weight:900;
+  white-space:nowrap;
+}}
+tr:hover td{{
+  background:#fffafd;
+}}
+input,select{{
+  padding:9px 10px;
+  border:1px solid #ead6e2;
+  border-radius:12px;
+  background:white;
+  outline:none;
+  min-height:36px;
+}}
+input:focus,select:focus{{
+  border-color:var(--pink);
+  box-shadow:0 0 0 3px rgba(255,126,182,.16);
+}}
+label{{
+  color:#7b6473;
+  font-size:12px;
+  font-weight:900;
+}}
+button{{
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid #ead6e2;
+  background:#fff;
+  color:#4a3d48;
+  font-weight:800;
+  cursor:pointer;
+}}
+.err{{
+  color:var(--danger);
+  font-weight:800;
+  margin-top:8px;
+}}
+.pager-pill{{
+  display:inline-block;
+  padding:8px 14px;
+  background:#fff0f7;
+  border-radius:999px;
+  color:#7b3e5c;
+  font-weight:900;
+}}
+.subbox{{
+  margin-top:10px;
+  padding:10px;
+  background:#fff7fb;
+  border:1px solid #ffd6e8;
+  border-radius:14px;
+}}
+form{{
+  gap:8px;
+}}
+.badge{{
+  display:inline-block;
+  padding:4px 9px;
+  border-radius:999px;
+  background:#fff0f7;
+  color:#c24b82;
+  font-size:12px;
+  font-weight:900;
+}}
+@media(max-width:900px){{
+  body{{padding:14px;}}
+  .card{{padding:14px;border-radius:18px;}}
+  table{{min-width:980px;}}
+}}
 </style>
 </head>
 <body>
 <div class="card">
-  <h2 style="margin:0 0 8px 0;">전체자대조</h2>
+  <h2>전체자대조 ✨</h2><div style="color:#8c7180;font-size:13px;margin-bottom:10px;">전체자명단과 회원자료 대조 결과를 확인합니다.</div>
   <div>전체자명단 {lic_count}건</div>
   <div class="err">{err_msg}</div>
   <form method="get" action="/license-check" style="margin-top:12px;display:flex;gap:8px;">
@@ -3062,21 +3224,182 @@ def emergency_income_ledger_page(
 <meta charset="utf-8">
 <title>잡수입/가수금 관리</title>
 <style>
-body{{font-family:Arial,'Malgun Gothic',sans-serif;background:#f6f7fb;margin:0;padding:18px;}}
-.card{{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin-bottom:14px;}}
-.btn{{display:inline-block;padding:7px 10px;border-radius:9px;border:1px solid #ddd;text-decoration:none;color:#333;background:white;margin:2px;font-size:13px;}}
-.primary{{background:#2563eb!important;color:white!important;border-color:#2563eb!important;}}
-.ghost{{background:white;}}
-table{{width:100%;border-collapse:collapse;background:white;}}
-th,td{{border-bottom:1px solid #eee;padding:8px;font-size:13px;vertical-align:top;}}
-th{{background:#fafafa;text-align:left;}}
-input,select{{padding:7px;border:1px solid #ddd;border-radius:8px;}}
-.err{{color:#e11d48;font-weight:700;}}
+:root{{
+  --bg1:#fff7fb;
+  --bg2:#f7f8ff;
+  --card:#ffffff;
+  --line:#efd9e6;
+  --line2:#f4e8ef;
+  --text:#302636;
+  --muted:#8c7180;
+  --pink:#ff7eb6;
+  --pink2:#fff0f7;
+  --blue:#7aa7ff;
+  --purple:#9b7bff;
+  --danger:#e11d48;
+}}
+*{{box-sizing:border-box;}}
+body{{
+  font-family:Arial,'Malgun Gothic',sans-serif;
+  background:
+    radial-gradient(circle at top left,rgba(255,126,182,.18),transparent 28%),
+    radial-gradient(circle at top right,rgba(122,167,255,.18),transparent 30%),
+    linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 55%,#f5f7fb 100%);
+  margin:0;
+  padding:24px;
+  color:var(--text);
+}}
+.card{{
+  background:rgba(255,255,255,.96);
+  border:1px solid var(--line);
+  border-radius:22px;
+  padding:18px;
+  margin-bottom:16px;
+  box-shadow:0 12px 30px rgba(190,110,150,.12);
+}}
+h2{{
+  margin:0 0 6px 0;
+  font-size:24px;
+  letter-spacing:-.8px;
+  color:#34273a;
+}}
+.card > div:first-child,
+.card h2 + div{{
+  color:var(--muted);
+}}
+.btn{{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:8px 13px;
+  border-radius:999px;
+  border:1px solid #ead6e2;
+  text-decoration:none;
+  color:#4a3d48;
+  background:#fff;
+  margin:3px;
+  font-size:13px;
+  font-weight:800;
+  cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.035);
+  transition:.12s ease;
+}}
+.btn:hover,button:hover{{
+  transform:translateY(-1px);
+  box-shadow:0 5px 12px rgba(180,100,140,.12);
+}}
+.btn b{{
+  background:#fff0f7;
+  color:#c24b82;
+  border-radius:999px;
+  padding:2px 7px;
+  font-size:12px;
+}}
+.primary{{
+  background:linear-gradient(135deg,var(--pink),var(--blue))!important;
+  color:white!important;
+  border-color:transparent!important;
+}}
+.primary b{{
+  background:rgba(255,255,255,.25);
+  color:white;
+}}
+.ghost{{
+  background:white;
+}}
+table{{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  background:white;
+  border-radius:18px;
+  overflow:hidden;
+}}
+th,td{{
+  border-bottom:1px solid var(--line2);
+  padding:10px 9px;
+  font-size:13px;
+  vertical-align:top;
+}}
+th{{
+  background:linear-gradient(180deg,#fff0f7,#fff9fc);
+  color:#6d4058;
+  text-align:left;
+  font-weight:900;
+  white-space:nowrap;
+}}
+tr:hover td{{
+  background:#fffafd;
+}}
+input,select{{
+  padding:9px 10px;
+  border:1px solid #ead6e2;
+  border-radius:12px;
+  background:white;
+  outline:none;
+  min-height:36px;
+}}
+input:focus,select:focus{{
+  border-color:var(--pink);
+  box-shadow:0 0 0 3px rgba(255,126,182,.16);
+}}
+label{{
+  color:#7b6473;
+  font-size:12px;
+  font-weight:900;
+}}
+button{{
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid #ead6e2;
+  background:#fff;
+  color:#4a3d48;
+  font-weight:800;
+  cursor:pointer;
+}}
+.err{{
+  color:var(--danger);
+  font-weight:800;
+  margin-top:8px;
+}}
+.pager-pill{{
+  display:inline-block;
+  padding:8px 14px;
+  background:#fff0f7;
+  border-radius:999px;
+  color:#7b3e5c;
+  font-weight:900;
+}}
+.subbox{{
+  margin-top:10px;
+  padding:10px;
+  background:#fff7fb;
+  border:1px solid #ffd6e8;
+  border-radius:14px;
+}}
+form{{
+  gap:8px;
+}}
+.badge{{
+  display:inline-block;
+  padding:4px 9px;
+  border-radius:999px;
+  background:#fff0f7;
+  color:#c24b82;
+  font-size:12px;
+  font-weight:900;
+}}
+@media(max-width:900px){{
+  body{{padding:14px;}}
+  .card{{padding:14px;border-radius:18px;}}
+  table{{min-width:980px;}}
+}}
 </style>
 </head>
 <body>
 <div class="card">
-  <h2 style="margin:0 0 10px 0;">잡수입/가수금 관리</h2>
+  <h2>잡수입/가수금 관리 ✨</h2><div style="color:#8c7180;font-size:13px;margin-bottom:10px;">통장매칭에서 분류한 잡수입과 가수금을 확인합니다.</div>
   <div>{kind_tabs}</div>
   <div class="err">{err}</div>
 </div>
@@ -3107,7 +3430,7 @@ input,select{{padding:7px;border:1px solid #ddd;border-radius:8px;}}
   <div style="margin-top:10px;color:#666;">총 {total}건 · {page}/{total_pages}페이지</div>
 </div>
 
-<div class="card">
+<div class="card" style="overflow:auto;">
 <table>
 <thead>
 <tr>
@@ -3448,132 +3771,177 @@ def emergency_pending_board_page(
 <meta charset="utf-8">
 <title>처리대기목록</title>
 <style>
-:root{
+:root{{
+  --bg1:#fff7fb;
+  --bg2:#f7f8ff;
+  --card:#ffffff;
+  --line:#efd9e6;
+  --line2:#f4e8ef;
+  --text:#302636;
+  --muted:#8c7180;
   --pink:#ff7eb6;
   --pink2:#fff0f7;
-  --purple:#8b5cf6;
   --blue:#7aa7ff;
-  --line:#f1dce8;
-  --text:#302636;
-}
-body{
+  --purple:#9b7bff;
+  --danger:#e11d48;
+}}
+*{{box-sizing:border-box;}}
+body{{
   font-family:Arial,'Malgun Gothic',sans-serif;
-  background:linear-gradient(180deg,#fff6fb 0%,#f8f7ff 45%,#f4f7fb 100%);
+  background:
+    radial-gradient(circle at top left,rgba(255,126,182,.18),transparent 28%),
+    radial-gradient(circle at top right,rgba(122,167,255,.18),transparent 30%),
+    linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 55%,#f5f7fb 100%);
   margin:0;
   padding:24px;
   color:var(--text);
-}
-.card{
-  background:rgba(255,255,255,.97);
+}}
+.card{{
+  background:rgba(255,255,255,.96);
   border:1px solid var(--line);
   border-radius:22px;
   padding:18px;
   margin-bottom:16px;
-  box-shadow:0 10px 28px rgba(210,120,160,.12);
-}
-h2{
+  box-shadow:0 12px 30px rgba(190,110,150,.12);
+}}
+h2{{
   margin:0 0 6px 0;
   font-size:24px;
   letter-spacing:-.8px;
-}
-.small-desc{
-  color:#8c7180;
-  font-size:13px;
-  margin-bottom:12px;
-}
-.btn{
+  color:#34273a;
+}}
+.card > div:first-child,
+.card h2 + div{{
+  color:var(--muted);
+}}
+.btn{{
   display:inline-flex;
   align-items:center;
+  justify-content:center;
   gap:6px;
   padding:8px 13px;
   border-radius:999px;
   border:1px solid #ead6e2;
   text-decoration:none;
-  color:#493b47;
+  color:#4a3d48;
   background:#fff;
   margin:3px;
   font-size:13px;
   font-weight:800;
+  cursor:pointer;
   box-shadow:0 2px 8px rgba(0,0,0,.035);
-}
-.btn b{
+  transition:.12s ease;
+}}
+.btn:hover,button:hover{{
+  transform:translateY(-1px);
+  box-shadow:0 5px 12px rgba(180,100,140,.12);
+}}
+.btn b{{
   background:#fff0f7;
   color:#c24b82;
   border-radius:999px;
   padding:2px 7px;
   font-size:12px;
-}
-.primary{
+}}
+.primary{{
   background:linear-gradient(135deg,var(--pink),var(--blue))!important;
   color:white!important;
   border-color:transparent!important;
-}
-.primary b{
+}}
+.primary b{{
   background:rgba(255,255,255,.25);
   color:white;
-}
-.ghost{
+}}
+.ghost{{
   background:white;
-}
-table{
+}}
+table{{
   width:100%;
   border-collapse:separate;
   border-spacing:0;
   background:white;
   border-radius:18px;
   overflow:hidden;
-}
-th,td{
-  border-bottom:1px solid #f2e9ef;
+}}
+th,td{{
+  border-bottom:1px solid var(--line2);
   padding:10px 9px;
   font-size:13px;
   vertical-align:top;
-}
-th{
-  background:linear-gradient(180deg,#fff0f7,#fff7fb);
+}}
+th{{
+  background:linear-gradient(180deg,#fff0f7,#fff9fc);
   color:#6d4058;
   text-align:left;
   font-weight:900;
   white-space:nowrap;
-}
-tr:hover td{
+}}
+tr:hover td{{
   background:#fffafd;
-}
-input,select{
+}}
+input,select{{
   padding:9px 10px;
   border:1px solid #ead6e2;
   border-radius:12px;
   background:white;
   outline:none;
-}
-input:focus,select:focus{
+  min-height:36px;
+}}
+input:focus,select:focus{{
   border-color:var(--pink);
   box-shadow:0 0 0 3px rgba(255,126,182,.16);
-}
-label{
+}}
+label{{
   color:#7b6473;
   font-size:12px;
   font-weight:900;
-}
-.err{
-  color:#e11d48;
+}}
+button{{
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid #ead6e2;
+  background:#fff;
+  color:#4a3d48;
   font-weight:800;
-}
-.pager-pill{
+  cursor:pointer;
+}}
+.err{{
+  color:var(--danger);
+  font-weight:800;
+  margin-top:8px;
+}}
+.pager-pill{{
   display:inline-block;
   padding:8px 14px;
   background:#fff0f7;
   border-radius:999px;
   color:#7b3e5c;
   font-weight:900;
-}
-.subbox{
+}}
+.subbox{{
   margin-top:10px;
   padding:10px;
   background:#fff7fb;
   border:1px solid #ffd6e8;
   border-radius:14px;
-}
+}}
+form{{
+  gap:8px;
+}}
+.badge{{
+  display:inline-block;
+  padding:4px 9px;
+  border-radius:999px;
+  background:#fff0f7;
+  color:#c24b82;
+  font-size:12px;
+  font-weight:900;
+}}
+@media(max-width:900px){{
+  body{{padding:14px;}}
+  .card{{padding:14px;border-radius:18px;}}
+  table{{min-width:980px;}}
+}}
 </style>
 </head>
 <body>
@@ -3604,7 +3972,7 @@ label{
   <div style="margin-top:10px;color:#666;">총 {total}건 · {page}/{total_pages}페이지</div>
 </div>
 
-<div class="card">
+<div class="card" style="overflow:auto;">
 <table>
 <thead>
 <tr>
@@ -3620,7 +3988,7 @@ label{
 
 <div class="card" style="text-align:center;">
   {prev_link}
-  <span style="padding:8px 12px;">{page} / {total_pages}</span>
+  <span class="pager-pill">{page} / {total_pages}</span>
   {next_link}
 </div>
 </body>
