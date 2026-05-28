@@ -35,12 +35,12 @@
 <div class="tab-card">
   <h2 style="margin:0 0 6px 0;">처리대기목록</h2>
   <div style="color:#777;font-size:13px;margin-bottom:12px;">
-    업무대상=부과대수상세 제외 / 반영대기=협회비·관리비 신규 편입 / 폐업=제외·종료 확인 / 부과대수상세=조회용
+    미처리 업무=아직 처리할 건만 표시 / 반영대기=협회비·관리비 신규 편입 / 폐업=폐지·양도·이관 등 제외 확인 / 부과대수상세=조회용
   </div>
 
   <div class="tab-row">
     {% for t in main_tabs %}
-    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{% if t == "전체" %}업무대상{% else %}{{ t }}{% endif %} <b>{{ counts.get(t,0) }}</b></a>
+    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{% if t == "전체" %}미처리 업무{% else %}{{ t }}{% endif %} <b>{{ counts.get(t,0) }}</b></a>
     {% endfor %}
   </div>
 
@@ -48,7 +48,7 @@
   <div class="sub-tabs">
     <b style="margin-right:8px;">폐업 하위분류</b>
     {% for t in closure_tabs %}
-    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{% if t == "전체" %}업무대상{% else %}{{ t }}{% endif %} <b>{{ counts.get(t,0) }}</b></a>
+    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{% if t == "전체" %}미처리 업무{% else %}{{ t }}{% endif %} <b>{{ counts.get(t,0) }}</b></a>
     {% endfor %}
   </div>
   {% endif %}
@@ -193,11 +193,11 @@
 
 <div class="pager">
   {% if page > 1 %}
-  <a class="btn-small" href="/work/pending-board?tab={{ tab }}&year={{ year }}&month={{ month }}&process_type={{ process_type }}&status={{ status }}&q={{ q }}&page={{ page-1 }}&page_size={{ page_size }}">이전</a>
+  <a class="btn-small" href="/work/pending-board?tab={{ tab }}{% if year %}&year={{ year }}{% endif %}{% if month %}&month={{ month }}{% endif %}{% if process_type %}&process_type={{ process_type }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if q %}&q={{ q }}{% endif %}&page={{ page-1 }}&page_size={{ page_size }}">이전</a>
   {% endif %}
   <span>{{ page }} / {{ total_pages }}</span>
   {% if page < total_pages %}
-  <a class="btn-small" href="/work/pending-board?tab={{ tab }}&year={{ year }}&month={{ month }}&process_type={{ process_type }}&status={{ status }}&q={{ q }}&page={{ page+1 }}&page_size={{ page_size }}">다음</a>
+  <a class="btn-small" href="/work/pending-board?tab={{ tab }}{% if year %}&year={{ year }}{% endif %}{% if month %}&month={{ month }}{% endif %}{% if process_type %}&process_type={{ process_type }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if q %}&q={{ q }}{% endif %}&page={{ page+1 }}&page_size={{ page_size }}">다음</a>
   {% endif %}
 </div>
 {% endblock %}

@@ -3666,8 +3666,8 @@ def pending_board_detail_html(
 def pending_board_final_page(
     request: Request,
     tab: str = "전체",
-    year: int = None,
-    month: int = None,
+    year: str = "",
+    month: str = "",
     process_type: str = "",
     status: str = "",
     q: str = "",
@@ -4190,8 +4190,8 @@ def emergency_pending_board_page(
     request: Request,
     tab: str = "전체",
     q: str = "",
-    year: int = None,
-    month: int = None,
+    year: str = "",
+    month: str = "",
     process_type: str = "",
     status: str = "",
     page: int = 1,
@@ -6617,8 +6617,8 @@ def _billing_count_parse_xlsx(path, default_year=None):
 @app.get("/billing-counts", response_class=HTMLResponse)
 def billing_counts_page(
     request: Request,
-    year: int = None,
-    month: int = None,
+    year: str = "",
+    month: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
@@ -6787,8 +6787,8 @@ async def billing_counts_upload(
 
 @app.get("/billing-counts/export")
 def billing_counts_export(
-    year: int = None,
-    month: int = None,
+    year: str = "",
+    month: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
@@ -9325,8 +9325,8 @@ def api_debug_billing_upload_stats_force(
 @app.get("/billing-details", response_class=HTMLResponse)
 def billing_details_page(
     request: Request,
-    year: int = None,
-    month: int = None,
+    year: str = "",
+    month: str = "",
     process_type: str = "",
     status: str = "",
     q: str = "",
