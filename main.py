@@ -580,8 +580,8 @@ def to_work_queue(mid: int, process_type: str = Form("폐업"),
 # ── N월 입금추출 ─────────────────────────────────────────────
 @app.get("/payments/export")
 def export_monthly_payments(
-    year: int = None,
-    month: int = None,
+    year: str = "",
+    month: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(require_user)
 ):
@@ -3648,6 +3648,13 @@ def pending_board_final_page(
     MAIN_TABS = ["전체", "반영대기", "폐업", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
     CLOSURE_TABS = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
 
+    # URL에 year=&month= 처럼 빈값이 붙어도 터지지 않게 처리
+    year_raw = str(year or "").strip()
+    month_raw = str(month or "").strip()
+
+    year_int = int(year_raw) if year_raw.isdigit() else None
+    month_int = int(month_raw) if month_raw.isdigit() else None
+
     def safe(obj, name, default=""):
         try:
             v = getattr(obj, name, default)
@@ -3781,10 +3788,10 @@ def pending_board_final_page(
     # 1) 부과대수 자료
     try:
         bq = db.query(BillingPerson)
-        if year:
-            bq = bq.filter(BillingPerson.year == int(year))
-        if month:
-            bq = bq.filter(BillingPerson.month == int(month))
+        if year_int:
+            bq = bq.filter(BillingPerson.year == year_int)
+        if month_int:
+            bq = bq.filter(BillingPerson.month == month_int)
         if q:
             like = f"%{q}%"
             bq = bq.filter(or_(
@@ -3971,8 +3978,8 @@ def pending_board_final_page(
         "tab": tab,
         "main_tabs": MAIN_TABS,
         "closure_tabs": CLOSURE_TABS,
-        "year": year or "",
-        "month": month or "",
+        "year": year_raw,
+        "month": month_raw,
         "process_type": process_type or "",
         "status": status or "",
         "q": q or "",
@@ -4241,10 +4248,10 @@ def emergency_pending_board_page(
     try:
         bq = db.query(BillingPerson)
 
-        if year:
-            bq = bq.filter(BillingPerson.year == int(year))
-        if month:
-            bq = bq.filter(BillingPerson.month == int(month))
+        if year_int:
+            bq = bq.filter(BillingPerson.year == year_int)
+        if month_int:
+            bq = bq.filter(BillingPerson.month == month_int)
         if process_type:
             if process_type == "폐지":
                 bq = bq.filter(BillingPerson.process_type.in_(["폐지", "관리비폐지"]))
