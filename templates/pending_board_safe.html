@@ -31,7 +31,7 @@
 <div class="tab-card">
   <h2 style="margin:0 0 6px 0;">처리대기목록</h2>
   <div style="color:#777;font-size:13px;margin-bottom:12px;">
-    미처리 업무=26.05/26.06 부과대수 중 아직 처리할 건 / 반영대기=협회비·관리비 신규 편입 / 폐업=폐지·양도·이관 등 제외 확인
+    미처리 업무=아직 처리할 건 / 반영대기=협회비·관리비 신규 편입 / 폐업=폐지·관리비폐지·양도·이관 등 제외 확인
   </div>
 
   {% if errors %}
@@ -45,6 +45,15 @@
     </a>
     {% endfor %}
   </div>
+
+  {% if tab in ["폐업","폐지","관리비폐지","양도","이관","사망","말소"] %}
+  <div style="margin-top:10px;background:#f7f9fc;border:1px solid #e5eaf3;border-radius:12px;padding:10px;">
+    <b style="margin-right:8px;">폐업 하위분류</b>
+    {% for t in closure_tabs %}
+    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}&page_size={{ page_size }}">{{ t }} <b>{{ counts.get(t,0) }}</b></a>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 <div class="filter-card">
@@ -99,6 +108,9 @@
   <div style="margin-top:10px;color:#777;">총 {{ total }}건 · {{ page }} / {{ total_pages }}페이지</div>
 </div>
 
+<div style="color:#777;font-size:13px;margin:0 0 8px 4px;">
+  ※ 폐업/폐지/양도/이관/탈퇴 탭은 기본적으로 완료되지 않은 건만 표시합니다. 완료된 건은 반영완료 탭에서 확인합니다.
+</div>
 <div class="tbl-card">
   <table>
     <thead>
