@@ -3940,6 +3940,370 @@ def debug_pending_arrears_lookup(
 
 
 
+
+
+# ── 긴급 안전 처리대기목록: 기존 꼬인 라우트보다 먼저 실행 ─────────────
+@app.get("/work/pending-board", response_class=HTMLResponse)
+def safe_pending_board_page(
+    request: Request,
+    tab: str = "전체",
+    year: str = "",
+    month: str = "",
+    process_type: str = "",
+    status: str = "",
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    import json
+    from sqlalchemy import or_
+
+    ACTIVE_MONTHS = {(2026, 5), (2026, 6)}
+    MAIN_TABS = ["전체", "반영대기", "폐업", "폐지", "양도", "이관", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
+    CLOSURE_TYPES = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
+
+    def safe(obj, name, default=""):
+        try:
+            v = getattr(obj, name, default)
+            return "" if v is None else v
+        except Exception:
+            return default
+
+    def clean_name(v):
+        return str(v or "").replace(" ", "").strip()
+
+    def clean_vehicle(v):
+        return str(v or "").strip()
+
+    def parse_raw(obj):
+        raw = safe(obj, "raw_data", "")
+        if isinstance(raw, dict):
+            return raw
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+
+    def pick(obj, *keys):
+        raw = parse_raw(obj)
+        nested = raw.get("raw_data") if isinstance(raw.get("raw_data"), dict) else {}
+        for k in keys:
+            v = safe(obj, k, "")
+            if v not in ["", None]:
+                return v
+            v = raw.get(k, "")
+            if v not in ["", None]:
+                return v
+            v = nested.get(k, "")
+            if v not in ["", None]:
+                return v
+        return ""
+
+    def norm_pt(v):
+        t = str(v or "").strip()
+        if t in ["협회가입", "협회가입원"]:
+            return "협회비"
+        if t in ["택배신규", "신규관리", "자격증명발급"]:
+            return "관리비"
+        if t in ["타도", "이관/타도"]:
+            return "이관"
+        if t in ["택배폐업", "택배관리비폐지"]:
+            return "관리비폐지"
+        return t
+
+    def to_int(v):
+        try:
+            t = str(v or "").strip()
+            if not t:
+                return None
+            n = int(float(t))
+            if n < 100:
+                n = 2000 + n
+            return n
+        except Exception:
+            return None
+
+    def ym_text(y, m):
+        yy = to_int(y)
+        mm = to_int(m)
+        if not yy or not mm:
+            return ""
+        return f"{str(yy)[-2:]}.{mm:02d}"
+
+    def active_month(y, m):
+        yy = to_int(y)
+        mm = to_int(m)
+        return (yy, mm) in ACTIVE_MONTHS
+
+    def norm_date(v):
+        import re
+        t = str(v or "").strip()
+        if not t:
+            return ""
+        m = re.search(r"(20\d{2}|19\d{2})\D+(\d{1,2})\D+(\d{1,2})", t)
+        if m:
+            return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+        m = re.search(r"(?<!\d)(\d{2})\D+(\d{1,2})\D+(\d{1,2})", t)
+        if m:
+            yy = int(m.group(1))
+            yyyy = 2000 + yy if yy <= 30 else 1900 + yy
+            return f"{yyyy:04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+        return t[:10]
+
+    def next_month_date(v):
+        from datetime import datetime
+        d = norm_date(v)
+        try:
+            dt = datetime.strptime(d, "%Y-%m-%d")
+            y = dt.year + (1 if dt.month == 12 else 0)
+            m = 1 if dt.month == 12 else dt.month + 1
+            day = min(dt.day, 28)
+            return f"{y:04d}-{m:02d}-{day:02d}"
+        except Exception:
+            return ""
+
+    def request_dates(obj, pt):
+        if pt == "협회비":
+            rd = pick(obj, "join_date", "가입일자", "협회가입일")
+            return norm_date(rd), next_month_date(rd)
+        if pt == "관리비":
+            rd = pick(obj, "permit_date", "인가일자", "허가일자", "cert_issue_date", "자격증명발급일자")
+            return norm_date(rd), next_month_date(rd)
+
+        rd = pick(obj, "process_date", "처리일자", "request_date", "요청일", "note", "비고")
+        return norm_date(rd), ""
+
+    def amount_fmt(v):
+        try:
+            if v in ["", None]:
+                return "-"
+            return f"{int(float(str(v).replace(',', '').replace('원','').strip())):,}원"
+        except Exception:
+            return str(v)
+
+    rows = []
+    errors = []
+
+    try:
+        bq = db.query(BillingPerson)
+
+        # 연도/월 필터가 없으면 전체에서 5월/6월만 미처리 업무로 표시.
+        # 부과대수상세 탭은 전체 조회용.
+        if year.strip().isdigit():
+            bq = bq.filter(BillingPerson.year == int(year))
+        if month.strip().isdigit():
+            bq = bq.filter(BillingPerson.month == int(month))
+
+        if q:
+            like = f"%{q}%"
+            try:
+                bq = bq.filter(or_(
+                    BillingPerson.name.ilike(like),
+                    BillingPerson.vehicle_no.ilike(like),
+                    BillingPerson.region.ilike(like),
+                    BillingPerson.process_type.ilike(like),
+                    BillingPerson.source_sheet.ilike(like),
+                ))
+            except Exception:
+                pass
+
+        items = bq.order_by(BillingPerson.year.desc(), BillingPerson.month.desc(), BillingPerson.id.desc()).limit(8000).all()
+
+        for bp in items:
+            raw_pt = pick(bp, "process_type", "처리구분", "항목")
+            pt = norm_pt(raw_pt)
+
+            name = clean_name(pick(bp, "name", "성명"))
+            vehicle = clean_vehicle(pick(bp, "vehicle_no", "차량번호"))
+
+            # 이름/차량번호 둘 다 없으면 찌꺼기
+            if not name and not vehicle:
+                continue
+
+            yy = safe(bp, "year")
+            mm = safe(bp, "month")
+            raw_status = str(pick(bp, "reflect_status", "status") or "").strip()
+
+            req, nxt = request_dates(bp, pt)
+
+            if raw_status in ["완료", "처리완료", "반영완료"]:
+                st = "완료"
+            elif not active_month(yy, mm):
+                st = "완료"
+            elif pt in ["협회비", "관리비"]:
+                st = "반영대기"
+            elif pt in CLOSURE_TYPES or pt in ["탈퇴", "70세"]:
+                st = "확인필요"
+            else:
+                st = "확인필요"
+
+            rows.append({
+                "row_type": "billing",
+                "id": safe(bp, "id"),
+                "status": st,
+                "process_type": pt,
+                "pt_norm": pt,
+                "ym": ym_text(yy, mm),
+                "year": yy,
+                "month": mm,
+                "region": pick(bp, "region", "지역"),
+                "name": name,
+                "vehicle_no": vehicle,
+                "arrears": "",
+                "request_date": req,
+                "next_billing_date": nxt,
+                "source": "부과대수",
+            })
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        errors.append("부과대수 조회 오류: " + repr(e))
+
+    # WorkQueue는 있어도 안전하게만 붙임. 터지면 무시.
+    try:
+        wq_items = db.query(WorkQueue).order_by(WorkQueue.id.desc()).limit(2000).all()
+        for w in wq_items:
+            raw_pt = pick(w, "process_type", "work_type", "처리구분")
+            pt = norm_pt(raw_pt)
+
+            name = clean_name(pick(w, "name", "related_name", "성명"))
+            vehicle = clean_vehicle(pick(w, "vehicle_no", "related_vehicle_no", "차량번호"))
+
+            if not name and not vehicle:
+                continue
+
+            raw_status = str(pick(w, "status", "reflect_status") or "").strip()
+            if raw_status in ["완료", "처리완료", "반영완료"]:
+                st = "완료"
+            elif pt in ["협회비", "관리비"]:
+                st = "반영대기"
+            else:
+                st = "확인필요"
+
+            req, nxt = request_dates(w, pt)
+
+            rows.append({
+                "row_type": "work",
+                "id": safe(w, "id"),
+                "status": st,
+                "process_type": pt,
+                "pt_norm": pt,
+                "ym": "",
+                "year": "",
+                "month": "",
+                "region": pick(w, "region", "지역"),
+                "name": name,
+                "vehicle_no": vehicle,
+                "arrears": "",
+                "request_date": req,
+                "next_billing_date": nxt,
+                "source": pick(w, "source", "source_screen") or "처리대기",
+            })
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+    def match_tab(r, t):
+        pt = r.get("pt_norm", "")
+        st = r.get("status", "")
+
+        if t == "전체":
+            return st not in ["완료", "처리완료", "반영완료", "부과대수상세"]
+        if t == "반영대기":
+            return st == "반영대기" and pt in ["협회비", "관리비"]
+        if t == "폐업":
+            return pt in CLOSURE_TYPES
+        if t == "폐지":
+            return pt in ["폐지", "관리비폐지"]
+        if t == "관리비폐지":
+            return pt == "관리비폐지"
+        if t == "양도":
+            return pt == "양도"
+        if t == "이관":
+            return pt in ["이관", "타도", "이관/타도"]
+        if t == "탈퇴":
+            return pt == "탈퇴"
+        if t == "협회가입":
+            return pt == "협회비"
+        if t == "택배신규":
+            return pt == "관리비"
+        if t == "협회비":
+            return pt == "협회비"
+        if t == "관리비":
+            return pt == "관리비"
+        if t == "70세":
+            return pt == "70세"
+        if t == "부과대수상세":
+            return r.get("row_type") == "billing"
+        if t == "반영완료":
+            return st in ["완료", "처리완료", "반영완료"]
+        return True
+
+    counts = {}
+    for t in MAIN_TABS:
+        counts[t] = sum(1 for r in rows if match_tab(r, t))
+
+    filtered = [r for r in rows if match_tab(r, tab)]
+
+    if process_type:
+        ptn = norm_pt(process_type)
+        filtered = [r for r in filtered if r.get("pt_norm") == ptn or r.get("process_type") == ptn]
+    if status:
+        filtered = [r for r in filtered if r.get("status") == status]
+
+    try:
+        page = int(page or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(page_size or 50)
+    except Exception:
+        page_size = 50
+
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
+
+    total = len(filtered)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * page_size
+    page_rows = filtered[start:start + page_size]
+
+    return templates.TemplateResponse(request, "pending_board_safe.html", {
+        "request": request,
+        "user": user,
+        "rows": page_rows,
+        "counts": counts,
+        "tab": tab,
+        "main_tabs": MAIN_TABS,
+        "year": year,
+        "month": month,
+        "process_type": process_type,
+        "status": status,
+        "q": q,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "errors": errors,
+        "amount_fmt": amount_fmt,
+    })
+
+
+
 @app.get("/work/pending-board", response_class=HTMLResponse)
 def pending_board_final_page(
     request: Request,
