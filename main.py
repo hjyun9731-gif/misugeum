@@ -3961,7 +3961,7 @@ def safe_pending_board_page(
     from sqlalchemy import or_
 
     ACTIVE_MONTHS = {(2026, 5), (2026, 6)}
-    MAIN_TABS = ["전체", "반영대기", "폐업", "폐지", "양도", "이관", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
+    MAIN_TABS = ["전체", "반영대기", "폐업", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
     CLOSURE_TYPES = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
 
     def safe(obj, name, default=""):
@@ -4015,7 +4015,7 @@ def safe_pending_board_page(
             return "관리비폐지"
         return t
 
-    def to_int(v):
+    def to_year(v):
         try:
             t = str(v or "").strip()
             if not t:
@@ -4027,16 +4027,25 @@ def safe_pending_board_page(
         except Exception:
             return None
 
+    def to_month(v):
+        try:
+            t = str(v or "").strip()
+            if not t:
+                return None
+            return int(float(t))
+        except Exception:
+            return None
+
     def ym_text(y, m):
-        yy = to_int(y)
-        mm = to_int(m)
+        yy = to_year(y)
+        mm = to_month(m)
         if not yy or not mm:
             return ""
         return f"{str(yy)[-2:]}.{mm:02d}"
 
     def active_month(y, m):
-        yy = to_int(y)
-        mm = to_int(m)
+        yy = to_year(y)
+        mm = to_month(m)
         return (yy, mm) in ACTIVE_MONTHS
 
     def norm_date(v):
@@ -4130,9 +4139,13 @@ def safe_pending_board_page(
 
             req, nxt = request_dates(bp, pt)
 
-            if raw_status in ["완료", "처리완료", "반영완료"]:
+            # 반영대기 복구 기준:
+            # 26.05 / 26.06의 협회비/관리비 후보는 반영대기로 보여야 한다.
+            # 과거 패치 때문에 raw_status가 "완료"로 찍혀 있어도,
+            # 실제 반영완료가 아닌 이상 5월/6월 신규 편입 후보는 반영대기로 복구한다.
+            if not active_month(yy, mm):
                 st = "완료"
-            elif not active_month(yy, mm):
+            elif str(raw_status or "").strip() in ["반영완료", "처리완료"]:
                 st = "완료"
             elif pt in ["협회비", "관리비"]:
                 st = "반영대기"
@@ -4213,43 +4226,76 @@ def safe_pending_board_page(
             pass
 
     def match_tab(r, t):
-        pt = r.get("pt_norm", "")
-        st = r.get("status", "")
+        pt = str(r.get("pt_norm", "") or "").strip()
+        st = str(r.get("status", "") or "").strip()
+        row_type = str(r.get("row_type", "") or "").strip()
+
+        done = st in ["완료", "처리완료", "반영완료"]
+        closure = pt in CLOSURE_TYPES
 
         if t == "전체":
-            return st not in ["완료", "처리완료", "반영완료", "부과대수상세"]
+            # 미처리 업무 = 완료/조회용 제외
+            return not done and st != "부과대수상세"
+
         if t == "반영대기":
-            return st == "반영대기" and pt in ["협회비", "관리비"]
+            # 반영대기는 협회비/관리비 신규 편입만
+            return (not done) and st == "반영대기" and pt in ["협회비", "관리비"]
+
         if t == "폐업":
-            return pt in CLOSURE_TYPES
+            # 폐업 상위 탭은 폐업계열 중 아직 처리 안 끝난 것만
+            return (not done) and closure
+
         if t == "폐지":
-            return pt in ["폐지", "관리비폐지"]
+            return (not done) and pt in ["폐지", "관리비폐지"]
+
         if t == "관리비폐지":
-            return pt == "관리비폐지"
+            return (not done) and pt == "관리비폐지"
+
         if t == "양도":
-            return pt == "양도"
+            return (not done) and pt == "양도"
+
         if t == "이관":
-            return pt in ["이관", "타도", "이관/타도"]
+            return (not done) and pt in ["이관", "타도", "이관/타도"]
+
+        if t == "사망":
+            return (not done) and pt == "사망"
+
+        if t == "말소":
+            return (not done) and pt == "말소"
+
         if t == "탈퇴":
-            return pt == "탈퇴"
+            # 탈퇴는 폐업 아님. 기본은 미완료만.
+            return (not done) and pt == "탈퇴"
+
         if t == "협회가입":
-            return pt == "협회비"
+            return (not done) and pt == "협회비"
+
         if t == "택배신규":
-            return pt == "관리비"
+            return (not done) and pt == "관리비"
+
         if t == "협회비":
-            return pt == "협회비"
+            return (not done) and pt == "협회비"
+
         if t == "관리비":
-            return pt == "관리비"
+            return (not done) and pt == "관리비"
+
         if t == "70세":
-            return pt == "70세"
+            return (not done) and pt == "70세"
+
         if t == "부과대수상세":
-            return r.get("row_type") == "billing"
+            # 전체 조회용
+            return row_type == "billing"
+
         if t == "반영완료":
-            return st in ["완료", "처리완료", "반영완료"]
+            # 완료된 것만 모아보기
+            return done
+
         return True
 
     counts = {}
     for t in MAIN_TABS:
+        counts[t] = sum(1 for r in rows if match_tab(r, t))
+    for t in CLOSURE_TABS:
         counts[t] = sum(1 for r in rows if match_tab(r, t))
 
     filtered = [r for r in rows if match_tab(r, tab)]
@@ -4289,6 +4335,7 @@ def safe_pending_board_page(
         "counts": counts,
         "tab": tab,
         "main_tabs": MAIN_TABS,
+        "closure_tabs": CLOSURE_TABS,
         "year": year,
         "month": month,
         "process_type": process_type,
@@ -4853,6 +4900,7 @@ def pending_board_final_page(
         "tab": tab,
         "main_tabs": MAIN_TABS,
         "closure_tabs": CLOSURE_TABS,
+        "closure_tabs": CLOSURE_TABS,
         "year": year_raw,
         "month": month_raw,
         "process_type": process_type or "",
@@ -5065,6 +5113,7 @@ def emergency_pending_board_page(
             return st not in ["부과대수상세", "완료", "반영완료", "처리완료"]
 
         if t == "반영대기":
+            # 반영대기는 협회비/관리비 신규 편입만
             return st == "반영대기" and pt in ["협회비", "관리비"]
 
         if t == "폐업":
