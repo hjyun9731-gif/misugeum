@@ -2837,6 +2837,33 @@ def admin_rebuild_latest_billing_pending(
 
 
 # ── 처리대기목록 상세/처리현황 안전 API ─────────────────────────────
+
+@app.get("/api/work/detail-redirect-safe")
+def api_work_detail_redirect_safe(
+    id: int = 0,
+    row_type: str = "billing"
+):
+    return RedirectResponse(
+        f"/work/pending-board/detail?id={id}&row_type={row_type}",
+        status_code=307
+    )
+
+
+@app.get("/api/work/detail")
+def api_work_detail_redirect_to_page(
+    id: int = 0,
+    row_type: str = "billing"
+):
+    """
+    사람이 상세/수정 클릭했을 때 JSON 원문이 뜨지 않게
+    /api/work/detail 접근을 처리대기 상세 페이지로 강제 이동.
+    """
+    return RedirectResponse(
+        f"/work/pending-board/detail?id={id}&row_type={row_type}",
+        status_code=307
+    )
+
+
 @app.get("/api/work/detail")
 @app.get("/work/detail")
 @app.get("/api/work/pending-detail")
