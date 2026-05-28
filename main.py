@@ -4322,11 +4322,53 @@ def pending_board_final_page(
         except Exception:
             r["arrears"] = ""
 
+    # 최종 보정:
+    # 26.05 / 26.06 부과대수 자료는 미처리 업무에 반드시 남긴다.
+    # 단, 성명/차량번호 둘 다 없는 완전 빈 줄은 제외한다.
+    # 26.05 / 26.06 이외 연월만 완료 처리해서 미처리 업무에서 빠진다.
+    fixed_rows = []
+    for r in rows:
+        name_ok = str(r.get("name") or "").strip()
+        car_ok = str(r.get("vehicle_no") or "").strip()
+
+        if not name_ok and not car_ok:
+            continue
+
+        y = str(r.get("year") or "").strip()
+        m = str(r.get("month") or "").strip()
+        ym = str(r.get("ym") or "").strip()
+
+        is_2605_2606 = (
+            (y in ["2026", "26"] and m in ["5", "05", "6", "06"])
+            or ym in ["26.05", "26.06", "2026-05", "2026-06"]
+        )
+
+        raw_status = str(r.get("raw_status") or "").strip()
+        pt = str(r.get("pt_norm") or r.get("process_type") or "").strip()
+
+        if r.get("row_type") == "billing":
+            if is_2605_2606:
+                if raw_status in ["완료", "처리완료", "반영완료"]:
+                    r["status"] = "완료"
+                elif pt in ["협회비", "관리비"]:
+                    r["status"] = "반영대기"
+                elif pt in ["폐지", "관리비폐지", "양도", "이관", "사망", "말소", "탈퇴", "70세"]:
+                    r["status"] = "확인필요"
+                else:
+                    r["status"] = "확인필요"
+            else:
+                r["status"] = "완료"
+
+        fixed_rows.append(r)
+
+    rows = fixed_rows
+
     def tab_match(r, t):
         pt = r["pt_norm"]
         st = r["status"]
 
         if t == "전체":
+            # 미처리 업무 = 26.05 / 26.06 부과대수 중 아직 처리할 건
             return st not in ["부과대수상세", "완료", "반영완료", "처리완료"]
 
         if t == "반영대기":
