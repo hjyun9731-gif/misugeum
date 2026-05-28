@@ -3709,19 +3709,20 @@ def pending_board_final_page(
         if pt_norm in NEW_TYPES and raw_status in ["처리대기", "반영대기"]:
             return "반영대기"
 
-        # 폐업계열은 반영대기가 아니라 처리대기/처리완료 성격
+        # 폐업계열은 신규 반영이 아니라 제외/종료 확인 대상
+        # 화면에는 "처리대기"라고 표시하지 않고 "확인필요"로 표시
         if pt_norm in CLOSURE_TYPES or pt_norm == "탈퇴":
-            if raw_status in ["반영완료", "처리완료"]:
-                return "처리완료"
-            return "처리대기"
+            if raw_status in ["반영완료", "처리완료", "완료"]:
+                return "완료"
+            return "확인필요"
 
-        if raw_status in ["반영완료", "처리완료"]:
-            return "반영완료"
+        if raw_status in ["반영완료", "처리완료", "완료"]:
+            return "완료"
 
         if row_type == "billing":
             return "부과대수상세"
 
-        return raw_status or "처리대기"
+        return raw_status or "확인필요"
 
     def request_dates(obj, pt_norm):
         # 협회비 = 가입일자
@@ -3981,9 +3982,9 @@ async def pending_board_final_action(
                     obj.status = "반영완료"
             elif action == "complete":
                 if hasattr(obj, "reflect_status"):
-                    obj.reflect_status = "처리완료"
+                    obj.reflect_status = "완료"
                 if hasattr(obj, "status"):
-                    obj.status = "처리완료"
+                    obj.status = "완료"
 
             db.commit()
 

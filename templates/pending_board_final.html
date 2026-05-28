@@ -33,7 +33,9 @@
 
 <div class="tab-card">
   <h2 style="margin:0 0 6px 0;">처리대기목록</h2>
-  <div style="color:#777;font-size:13px;margin-bottom:12px;">반영대기=협회비/관리비 신규 편입, 폐업=제외/종료 처리, 부과대수상세=조회용</div>
+  <div style="color:#777;font-size:13px;margin-bottom:12px;">
+    전체=부과대수상세 제외 업무대상 / 반영대기=협회비·관리비 신규 편입 / 폐업=제외·종료 확인 / 부과대수상세=조회용
+  </div>
 
   <div class="tab-row">
     {% for t in main_tabs %}
@@ -80,7 +82,7 @@
       <label>상태</label>
       <select name="status">
         <option value="">전체</option>
-        {% for st in ["반영대기","처리대기","처리완료","반영완료","부과대수상세"] %}
+        {% for st in ["반영대기","확인필요","완료","부과대수상세"] %}
         <option value="{{ st }}" {% if status == st %}selected{% endif %}>{{ st }}</option>
         {% endfor %}
       </select>
@@ -117,7 +119,6 @@
         <th>요청일</th>
         <th>다음부과일</th>
         <th>출처</th>
-        <th>원본시트</th>
         <th>비고</th>
         <th>처리</th>
       </tr>
@@ -129,9 +130,11 @@
           {% if r.status == "반영대기" %}
           <span class="badge badge-pending">반영대기</span>
           {% elif r.status == "부과대수상세" %}
-          <span class="badge badge-detail">부과대수상세</span>
-          {% elif r.pt_norm in ["폐지","관리비폐지","양도","이관","사망","말소"] %}
-          <span class="badge badge-close">{{ r.status }}</span>
+          <span class="badge badge-detail">조회용</span>
+          {% elif r.status == "확인필요" %}
+          <span class="badge badge-close">확인필요</span>
+          {% elif r.status == "완료" %}
+          <span class="badge badge-work">완료</span>
           {% else %}
           <span class="badge badge-work">{{ r.status }}</span>
           {% endif %}
@@ -145,10 +148,9 @@
         <td>{{ r.request_date }}</td>
         <td>{{ r.next_billing_date }}</td>
         <td>{{ r.source }}</td>
-        <td>{{ r.source_sheet }}</td>
         <td>{{ r.note }}</td>
         <td style="white-space:nowrap;">
-          <a class="btn-small" href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}">상세</a>
+          <a class="btn-small" href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}">상세/수정</a>
 
           {% if r.status == "반영대기" and r.pt_norm in ["협회비","관리비"] %}
           <form method="post" action="/work/pending-board/action" style="display:inline;">
@@ -169,7 +171,7 @@
             <input type="hidden" name="row_type" value="{{ r.row_type }}">
             <input type="hidden" name="id" value="{{ r.id }}">
             <input type="hidden" name="action" value="complete">
-            <button class="btn-small btn-green" type="submit">처리완료</button>
+            <button class="btn-small btn-green" type="submit">완료</button>
           </form>
           <form method="post" action="/work/pending-board/action" style="display:inline;" onsubmit="return confirm('삭제할까요?');">
             <input type="hidden" name="row_type" value="{{ r.row_type }}">
@@ -182,7 +184,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="13" style="text-align:center;padding:24px;color:#888;">조회 결과가 없습니다.</td>
+        <td colspan="12" style="text-align:center;padding:24px;color:#888;">조회 결과가 없습니다.</td>
       </tr>
       {% endfor %}
     </tbody>
