@@ -3617,6 +3617,387 @@ def pending_board_detail_html(
 
 
 @app.get("/work", response_class=HTMLResponse)
+
+
+# ── 처리대기목록 최종 기준 화면 ─────────────────────────────────────
+@app.get("/work/pending-board", response_class=HTMLResponse)
+def pending_board_final_page(
+    request: Request,
+    tab: str = "전체",
+    year: int = None,
+    month: int = None,
+    process_type: str = "",
+    status: str = "",
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    처리대기목록 최종 기준.
+    반영대기 = 협회비/관리비 신규 편입만.
+    폐업계열 = 폐지/관리비폐지/양도/이관/사망/말소.
+    부과대수상세 = 조회용.
+    """
+    import json
+    from sqlalchemy import or_
+
+    NEW_TYPES = ["협회비", "관리비"]
+    CLOSURE_TYPES = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
+    MAIN_TABS = ["전체", "반영대기", "폐업", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
+    CLOSURE_TABS = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
+
+    def safe(obj, name, default=""):
+        try:
+            v = getattr(obj, name, default)
+            if v is None:
+                return default
+            return v
+        except Exception:
+            return default
+
+    def raw_dict(obj):
+        raw = safe(obj, "raw_data", "")
+        if isinstance(raw, dict):
+            return raw
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+
+    def pick(obj, *names):
+        rd = raw_dict(obj)
+        nested = rd.get("raw_data") if isinstance(rd.get("raw_data"), dict) else {}
+        for n in names:
+            v = safe(obj, n, "")
+            if v not in ["", None]:
+                return v
+            v = rd.get(n, "")
+            if v not in ["", None]:
+                return v
+            v = nested.get(n, "")
+            if v not in ["", None]:
+                return v
+        return ""
+
+    def norm_pt(pt):
+        pt = str(pt or "").strip()
+        if pt in ["협회가입", "협회가입원"]:
+            return "협회비"
+        if pt in ["택배신규", "신규관리", "자격증명발급"]:
+            return "관리비"
+        if pt in ["타도", "이관/타도"]:
+            return "이관"
+        if pt in ["택배폐업", "택배관리비폐지"]:
+            return "관리비폐지"
+        return pt
+
+    def source_pt_label(pt_norm, raw_pt):
+        if pt_norm == "협회비":
+            return "협회비"
+        if pt_norm == "관리비":
+            return "관리비"
+        return pt_norm or raw_pt
+
+    def calc_status(row_type, raw_status, pt_norm):
+        raw_status = str(raw_status or "").strip()
+
+        # 신규 편입 대상만 반영대기
+        if pt_norm in NEW_TYPES and raw_status in ["처리대기", "반영대기"]:
+            return "반영대기"
+
+        # 폐업계열은 반영대기가 아니라 처리대기/처리완료 성격
+        if pt_norm in CLOSURE_TYPES or pt_norm == "탈퇴":
+            if raw_status in ["반영완료", "처리완료"]:
+                return "처리완료"
+            return "처리대기"
+
+        if raw_status in ["반영완료", "처리완료"]:
+            return "반영완료"
+
+        if row_type == "billing":
+            return "부과대수상세"
+
+        return raw_status or "처리대기"
+
+    def request_dates(obj, pt_norm):
+        # 협회비 = 가입일자
+        # 관리비 = 인가일자, 없으면 자격증명발급일자
+        # 폐업계열 = 처리일자/비고날짜
+        if pt_norm == "협회비":
+            rd = pick(obj, "join_date", "가입일자", "협회가입일")
+        elif pt_norm == "관리비":
+            rd = pick(obj, "permit_date", "인가일자", "허가일자", "cert_issue_date", "자격증명발급일자")
+        else:
+            rd = pick(obj, "process_date", "처리일자", "request_date", "요청일", "created_at")
+
+        rd = str(rd or "")[:10]
+
+        nb = ""
+        if pt_norm in ["협회비", "관리비"] and rd:
+            try:
+                nb = _calc_next_billing_date(rd)
+            except Exception:
+                nb = ""
+        return rd, nb
+
+    rows = []
+
+    # 1) 부과대수 자료
+    try:
+        bq = db.query(BillingPerson)
+        if year:
+            bq = bq.filter(BillingPerson.year == int(year))
+        if month:
+            bq = bq.filter(BillingPerson.month == int(month))
+        if q:
+            like = f"%{q}%"
+            bq = bq.filter(or_(
+                BillingPerson.name.ilike(like),
+                BillingPerson.vehicle_no.ilike(like),
+                BillingPerson.region.ilike(like),
+                BillingPerson.process_type.ilike(like),
+                BillingPerson.source_sheet.ilike(like),
+            ))
+
+        for bp in bq.order_by(BillingPerson.year.desc(), BillingPerson.month.desc(), BillingPerson.id.desc()).limit(7000).all():
+            raw_pt = pick(bp, "process_type", "처리구분")
+            pt_norm = norm_pt(raw_pt)
+            raw_status = pick(bp, "reflect_status", "status")
+            view_status = calc_status("billing", raw_status, pt_norm)
+            req_date, next_date = request_dates(bp, pt_norm)
+
+            rows.append({
+                "row_type": "billing",
+                "id": safe(bp, "id"),
+                "status": view_status,
+                "raw_status": raw_status,
+                "process_type": source_pt_label(pt_norm, raw_pt),
+                "pt_norm": pt_norm,
+                "ym": f'{safe(bp,"year")}-{int(safe(bp,"month") or 0):02d}' if safe(bp, "month") else "",
+                "year": safe(bp, "year"),
+                "month": safe(bp, "month"),
+                "region": pick(bp, "region", "지역"),
+                "name": pick(bp, "name", "성명"),
+                "vehicle_no": pick(bp, "vehicle_no", "차량번호"),
+                "account": pick(bp, "account", "계정"),
+                "request_date": req_date,
+                "next_billing_date": next_date,
+                "source": "부과대수",
+                "source_sheet": pick(bp, "source_sheet", "원본시트"),
+                "note": pick(bp, "note", "비고"),
+            })
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("pending billing load error:", repr(e))
+
+    # 2) 일반 처리대기/전체자대조에서 넘어온 업무
+    try:
+        try:
+            wq_items = db.query(WorkQueue).order_by(WorkQueue.id.desc()).limit(5000).all()
+        except Exception:
+            wq_items = []
+
+        for w in wq_items:
+            raw_pt = pick(w, "process_type", "work_type", "처리구분")
+            pt_norm = norm_pt(raw_pt)
+            raw_status = pick(w, "status", "reflect_status")
+            view_status = calc_status("work", raw_status, pt_norm)
+            req_date, next_date = request_dates(w, pt_norm)
+
+            rows.append({
+                "row_type": "work",
+                "id": safe(w, "id"),
+                "status": view_status,
+                "raw_status": raw_status,
+                "process_type": source_pt_label(pt_norm, raw_pt),
+                "pt_norm": pt_norm,
+                "ym": "",
+                "year": "",
+                "month": "",
+                "region": pick(w, "region", "지역"),
+                "name": pick(w, "name", "related_name", "성명"),
+                "vehicle_no": pick(w, "vehicle_no", "related_vehicle_no", "차량번호"),
+                "account": pick(w, "account", "계정"),
+                "request_date": req_date,
+                "next_billing_date": next_date,
+                "source": pick(w, "source", "source_screen") or "처리대기",
+                "source_sheet": pick(w, "source_sheet", "원본시트"),
+                "note": pick(w, "note", "reason", "work_reason", "비고"),
+            })
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("pending workqueue load error:", repr(e))
+
+    # 빈 글씨 행 제거: 전체자대조에서 필수값 없이 들어간 찌꺼기 방지
+    rows = [
+        r for r in rows
+        if (str(r.get("name") or "").strip() or str(r.get("vehicle_no") or "").strip() or str(r.get("note") or "").strip())
+    ]
+
+    def tab_match(r, t):
+        pt = r["pt_norm"]
+        st = r["status"]
+
+        if t == "전체":
+            return st != "부과대수상세"
+
+        if t == "반영대기":
+            return st == "반영대기" and pt in NEW_TYPES
+
+        if t == "폐업":
+            return pt in CLOSURE_TYPES
+
+        if t == "폐지":
+            return pt in ["폐지", "관리비폐지"]
+
+        if t == "관리비폐지":
+            return pt == "관리비폐지"
+
+        if t == "양도":
+            return pt == "양도"
+
+        if t == "이관":
+            return pt == "이관"
+
+        if t in ["사망", "말소"]:
+            return pt == t
+
+        if t == "탈퇴":
+            return pt == "탈퇴"
+
+        if t == "협회가입":
+            return pt == "협회비"
+
+        if t == "택배신규":
+            return pt == "관리비"
+
+        if t == "협회비":
+            return pt == "협회비"
+
+        if t == "관리비":
+            return pt == "관리비"
+
+        if t == "70세":
+            return pt == "70세"
+
+        if t == "부과대수상세":
+            return r["row_type"] == "billing"
+
+        if t == "반영완료":
+            return st in ["반영완료", "처리완료"]
+
+        return True
+
+    counts = {}
+    for t in MAIN_TABS + CLOSURE_TABS:
+        counts[t] = sum(1 for r in rows if tab_match(r, t))
+
+    filtered = [r for r in rows if tab_match(r, tab)]
+
+    if process_type:
+        filtered = [r for r in filtered if r["pt_norm"] == norm_pt(process_type) or r["process_type"] == process_type]
+    if status:
+        filtered = [r for r in filtered if r["status"] == status]
+
+    try:
+        page = int(page or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(page_size or 50)
+    except Exception:
+        page_size = 50
+
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
+
+    total = len(filtered)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * page_size
+    page_rows = filtered[start:start + page_size]
+
+    return templates.TemplateResponse(request, "pending_board_final.html", {
+        "request": request,
+        "user": user,
+        "rows": page_rows,
+        "counts": counts,
+        "tab": tab,
+        "main_tabs": MAIN_TABS,
+        "closure_tabs": CLOSURE_TABS,
+        "year": year or "",
+        "month": month or "",
+        "process_type": process_type or "",
+        "status": status or "",
+        "q": q or "",
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+    })
+
+
+@app.post("/work/pending-board/action")
+async def pending_board_final_action(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from fastapi.responses import RedirectResponse
+
+    form = await request.form()
+    row_type = str(form.get("row_type") or "")
+    rid = int(form.get("id") or 0)
+    action = str(form.get("action") or "")
+
+    try:
+        obj = None
+        if row_type == "billing":
+            obj = db.query(BillingPerson).filter(BillingPerson.id == rid).first()
+        elif row_type == "work":
+            obj = db.query(WorkQueue).filter(WorkQueue.id == rid).first()
+
+        if obj:
+            if action == "delete":
+                db.delete(obj)
+            elif action == "reflect":
+                if hasattr(obj, "reflect_status"):
+                    obj.reflect_status = "반영완료"
+                if hasattr(obj, "status"):
+                    obj.status = "반영완료"
+            elif action == "complete":
+                if hasattr(obj, "reflect_status"):
+                    obj.reflect_status = "처리완료"
+                if hasattr(obj, "status"):
+                    obj.status = "처리완료"
+
+            db.commit()
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("pending action error:", repr(e))
+
+    return RedirectResponse("/work/pending-board", status_code=303)
+
+
+
 @app.get("/work/pending-board", response_class=HTMLResponse)
 def emergency_pending_board_page(
     request: Request,

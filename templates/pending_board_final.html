@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}처리대기목록{% endblock %}
+{% block page_title %}처리대기목록{% endblock %}
+
+{% block content %}
+<style>
+.tab-card,.filter-card{background:#fff;border:1px solid #eee;border-radius:16px;padding:14px;margin-bottom:16px;}
+.tab-row{display:flex;gap:6px;flex-wrap:wrap;}
+.tab-btn{display:inline-block;padding:8px 12px;border-radius:10px;border:1px solid #ddd;background:#fff;text-decoration:none;color:#333;font-size:13px;font-weight:800;}
+.tab-btn.active{background:#2f6fed;color:#fff;border-color:#2f6fed;}
+.tab-btn b{font-size:12px;color:#e04b89;margin-left:4px;}
+.tab-btn.active b{color:#fff;}
+.sub-tabs{margin-top:10px;background:#f7f9fc;border:1px solid #e5eaf3;border-radius:12px;padding:10px;}
+.filter-card form{display:flex;gap:8px;flex-wrap:wrap;align-items:end;}
+.filter-card label{font-size:12px;color:#777;font-weight:800;display:block;margin-bottom:4px;}
+.filter-card input,.filter-card select{height:36px;border:1px solid #ddd;border-radius:10px;padding:7px 10px;}
+.tbl-card{background:#fff;border:1px solid #eee;border-radius:16px;overflow:auto;}
+.tbl-card table{width:100%;border-collapse:collapse;}
+.tbl-card th,.tbl-card td{border-bottom:1px solid #eee;padding:10px 12px;font-size:13px;vertical-align:middle;}
+.tbl-card th{background:#f3f6fa;color:#333;font-weight:900;text-align:left;white-space:nowrap;}
+.tbl-card tr:hover td{background:#fffafd;}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:900;}
+.badge-pending{background:#fff4d8;color:#b77900;}
+.badge-work{background:#eef3ff;color:#2f6fed;}
+.badge-detail{background:#eef2f5;color:#667085;}
+.badge-close{background:#ffecef;color:#d6334c;}
+.btn-small{display:inline-block;padding:7px 10px;border-radius:9px;border:1px solid #ddd;background:#fff;text-decoration:none;color:#333;font-size:12px;font-weight:800;margin:2px;}
+.btn-primary2{background:#2f6fed;color:#fff!important;border-color:#2f6fed;}
+.btn-green{background:#00a870;color:#fff!important;border-color:#00a870;}
+.btn-danger2{background:#fff;color:#e11d48!important;border-color:#ffc4cf;}
+.pager{display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0;}
+</style>
+
+<div class="tab-card">
+  <h2 style="margin:0 0 6px 0;">처리대기목록</h2>
+  <div style="color:#777;font-size:13px;margin-bottom:12px;">반영대기=협회비/관리비 신규 편입, 폐업=제외/종료 처리, 부과대수상세=조회용</div>
+
+  <div class="tab-row">
+    {% for t in main_tabs %}
+    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{{ t }} <b>{{ counts.get(t,0) }}</b></a>
+    {% endfor %}
+  </div>
+
+  {% if tab in ["폐업","폐지","관리비폐지","양도","이관","사망","말소"] %}
+  <div class="sub-tabs">
+    <b style="margin-right:8px;">폐업 하위분류</b>
+    {% for t in closure_tabs %}
+    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{{ t }} <b>{{ counts.get(t,0) }}</b></a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="filter-card">
+  <form method="get" action="/work/pending-board">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <div>
+      <label>연도</label>
+      <input type="number" name="year" value="{{ year }}" placeholder="2026" style="width:90px;">
+    </div>
+    <div>
+      <label>월</label>
+      <select name="month">
+        <option value="">전체</option>
+        {% for m in range(1,13) %}
+        <option value="{{ m }}" {% if month|string == m|string %}selected{% endif %}>{{ m }}월</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>처리구분</label>
+      <select name="process_type">
+        <option value="">전체</option>
+        {% for p in ["협회비","관리비","폐지","관리비폐지","양도","이관","탈퇴","사망","말소","70세"] %}
+        <option value="{{ p }}" {% if process_type == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>상태</label>
+      <select name="status">
+        <option value="">전체</option>
+        {% for st in ["반영대기","처리대기","처리완료","반영완료","부과대수상세"] %}
+        <option value="{{ st }}" {% if status == st %}selected{% endif %}>{{ st }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>검색</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역">
+    </div>
+    <div>
+      <label>개수</label>
+      <select name="page_size">
+        {% for n in [30,50,100] %}
+        <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}개</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn-small btn-primary2" type="submit">조회</button>
+    <a class="btn-small" href="/work/pending-board?tab={{ tab }}">초기화</a>
+  </form>
+  <div style="margin-top:10px;color:#777;">총 {{ total }}건 · {{ page }} / {{ total_pages }}페이지</div>
+</div>
+
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr>
+        <th>상태</th>
+        <th>처리구분</th>
+        <th>연월</th>
+        <th>지역</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>계정</th>
+        <th>요청일</th>
+        <th>다음부과일</th>
+        <th>출처</th>
+        <th>원본시트</th>
+        <th>비고</th>
+        <th>처리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>
+          {% if r.status == "반영대기" %}
+          <span class="badge badge-pending">반영대기</span>
+          {% elif r.status == "부과대수상세" %}
+          <span class="badge badge-detail">부과대수상세</span>
+          {% elif r.pt_norm in ["폐지","관리비폐지","양도","이관","사망","말소"] %}
+          <span class="badge badge-close">{{ r.status }}</span>
+          {% else %}
+          <span class="badge badge-work">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        <td>{{ r.process_type }}</td>
+        <td>{{ r.ym }}</td>
+        <td>{{ r.region }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.vehicle_no }}</td>
+        <td>{{ r.account }}</td>
+        <td>{{ r.request_date }}</td>
+        <td>{{ r.next_billing_date }}</td>
+        <td>{{ r.source }}</td>
+        <td>{{ r.source_sheet }}</td>
+        <td>{{ r.note }}</td>
+        <td style="white-space:nowrap;">
+          <a class="btn-small" href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}">상세</a>
+
+          {% if r.status == "반영대기" and r.pt_norm in ["협회비","관리비"] %}
+          <form method="post" action="/work/pending-board/action" style="display:inline;">
+            <input type="hidden" name="row_type" value="{{ r.row_type }}">
+            <input type="hidden" name="id" value="{{ r.id }}">
+            <input type="hidden" name="action" value="reflect">
+            <button class="btn-small btn-primary2" type="submit">반영</button>
+          </form>
+          <form method="post" action="/work/pending-board/action" style="display:inline;" onsubmit="return confirm('삭제할까요?');">
+            <input type="hidden" name="row_type" value="{{ r.row_type }}">
+            <input type="hidden" name="id" value="{{ r.id }}">
+            <input type="hidden" name="action" value="delete">
+            <button class="btn-small btn-danger2" type="submit">삭제</button>
+          </form>
+
+          {% elif r.pt_norm in ["폐지","관리비폐지","양도","이관","사망","말소","탈퇴"] %}
+          <form method="post" action="/work/pending-board/action" style="display:inline;">
+            <input type="hidden" name="row_type" value="{{ r.row_type }}">
+            <input type="hidden" name="id" value="{{ r.id }}">
+            <input type="hidden" name="action" value="complete">
+            <button class="btn-small btn-green" type="submit">처리완료</button>
+          </form>
+          <form method="post" action="/work/pending-board/action" style="display:inline;" onsubmit="return confirm('삭제할까요?');">
+            <input type="hidden" name="row_type" value="{{ r.row_type }}">
+            <input type="hidden" name="id" value="{{ r.id }}">
+            <input type="hidden" name="action" value="delete">
+            <button class="btn-small btn-danger2" type="submit">삭제</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="13" style="text-align:center;padding:24px;color:#888;">조회 결과가 없습니다.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="pager">
+  {% if page > 1 %}
+  <a class="btn-small" href="/work/pending-board?tab={{ tab }}&year={{ year }}&month={{ month }}&process_type={{ process_type }}&status={{ status }}&q={{ q }}&page={{ page-1 }}&page_size={{ page_size }}">이전</a>
+  {% endif %}
+  <span>{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a class="btn-small" href="/work/pending-board?tab={{ tab }}&year={{ year }}&month={{ month }}&process_type={{ process_type }}&status={{ status }}&q={{ q }}&page={{ page+1 }}&page_size={{ page_size }}">다음</a>
+  {% endif %}
+</div>
+{% endblock %}
