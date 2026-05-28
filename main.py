@@ -3798,6 +3798,67 @@ def pending_board_final_page(
 
         return t[:10]
 
+    def lookup_member_arrears(name, vehicle_no):
+        """
+        폐업/폐지/양도/이관/탈퇴 대상도 현재 미수금이 보여야 하므로
+        Member에서 성명/차량번호로 찾아 미수금 컬럼을 표시한다.
+        """
+        try:
+            n = str(name or "").replace(" ", "").strip()
+            v = str(vehicle_no or "").replace(" ", "").replace("-", "").replace("호", "").strip()
+
+            if not n and not v:
+                return ""
+
+            q = db.query(Member)
+
+            candidates = []
+            try:
+                if n:
+                    candidates.append(Member.name.ilike(f"%{n}%"))
+            except Exception:
+                pass
+
+            try:
+                if v:
+                    candidates.append(Member.vehicle_no.ilike(f"%{v}%"))
+            except Exception:
+                pass
+
+            if candidates:
+                m = q.filter(or_(*candidates)).first()
+            else:
+                m = None
+
+            if not m:
+                return ""
+
+            for col in [
+                "current_arrears",
+                "total_arrears",
+                "arrears_total",
+                "arrears",
+                "unpaid_amount",
+                "balance",
+                "미수금",
+            ]:
+                try:
+                    if hasattr(m, col):
+                        val = getattr(m, col)
+                        if val not in [None, ""]:
+                            return val
+                except Exception:
+                    pass
+
+            return ""
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            return ""
+
+
     def request_dates(obj, pt_norm):
         # 협회비 = 가입일자
         # 관리비 = 인가일자, 없으면 자격증명발급일자
@@ -3925,12 +3986,18 @@ def pending_board_final_page(
         if (str(r.get("name") or "").strip() or str(r.get("vehicle_no") or "").strip() or str(r.get("note") or "").strip())
     ]
 
+    for r in rows:
+        try:
+            r["arrears"] = lookup_member_arrears(r.get("name"), r.get("vehicle_no"))
+        except Exception:
+            r["arrears"] = ""
+
     def tab_match(r, t):
         pt = r["pt_norm"]
         st = r["status"]
 
         if t == "전체":
-            return st != "부과대수상세"
+            return st not in ["부과대수상세", "완료", "반영완료", "처리완료"]
 
         if t == "반영대기":
             return st == "반영대기" and pt in NEW_TYPES
@@ -4229,7 +4296,7 @@ def emergency_pending_board_page(
         st = row.get("status", "")
 
         if t == "전체":
-            return st != "부과대수상세"
+            return st not in ["부과대수상세", "완료", "반영완료", "처리완료"]
 
         if t == "반영대기":
             return st == "반영대기" and pt in ["협회비", "관리비"]
