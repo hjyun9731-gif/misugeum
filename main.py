@@ -3662,6 +3662,66 @@ def pending_board_detail_html(
 
 
 # ── 처리대기목록 최종 기준 화면 ─────────────────────────────────────
+
+
+@app.get("/api/debug/arrears-tables")
+def debug_arrears_tables(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    미수금 엑셀 업로드 자료가 어느 테이블/컬럼에 들어가 있는지 확인용.
+    """
+    from sqlalchemy import inspect, text as _text
+
+    try:
+        inspector = inspect(db.bind)
+        tables = inspector.get_table_names()
+
+        keywords = [
+            "arrear", "misu", "unpaid", "member", "ledger",
+            "monthly", "bill", "billing", "미수", "원장"
+        ]
+
+        result = {}
+
+        for t in tables:
+            low = t.lower()
+            if any(k in low for k in keywords):
+                cols = [c["name"] for c in inspector.get_columns(t)]
+
+                sample = []
+                try:
+                    sample = [
+                        dict(r) for r in db.execute(
+                            _text(f"SELECT * FROM {t} LIMIT 3")
+                        ).mappings().all()
+                    ]
+                except Exception as e:
+                    sample = [{"sample_error": repr(e)}]
+
+                result[t] = {
+                    "columns": cols,
+                    "sample": sample
+                }
+
+        return {
+            "ok": True,
+            "tables": result
+        }
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {
+            "ok": False,
+            "error": repr(e)
+        }
+
+
+
 @app.get("/work/pending-board", response_class=HTMLResponse)
 def pending_board_final_page(
     request: Request,
