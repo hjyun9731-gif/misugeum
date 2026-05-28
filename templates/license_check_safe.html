@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% set active = "license" %}
+{% block title %}전체자대조{% endblock %}
+{% block page_title %}전체자대조{% endblock %}
+
+{% block content %}
+<div class="card" style="padding:16px;margin-bottom:14px;">
+  <h2 style="margin:0 0 8px 0;">전체자대조</h2>
+  <div style="color:#8c7180;font-size:13px;margin-bottom:8px;">
+    전체자명단 {{ lic_count }}건
+  </div>
+
+  {% if err_msg %}
+  <div style="color:#e11d48;font-weight:700;margin-bottom:8px;">{{ err_msg }}</div>
+  {% endif %}
+
+  <form method="get" action="/license-check" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역, 연락처" style="min-width:260px;">
+    <button class="btn btn-primary" type="submit">검색</button>
+    <a class="btn btn-ghost" href="/license-check">초기화</a>
+    <a class="btn btn-ghost" href="/work/pending-board">처리대기목록</a>
+  </form>
+</div>
+
+<div class="tbl-card" style="overflow-x:auto;">
+  <table>
+    <thead>
+      <tr>
+        <th>지역</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>연락처</th>
+        <th>주소</th>
+        <th>대조상태</th>
+        <th>사유</th>
+        <th>처리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in items %}
+      <tr>
+        <td>{{ r.region }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.vehicle }}</td>
+        <td>{{ r.phone }}</td>
+        <td style="max-width:280px;white-space:normal;">{{ r.address }}</td>
+        <td>{{ r.status }}</td>
+        <td style="max-width:240px;white-space:normal;">{{ r.reason }}</td>
+        <td style="white-space:nowrap;">
+          <form method="post" action="/license-check/{{ r.id }}/confirm" style="display:inline;">
+            <button class="btn btn-primary" type="submit">확인</button>
+          </form>
+          <form method="post" action="/license-check/{{ r.id }}/to-work" style="display:inline;">
+            <button class="btn btn-ghost" type="submit">처리대기</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" style="text-align:center;padding:28px;color:#8c7180;">
+          전체자대조 미확인 항목이 없습니다.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

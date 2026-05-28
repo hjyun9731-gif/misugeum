@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% set active = "work" %}
+{% block title %}처리대기목록{% endblock %}
+{% block page_title %}처리대기목록{% endblock %}
+
+{% block content %}
+
+{% if err %}
+<div style="color:#e11d48;font-weight:700;margin-bottom:10px;">{{ err }}</div>
+{% endif %}
+
+<!-- 탭 -->
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+  {% for t in main_tabs %}
+  <a class="btn {% if t == tab %}btn-primary{% else %}btn-ghost{% endif %}"
+     href="/work/pending-board?tab={{ t|urlencode }}">
+    {{ t }} <b style="background:rgba(0,0,0,.08);border-radius:999px;padding:2px 7px;font-size:11px;">{{ counts.get(t, 0) }}</b>
+  </a>
+  {% endfor %}
+</div>
+
+{% if tab in ["폐업","폐지","관리비폐지","양도","이관","사망","말소"] %}
+<div style="margin-bottom:10px;padding:10px;background:#fff7fb;border:1px solid #ffd6e8;border-radius:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+  <b style="color:#d63384;">폐업 하위분류</b>
+  {% for t in closure_tabs %}
+  <a class="btn {% if t == tab %}btn-primary{% else %}btn-ghost{% endif %}"
+     href="/work/pending-board?tab={{ t|urlencode }}">
+    {{ t }} <b style="background:rgba(0,0,0,.08);border-radius:999px;padding:2px 7px;font-size:11px;">{{ counts.get(t, 0) }}</b>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- 필터 -->
+<div class="tbl-card" style="padding:14px;margin-bottom:12px;">
+  <form method="get" action="/work/pending-board" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">연도</label><br>
+      <select name="year" style="min-width:90px;">
+        {{ year_options|safe }}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">월</label><br>
+      <select name="month" style="min-width:70px;">
+        {{ month_options|safe }}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">처리구분</label><br>
+      <select name="process_type">
+        {{ process_options|safe }}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">상태</label><br>
+      <select name="status">
+        {{ status_options|safe }}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">검색</label><br>
+      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">개수</label><br>
+      <select name="page_size">
+        <option value="30" {% if page_size == 30 %}selected{% endif %}>30개</option>
+        <option value="50" {% if page_size == 50 %}selected{% endif %}>50개</option>
+        <option value="100" {% if page_size == 100 %}selected{% endif %}>100개</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">조회</button>
+    <a class="btn btn-ghost" href="/work/pending-board?tab={{ tab|urlencode }}">초기화</a>
+  </form>
+  <div style="margin-top:10px;color:#8c7180;font-size:13px;">총 {{ total }}건 · {{ page }}/{{ total_pages }}페이지</div>
+</div>
+
+<!-- 테이블 -->
+<div class="tbl-card" style="overflow-x:auto;">
+  <table>
+    <thead>
+      <tr>
+        <th>상태</th>
+        <th>처리구분</th>
+        <th>연월</th>
+        <th>지역</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>계정</th>
+        <th>출처</th>
+        <th>원본시트</th>
+        <th>비고</th>
+        <th>상세</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in page_rows %}
+      <tr>
+        <td>
+          {% if r.status == "반영대기" %}<span class="badge b-warn">반영대기</span>
+          {% elif r.status == "반영완료" %}<span class="badge b-ok">반영완료</span>
+          {% elif r.status == "부과대수상세" %}<span class="badge b-gray">부과대수상세</span>
+          {% else %}<span class="badge b-gray">{{ r.status }}</span>{% endif %}
+        </td>
+        <td>
+          {% set pt = r.pt_norm %}
+          <span class="badge {% if pt in ['폐지','양도','이관','사망','말소'] %}b-red{% elif pt in ['협회비','관리비'] %}b-blue{% else %}b-gray{% endif %}">
+            {{ pt }}
+          </span>
+        </td>
+        <td class="text-sm">{{ r.ym }}</td>
+        <td class="text-sm">{{ r.region }}</td>
+        <td>{{ r.name }}</td>
+        <td class="text-sm" style="font-family:monospace;">{{ r.vehicle }}</td>
+        <td class="text-sm">{{ r.account }}</td>
+        <td class="text-sm">{{ r.source }}</td>
+        <td class="text-sm" style="color:#9ca3af;">{{ r.sheet }}</td>
+        <td class="text-sm" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.note }}">{{ r.note }}</td>
+        <td>
+          <a class="btn btn-ghost" style="font-size:12px;padding:4px 10px;"
+             href="/api/work/detail?id={{ r.id }}&row_type={{ r.kind }}">상세</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="11" style="text-align:center;padding:28px;color:#8c7180;">
+          {{ tab }} 조회 결과 없음
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- 페이지네이션 -->
+<div style="text-align:center;margin-top:14px;">
+  {{ prev_link|safe }}
+  <span style="display:inline-block;padding:8px 16px;background:#fff0f7;border-radius:999px;color:#7b3e5c;font-weight:900;">{{ page }} / {{ total_pages }}</span>
+  {{ next_link|safe }}
+</div>
+
+{% endblock %}

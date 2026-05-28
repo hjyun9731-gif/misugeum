@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% set active = "income" %}
+{% block title %}잡수입/가수금 관리{% endblock %}
+{% block page_title %}잡수입/가수금 관리{% endblock %}
+
+{% block content %}
+
+<!-- 필터/탭 카드 -->
+<div class="card" style="margin-bottom:14px;">
+  <h2 style="margin:0 0 8px 0;font-size:20px;">잡수입/가수금 관리</h2>
+  <div style="color:#8c7180;font-size:13px;margin-bottom:12px;">통장매칭에서 분류한 잡수입과 가수금을 확인합니다.</div>
+
+  <!-- 탭 -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+    {% for k, kk in [("잡수입","잡수입"),("가수금","가수금"),("전체","")] %}
+    <a class="btn {% if (kind == kk) or (not kind and kk == '') %}btn-primary{% else %}btn-ghost{% endif %}"
+       href="/income-ledger?kind={{ kk|urlencode }}">{{ k }}</a>
+    {% endfor %}
+  </div>
+
+  {% if err %}
+  <div style="color:#e11d48;font-weight:700;margin-bottom:8px;">{{ err }}</div>
+  {% endif %}
+
+  <form method="get" action="/income-ledger" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">구분</label><br>
+      <select name="kind">
+        <option value="" {% if not kind %}selected{% endif %}>전체</option>
+        <option value="잡수입" {% if kind == "잡수입" %}selected{% endif %}>잡수입</option>
+        <option value="가수금" {% if kind == "가수금" %}selected{% endif %}>가수금</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">검색</label><br>
+      <input type="text" name="q" value="{{ q }}" placeholder="이체메모, 성명, 차량번호" style="min-width:220px;">
+    </div>
+    <div>
+      <label style="font-size:12px;font-weight:700;color:#7b6473;">개수</label><br>
+      <select name="page_size">
+        <option value="30" {% if page_size == 30 %}selected{% endif %}>30개</option>
+        <option value="50" {% if page_size == 50 %}selected{% endif %}>50개</option>
+        <option value="100" {% if page_size == 100 %}selected{% endif %}>100개</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">조회</button>
+    <a class="btn btn-ghost" href="/income-ledger">초기화</a>
+    <a class="btn btn-ghost" href="/work/pending-board">처리대기목록</a>
+  </form>
+  <div style="margin-top:10px;color:#8c7180;font-size:13px;">총 {{ total }}건 · {{ page }}/{{ total_pages }}페이지</div>
+</div>
+
+<!-- 테이블 -->
+<div class="tbl-card" style="overflow-x:auto;">
+  <table>
+    <thead>
+      <tr>
+        <th>입금일자</th>
+        <th>구분</th>
+        <th style="text-align:right;">금액</th>
+        <th>이체메모</th>
+        <th>차량번호</th>
+        <th>성명</th>
+        <th>처리대상</th>
+        <th>부과일자</th>
+        <th>비고</th>
+        <th>출처</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in page_rows %}
+      <tr>
+        <td class="text-sm">{{ r.date }}</td>
+        <td>
+          {% if r.kind == "잡수입" %}<span class="badge b-blue">잡수입</span>
+          {% elif r.kind == "가수금" %}<span class="badge b-warn">가수금</span>
+          {% else %}<span class="badge b-gray">{{ r.kind }}</span>{% endif %}
+        </td>
+        <td style="text-align:right;font-weight:700;color:#e11d48;">{{ r.amount }}</td>
+        <td>{{ r.memo }}</td>
+        <td class="text-sm" style="font-family:monospace;">{{ r.vehicle }}</td>
+        <td>{{ r.name }}</td>
+        <td>
+          {% if r.target == "협회비" %}<span class="badge b-blue">협회비</span>
+          {% elif r.target == "관리비" %}<span class="badge b-ok">관리비</span>
+          {% elif r.target %}<span class="badge b-gray">{{ r.target }}</span>
+          {% else %}-{% endif %}
+        </td>
+        <td class="text-sm">{{ r.billing_date }}</td>
+        <td class="text-sm" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.note }}">{{ r.note }}</td>
+        <td class="text-xs" style="color:#9ca3af;">{{ r.source }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="10" style="text-align:center;padding:28px;color:#8c7180;">
+          잡수입/가수금 항목이 없습니다.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- 페이지네이션 -->
+<div style="text-align:center;margin-top:14px;">
+  {{ prev_link|safe }}
+  <span style="display:inline-block;padding:8px 16px;background:#fff0f7;border-radius:999px;color:#7b3e5c;font-weight:900;">{{ page }} / {{ total_pages }}</span>
+  {{ next_link|safe }}
+</div>
+
+{% endblock %}

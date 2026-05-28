@@ -1510,7 +1510,7 @@ def license_check(request: Request, db: Session = Depends(get_db),
             return default
 
     lic_count = 0
-    rows_html = ""
+    items = []
     err_msg = ""
 
     try:
@@ -1561,265 +1561,35 @@ def license_check(request: Request, db: Session = Depends(get_db),
         members = query.order_by(Member.id.desc()).limit(500).all()
 
         for m in members:
-            mid = sg(m, "id")
-            region = escape(sg(m, "region"))
-            name = escape(sg(m, "name"))
-            vehicle = escape(sg(m, "vehicle_no"))
-            phone = escape(sg(m, "mobile") or sg(m, "phone"))
-            address = escape(sg(m, "address") or sg(m, "official_address"))
-            status = escape(sg(m, "match_status"))
-            reason = escape(sg(m, "match_fail_reason"))
-
-            rows_html += f"""
-            <tr>
-              <td>{region}</td>
-              <td>{name}</td>
-              <td>{vehicle}</td>
-              <td>{phone}</td>
-              <td>{address}</td>
-              <td>{status}</td>
-              <td>{reason}</td>
-              <td>
-                <form method="post" action="/license-check/{mid}/confirm" style="display:inline;">
-                  <button type="submit">확인</button>
-                </form>
-                <form method="post" action="/license-check/{mid}/to-work" style="display:inline;">
-                  <button type="submit">처리대기</button>
-                </form>
-              </td>
-            </tr>
-            """
-
-        if not rows_html:
-            rows_html = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#777;">전체자대조 미확인 항목이 없습니다.</td></tr>'
+            items.append({
+                "id": sg(m, "id"),
+                "region": sg(m, "region"),
+                "name": sg(m, "name"),
+                "vehicle": sg(m, "vehicle_no"),
+                "phone": sg(m, "mobile") or sg(m, "phone"),
+                "address": sg(m, "address") or sg(m, "official_address"),
+                "status": sg(m, "match_status"),
+                "reason": sg(m, "match_fail_reason"),
+            })
 
     except Exception as e:
         try:
             db.rollback()
         except Exception:
             pass
-        err_msg += "전체자대조 목록 오류: " + escape(repr(e)) + "<br>"
-        rows_html = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#d33;">목록 조회 중 오류가 있었지만 화면은 안전하게 열렸습니다.</td></tr>'
+        err_msg += "전체자대조 목록 오류: " + repr(e)
 
     if msg:
-        err_msg = escape(msg) + "<br>" + err_msg
+        err_msg = msg + " " + err_msg
 
-    html = f"""
-<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<title>전체자대조</title>
-<style>
-:root{{
-  --bg1:#fff7fb;
-  --bg2:#f7f8ff;
-  --card:#ffffff;
-  --line:#efd9e6;
-  --line2:#f4e8ef;
-  --text:#302636;
-  --muted:#8c7180;
-  --pink:#ff7eb6;
-  --pink2:#fff0f7;
-  --blue:#7aa7ff;
-  --purple:#9b7bff;
-  --danger:#e11d48;
-}}
-*{{box-sizing:border-box;}}
-body{{
-  font-family:Arial,'Malgun Gothic',sans-serif;
-  background:
-    radial-gradient(circle at top left,rgba(255,126,182,.18),transparent 28%),
-    radial-gradient(circle at top right,rgba(122,167,255,.18),transparent 30%),
-    linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 55%,#f5f7fb 100%);
-  margin:0;
-  padding:24px;
-  color:var(--text);
-}}
-.card{{
-  background:rgba(255,255,255,.96);
-  border:1px solid var(--line);
-  border-radius:22px;
-  padding:18px;
-  margin-bottom:16px;
-  box-shadow:0 12px 30px rgba(190,110,150,.12);
-}}
-h2{{
-  margin:0 0 6px 0;
-  font-size:24px;
-  letter-spacing:-.8px;
-  color:#34273a;
-}}
-.card > div:first-child,
-.card h2 + div{{
-  color:var(--muted);
-}}
-.btn{{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
-  padding:8px 13px;
-  border-radius:999px;
-  border:1px solid #ead6e2;
-  text-decoration:none;
-  color:#4a3d48;
-  background:#fff;
-  margin:3px;
-  font-size:13px;
-  font-weight:800;
-  cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.035);
-  transition:.12s ease;
-}}
-.btn:hover,button:hover{{
-  transform:translateY(-1px);
-  box-shadow:0 5px 12px rgba(180,100,140,.12);
-}}
-.btn b{{
-  background:#fff0f7;
-  color:#c24b82;
-  border-radius:999px;
-  padding:2px 7px;
-  font-size:12px;
-}}
-.primary{{
-  background:linear-gradient(135deg,var(--pink),var(--blue))!important;
-  color:white!important;
-  border-color:transparent!important;
-}}
-.primary b{{
-  background:rgba(255,255,255,.25);
-  color:white;
-}}
-.ghost{{
-  background:white;
-}}
-table{{
-  width:100%;
-  border-collapse:separate;
-  border-spacing:0;
-  background:white;
-  border-radius:18px;
-  overflow:hidden;
-}}
-th,td{{
-  border-bottom:1px solid var(--line2);
-  padding:10px 9px;
-  font-size:13px;
-  vertical-align:top;
-}}
-th{{
-  background:linear-gradient(180deg,#fff0f7,#fff9fc);
-  color:#6d4058;
-  text-align:left;
-  font-weight:900;
-  white-space:nowrap;
-}}
-tr:hover td{{
-  background:#fffafd;
-}}
-input,select{{
-  padding:9px 10px;
-  border:1px solid #ead6e2;
-  border-radius:12px;
-  background:white;
-  outline:none;
-  min-height:36px;
-}}
-input:focus,select:focus{{
-  border-color:var(--pink);
-  box-shadow:0 0 0 3px rgba(255,126,182,.16);
-}}
-label{{
-  color:#7b6473;
-  font-size:12px;
-  font-weight:900;
-}}
-button{{
-  padding:8px 12px;
-  border-radius:999px;
-  border:1px solid #ead6e2;
-  background:#fff;
-  color:#4a3d48;
-  font-weight:800;
-  cursor:pointer;
-}}
-.err{{
-  color:var(--danger);
-  font-weight:800;
-  margin-top:8px;
-}}
-.pager-pill{{
-  display:inline-block;
-  padding:8px 14px;
-  background:#fff0f7;
-  border-radius:999px;
-  color:#7b3e5c;
-  font-weight:900;
-}}
-.subbox{{
-  margin-top:10px;
-  padding:10px;
-  background:#fff7fb;
-  border:1px solid #ffd6e8;
-  border-radius:14px;
-}}
-form{{
-  gap:8px;
-}}
-.badge{{
-  display:inline-block;
-  padding:4px 9px;
-  border-radius:999px;
-  background:#fff0f7;
-  color:#c24b82;
-  font-size:12px;
-  font-weight:900;
-}}
-@media(max-width:900px){{
-  body{{padding:14px;}}
-  .card{{padding:14px;border-radius:18px;}}
-  table{{min-width:980px;}}
-}}
-</style>
-</head>
-<body>
-<div class="card">
-  <h2>전체자대조 ✨</h2><div style="color:#8c7180;font-size:13px;margin-bottom:10px;">전체자명단과 회원자료 대조 결과를 확인합니다.</div>
-  <div>전체자명단 {lic_count}건</div>
-  <div class="err">{err_msg}</div>
-  <form method="get" action="/license-check" style="margin-top:12px;display:flex;gap:8px;">
-    <input type="text" name="q" value="{escape(q)}" placeholder="성명, 차량번호, 지역, 연락처" style="min-width:280px;">
-    <button class="primary" type="submit">검색</button>
-    <a class="btn" href="/license-check">초기화</a>
-    <a class="btn" href="/work/pending-board">처리대기목록</a>
-  </form>
-</div>
-
-<div class="card" style="overflow:auto;">
-<table>
-<thead>
-<tr>
-<th>지역</th>
-<th>성명</th>
-<th>차량번호</th>
-<th>연락처</th>
-<th>주소</th>
-<th>대조상태</th>
-<th>사유</th>
-<th>처리</th>
-</tr>
-</thead>
-<tbody>
-{rows_html}
-</tbody>
-</table>
-</div>
-</body>
-</html>
-"""
-    return HTMLResponse(html)
+    return templates.TemplateResponse("license_check_safe.html", {
+        "request": request,
+        "user": user,
+        "lic_count": lic_count,
+        "items": items,
+        "q": q,
+        "err_msg": err_msg,
+    })
 
 
 @app.post("/license-check/{mid}/confirm")
@@ -3187,280 +2957,24 @@ def emergency_income_ledger_page(
     start = (page - 1) * page_size
     page_rows = rows[start:start + page_size]
 
-    row_html = ""
-    for r in page_rows:
-        row_html += f"""
-        <tr>
-          <td>{h(r.get('date'))}</td>
-          <td>{h(r.get('kind'))}</td>
-          <td style="text-align:right;font-weight:700;">{h(r.get('amount'))}</td>
-          <td>{h(r.get('memo'))}</td>
-          <td>{h(r.get('vehicle'))}</td>
-          <td>{h(r.get('name'))}</td>
-          <td>{h(r.get('target'))}</td>
-          <td>{h(r.get('billing_date'))}</td>
-          <td>{h(r.get('note'))}</td>
-          <td>{h(r.get('source'))}</td>
-        </tr>
-        """
-
-    if not row_html:
-        row_html = '<tr><td colspan="10" style="text-align:center;padding:24px;color:#777;">잡수입/가수금 항목이 없습니다.</td></tr>'
-
-    kind_tabs = ""
-    for k in ["잡수입", "가수금", "전체"]:
-        active = "primary" if (kind == k or (k == "전체" and not kind)) else "ghost"
-        kk = "" if k == "전체" else k
-        kind_tabs += f'<a class="btn {active}" href="/income-ledger?kind={h(kk)}">{h(k)}</a> '
-
     base = f"/income-ledger?kind={h(kind)}&q={h(q)}&page_size={page_size}"
-    prev_link = f'<a class="btn ghost" href="{base}&page={page-1}">이전</a>' if page > 1 else ""
-    next_link = f'<a class="btn ghost" href="{base}&page={page+1}">다음</a>' if page < total_pages else ""
+    prev_link = f'<a class="btn btn-ghost" href="{base}&page={page-1}">이전</a>' if page > 1 else ""
+    next_link = f'<a class="btn btn-ghost" href="{base}&page={page+1}">다음</a>' if page < total_pages else ""
 
-    html = f"""
-<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<title>잡수입/가수금 관리</title>
-<style>
-:root{{
-  --bg1:#fff7fb;
-  --bg2:#f7f8ff;
-  --card:#ffffff;
-  --line:#efd9e6;
-  --line2:#f4e8ef;
-  --text:#302636;
-  --muted:#8c7180;
-  --pink:#ff7eb6;
-  --pink2:#fff0f7;
-  --blue:#7aa7ff;
-  --purple:#9b7bff;
-  --danger:#e11d48;
-}}
-*{{box-sizing:border-box;}}
-body{{
-  font-family:Arial,'Malgun Gothic',sans-serif;
-  background:
-    radial-gradient(circle at top left,rgba(255,126,182,.18),transparent 28%),
-    radial-gradient(circle at top right,rgba(122,167,255,.18),transparent 30%),
-    linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 55%,#f5f7fb 100%);
-  margin:0;
-  padding:24px;
-  color:var(--text);
-}}
-.card{{
-  background:rgba(255,255,255,.96);
-  border:1px solid var(--line);
-  border-radius:22px;
-  padding:18px;
-  margin-bottom:16px;
-  box-shadow:0 12px 30px rgba(190,110,150,.12);
-}}
-h2{{
-  margin:0 0 6px 0;
-  font-size:24px;
-  letter-spacing:-.8px;
-  color:#34273a;
-}}
-.card > div:first-child,
-.card h2 + div{{
-  color:var(--muted);
-}}
-.btn{{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
-  padding:8px 13px;
-  border-radius:999px;
-  border:1px solid #ead6e2;
-  text-decoration:none;
-  color:#4a3d48;
-  background:#fff;
-  margin:3px;
-  font-size:13px;
-  font-weight:800;
-  cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.035);
-  transition:.12s ease;
-}}
-.btn:hover,button:hover{{
-  transform:translateY(-1px);
-  box-shadow:0 5px 12px rgba(180,100,140,.12);
-}}
-.btn b{{
-  background:#fff0f7;
-  color:#c24b82;
-  border-radius:999px;
-  padding:2px 7px;
-  font-size:12px;
-}}
-.primary{{
-  background:linear-gradient(135deg,var(--pink),var(--blue))!important;
-  color:white!important;
-  border-color:transparent!important;
-}}
-.primary b{{
-  background:rgba(255,255,255,.25);
-  color:white;
-}}
-.ghost{{
-  background:white;
-}}
-table{{
-  width:100%;
-  border-collapse:separate;
-  border-spacing:0;
-  background:white;
-  border-radius:18px;
-  overflow:hidden;
-}}
-th,td{{
-  border-bottom:1px solid var(--line2);
-  padding:10px 9px;
-  font-size:13px;
-  vertical-align:top;
-}}
-th{{
-  background:linear-gradient(180deg,#fff0f7,#fff9fc);
-  color:#6d4058;
-  text-align:left;
-  font-weight:900;
-  white-space:nowrap;
-}}
-tr:hover td{{
-  background:#fffafd;
-}}
-input,select{{
-  padding:9px 10px;
-  border:1px solid #ead6e2;
-  border-radius:12px;
-  background:white;
-  outline:none;
-  min-height:36px;
-}}
-input:focus,select:focus{{
-  border-color:var(--pink);
-  box-shadow:0 0 0 3px rgba(255,126,182,.16);
-}}
-label{{
-  color:#7b6473;
-  font-size:12px;
-  font-weight:900;
-}}
-button{{
-  padding:8px 12px;
-  border-radius:999px;
-  border:1px solid #ead6e2;
-  background:#fff;
-  color:#4a3d48;
-  font-weight:800;
-  cursor:pointer;
-}}
-.err{{
-  color:var(--danger);
-  font-weight:800;
-  margin-top:8px;
-}}
-.pager-pill{{
-  display:inline-block;
-  padding:8px 14px;
-  background:#fff0f7;
-  border-radius:999px;
-  color:#7b3e5c;
-  font-weight:900;
-}}
-.subbox{{
-  margin-top:10px;
-  padding:10px;
-  background:#fff7fb;
-  border:1px solid #ffd6e8;
-  border-radius:14px;
-}}
-form{{
-  gap:8px;
-}}
-.badge{{
-  display:inline-block;
-  padding:4px 9px;
-  border-radius:999px;
-  background:#fff0f7;
-  color:#c24b82;
-  font-size:12px;
-  font-weight:900;
-}}
-@media(max-width:900px){{
-  body{{padding:14px;}}
-  .card{{padding:14px;border-radius:18px;}}
-  table{{min-width:980px;}}
-}}
-</style>
-</head>
-<body>
-<div class="card">
-  <h2>잡수입/가수금 관리 ✨</h2><div style="color:#8c7180;font-size:13px;margin-bottom:10px;">통장매칭에서 분류한 잡수입과 가수금을 확인합니다.</div>
-  <div>{kind_tabs}</div>
-  <div class="err">{err}</div>
-</div>
-
-<div class="card">
-  <form method="get" action="/income-ledger" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
-    <div>
-      <label>구분</label><br>
-      <select name="kind">
-        <option value="" {"selected" if not kind else ""}>전체</option>
-        <option value="잡수입" {"selected" if kind=="잡수입" else ""}>잡수입</option>
-        <option value="가수금" {"selected" if kind=="가수금" else ""}>가수금</option>
-      </select>
-    </div>
-    <div><label>검색</label><br><input type="text" name="q" value="{h(q)}" placeholder="이체메모, 성명, 차량번호"></div>
-    <div>
-      <label>개수</label><br>
-      <select name="page_size">
-        <option value="30" {"selected" if page_size==30 else ""}>30개</option>
-        <option value="50" {"selected" if page_size==50 else ""}>50개</option>
-        <option value="100" {"selected" if page_size==100 else ""}>100개</option>
-      </select>
-    </div>
-    <button class="btn primary" type="submit">조회</button>
-    <a class="btn ghost" href="/income-ledger">초기화</a>
-    <a class="btn ghost" href="/work/pending-board">처리대기목록</a>
-  </form>
-  <div style="margin-top:10px;color:#666;">총 {total}건 · {page}/{total_pages}페이지</div>
-</div>
-
-<div class="card" style="overflow:auto;">
-<table>
-<thead>
-<tr>
-<th>입금일자</th>
-<th>구분</th>
-<th>금액</th>
-<th>이체메모</th>
-<th>차량번호</th>
-<th>성명</th>
-<th>처리대상</th>
-<th>부과일자</th>
-<th>비고</th>
-<th>출처</th>
-</tr>
-</thead>
-<tbody>
-{row_html}
-</tbody>
-</table>
-</div>
-
-<div class="card" style="text-align:center;">
-  {prev_link}
-  <span class="pager-pill">{page} / {total_pages}</span>
-  {next_link}
-</div>
-</body>
-</html>
-"""
-    return HTMLResponse(html)
+    return templates.TemplateResponse("income_ledger_safe.html", {
+        "request": request,
+        "user": user,
+        "kind": kind,
+        "q": q,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "page_rows": page_rows,
+        "prev_link": prev_link,
+        "next_link": next_link,
+        "err": err,
+    })
 
 
 
@@ -3717,284 +3231,37 @@ def emergency_pending_board_page(
             tab_html += f'<a class="btn {cls}" href="/work/pending-board?tab={h(t)}">{h(t)} <b>{counts.get(t,0)}</b></a> '
         tab_html += '</div>'
 
-    row_html = ""
-    for r in page_rows:
-        detail_url = f"/api/work/detail?id={h(r.get('id'))}&row_type={h(r.get('kind'))}"
-        row_html += f"""
-        <tr>
-          <td>{h(r.get('status'))}</td>
-          <td>{h(r.get('pt_norm'))}</td>
-          <td>{h(r.get('ym'))}</td>
-          <td>{h(r.get('region'))}</td>
-          <td>{h(r.get('name'))}</td>
-          <td>{h(r.get('vehicle'))}</td>
-          <td>{h(r.get('account'))}</td>
-          <td>{h(r.get('source'))}</td>
-          <td>{h(r.get('sheet'))}</td>
-          <td>{h(r.get('note'))}</td>
-          <td><a class="btn ghost" href="{detail_url}">상세</a></td>
-        </tr>
-        """
+    _yr = h(year or "")
+    _mo = h(month or "")
+    base = f"/work/pending-board?tab={h(tab)}&q={h(q)}&year={_yr}&month={_mo}&process_type={h(process_type)}&status={h(status)}&page_size={page_size}"
+    prev_link = f'<a class="btn btn-ghost" href="{base}&page={page-1}">이전</a>' if page > 1 else ""
+    next_link = f'<a class="btn btn-ghost" href="{base}&page={page+1}">다음</a>' if page < total_pages else ""
 
-    if not row_html:
-        row_html = '<tr><td colspan="11" style="text-align:center;padding:24px;color:#777;">조회 결과 없음</td></tr>'
-
-    prev_link = ""
-    next_link = ""
-    base = f"/work/pending-board?tab={h(tab)}&q={h(q)}&year={h(year or '')}&month={h(month or '')}&process_type={h(process_type)}&status={h(status)}&page_size={page_size}"
-    if page > 1:
-        prev_link = f'<a class="btn ghost" href="{base}&page={page-1}">이전</a>'
-    if page < total_pages:
-        next_link = f'<a class="btn ghost" href="{base}&page={page+1}">다음</a>'
-
-    # 필터 드롭다운 옵션
-    year_options = '<option value="">전체</option>'
-    for y in sorted({r.get("ym", "")[:4] for r in rows if r.get("ym")}, reverse=True):
-        year_options += f'<option value="{h(y)}" {"selected" if str(year or "") == str(y) else ""}>{h(y)}년</option>'
-
-    month_options = '<option value="">전체</option>'
-    for m in range(1, 13):
-        month_options += f'<option value="{m}" {"selected" if str(month or "") == str(m) else ""}>{m}월</option>'
-
-    process_options = '<option value="">전체</option>'
-    for pt in ["협회비", "관리비", "폐업", "폐지", "관리비폐지", "양도", "이관", "탈퇴", "사망", "말소", "70세", "협회가입", "택배신규"]:
-        process_options += f'<option value="{h(pt)}" {"selected" if str(process_type or "") == pt else ""}>{h(pt)}</option>'
-
-    status_options = '<option value="">전체</option>'
-    for st_opt in ["반영대기", "부과대수상세", "반영완료", "처리대기", "보류"]:
-        status_options += f'<option value="{h(st_opt)}" {"selected" if str(status or "") == st_opt else ""}>{h(st_opt)}</option>'
-
-    html = f"""
-<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<title>처리대기목록</title>
-<style>
-:root{{
-  --bg1:#fff7fb;
-  --bg2:#f7f8ff;
-  --card:#ffffff;
-  --line:#efd9e6;
-  --line2:#f4e8ef;
-  --text:#302636;
-  --muted:#8c7180;
-  --pink:#ff7eb6;
-  --pink2:#fff0f7;
-  --blue:#7aa7ff;
-  --purple:#9b7bff;
-  --danger:#e11d48;
-}}
-*{{box-sizing:border-box;}}
-body{{
-  font-family:Arial,'Malgun Gothic',sans-serif;
-  background:
-    radial-gradient(circle at top left,rgba(255,126,182,.18),transparent 28%),
-    radial-gradient(circle at top right,rgba(122,167,255,.18),transparent 30%),
-    linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 55%,#f5f7fb 100%);
-  margin:0;
-  padding:24px;
-  color:var(--text);
-}}
-.card{{
-  background:rgba(255,255,255,.96);
-  border:1px solid var(--line);
-  border-radius:22px;
-  padding:18px;
-  margin-bottom:16px;
-  box-shadow:0 12px 30px rgba(190,110,150,.12);
-}}
-h2{{
-  margin:0 0 6px 0;
-  font-size:24px;
-  letter-spacing:-.8px;
-  color:#34273a;
-}}
-.card > div:first-child,
-.card h2 + div{{
-  color:var(--muted);
-}}
-.btn{{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
-  padding:8px 13px;
-  border-radius:999px;
-  border:1px solid #ead6e2;
-  text-decoration:none;
-  color:#4a3d48;
-  background:#fff;
-  margin:3px;
-  font-size:13px;
-  font-weight:800;
-  cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.035);
-  transition:.12s ease;
-}}
-.btn:hover,button:hover{{
-  transform:translateY(-1px);
-  box-shadow:0 5px 12px rgba(180,100,140,.12);
-}}
-.btn b{{
-  background:#fff0f7;
-  color:#c24b82;
-  border-radius:999px;
-  padding:2px 7px;
-  font-size:12px;
-}}
-.primary{{
-  background:linear-gradient(135deg,var(--pink),var(--blue))!important;
-  color:white!important;
-  border-color:transparent!important;
-}}
-.primary b{{
-  background:rgba(255,255,255,.25);
-  color:white;
-}}
-.ghost{{
-  background:white;
-}}
-table{{
-  width:100%;
-  border-collapse:separate;
-  border-spacing:0;
-  background:white;
-  border-radius:18px;
-  overflow:hidden;
-}}
-th,td{{
-  border-bottom:1px solid var(--line2);
-  padding:10px 9px;
-  font-size:13px;
-  vertical-align:top;
-}}
-th{{
-  background:linear-gradient(180deg,#fff0f7,#fff9fc);
-  color:#6d4058;
-  text-align:left;
-  font-weight:900;
-  white-space:nowrap;
-}}
-tr:hover td{{
-  background:#fffafd;
-}}
-input,select{{
-  padding:9px 10px;
-  border:1px solid #ead6e2;
-  border-radius:12px;
-  background:white;
-  outline:none;
-  min-height:36px;
-}}
-input:focus,select:focus{{
-  border-color:var(--pink);
-  box-shadow:0 0 0 3px rgba(255,126,182,.16);
-}}
-label{{
-  color:#7b6473;
-  font-size:12px;
-  font-weight:900;
-}}
-button{{
-  padding:8px 12px;
-  border-radius:999px;
-  border:1px solid #ead6e2;
-  background:#fff;
-  color:#4a3d48;
-  font-weight:800;
-  cursor:pointer;
-}}
-.err{{
-  color:var(--danger);
-  font-weight:800;
-  margin-top:8px;
-}}
-.pager-pill{{
-  display:inline-block;
-  padding:8px 14px;
-  background:#fff0f7;
-  border-radius:999px;
-  color:#7b3e5c;
-  font-weight:900;
-}}
-.subbox{{
-  margin-top:10px;
-  padding:10px;
-  background:#fff7fb;
-  border:1px solid #ffd6e8;
-  border-radius:14px;
-}}
-form{{
-  gap:8px;
-}}
-.badge{{
-  display:inline-block;
-  padding:4px 9px;
-  border-radius:999px;
-  background:#fff0f7;
-  color:#c24b82;
-  font-size:12px;
-  font-weight:900;
-}}
-@media(max-width:900px){{
-  body{{padding:14px;}}
-  .card{{padding:14px;border-radius:18px;}}
-  table{{min-width:980px;}}
-}}
-</style>
-</head>
-<body>
-<div class="card">
-  <h2>처리대기목록 ✨</h2><div class="small-desc">반영대기 · 폐업 · 부과대수상세를 한 곳에서 확인합니다.</div>
-  <div>{tab_html}</div>
-  <div class="err">{err}</div>
-</div>
-
-<div class="card">
-  <form method="get" action="/work/pending-board" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
-    <input type="hidden" name="tab" value="{h(tab)}">
-    <div><label>연도</label><br><select name="year">{year_options}</select></div>
-    <div><label>월</label><br><select name="month">{month_options}</select></div>
-    <div><label>처리구분</label><br><select name="process_type">{process_options}</select></div>
-    <div><label>상태</label><br><select name="status">{status_options}</select></div>
-    <div><label>검색</label><br><input type="text" name="q" value="{h(q)}" placeholder="성명, 차량번호, 지역"></div>
-    <div><label>개수</label><br>
-      <select name="page_size">
-        <option value="30" {"selected" if page_size==30 else ""}>30개</option>
-        <option value="50" {"selected" if page_size==50 else ""}>50개</option>
-        <option value="100" {"selected" if page_size==100 else ""}>100개</option>
-      </select>
-    </div>
-    <button class="btn primary" type="submit">조회</button>
-    <a class="btn ghost" href="/work/pending-board?tab={h(tab)}">초기화</a>
-  </form>
-  <div style="margin-top:10px;color:#666;">총 {total}건 · {page}/{total_pages}페이지</div>
-</div>
-
-<div class="card" style="overflow:auto;">
-<table>
-<thead>
-<tr>
-<th>상태</th><th>처리구분</th><th>연월</th><th>지역</th><th>성명</th><th>차량번호</th>
-<th>계정</th><th>출처</th><th>원본시트</th><th>비고</th><th>상세</th>
-</tr>
-</thead>
-<tbody>
-{row_html}
-</tbody>
-</table>
-</div>
-
-<div class="card" style="text-align:center;">
-  {prev_link}
-  <span class="pager-pill">{page} / {total_pages}</span>
-  {next_link}
-</div>
-</body>
-</html>
-"""
-    return HTMLResponse(html)
+    return templates.TemplateResponse("pending_board_safe.html", {
+        "request": request,
+        "user": user,
+        "tab": tab,
+        "q": q,
+        "year": year,
+        "month": month,
+        "process_type": process_type,
+        "status": status,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "page_rows": page_rows,
+        "main_tabs": main_tabs,
+        "closure_tabs": closure_tabs,
+        "counts": counts,
+        "year_options": year_options,
+        "month_options": month_options,
+        "process_options": process_options,
+        "status_options": status_options,
+        "prev_link": prev_link,
+        "next_link": next_link,
+        "err": err,
+    })
 
 
 
