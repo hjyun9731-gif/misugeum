@@ -4217,7 +4217,8 @@ def pending_board_final_page(
             raw_status = pick(bp, "reflect_status", "status")
             view_status = calc_status("billing", raw_status, pt_norm)
 
-            # 26.05 / 26.06 이외 연월은 미처리 업무에서 제외되도록 완료 처리
+            # 부과대수는 26.05 / 26.06 자료만 미처리 업무에 남긴다.
+            # 그 외 연월은 완료 처리해서 미처리 업무에서 빠지게 한다.
             if not is_active_pending_month(safe(bp, "year"), safe(bp, "month")):
                 view_status = "완료"
 
