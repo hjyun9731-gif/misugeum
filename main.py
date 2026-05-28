@@ -4217,7 +4217,7 @@ def pending_board_final_page(
             raw_status = pick(bp, "reflect_status", "status")
             view_status = calc_status("billing", raw_status, pt_norm)
 
-            # 부과대수는 26.05 / 26.06 자료만 미처리 업무에 남긴다.
+            # 부과대수는 26.05 / 26.06 자료 중 성명/차량번호가 있는 정상 행만 미처리 업무에 남긴다.
             # 그 외 연월은 완료 처리해서 미처리 업무에서 빠지게 한다.
             if not is_active_pending_month(safe(bp, "year"), safe(bp, "month")):
                 view_status = "완료"
@@ -4295,7 +4295,10 @@ def pending_board_final_page(
     # 빈 글씨 행 제거: 전체자대조에서 필수값 없이 들어간 찌꺼기 방지
     rows = [
         r for r in rows
-        if (str(r.get("name") or "").strip() or str(r.get("vehicle_no") or "").strip() or str(r.get("note") or "").strip())
+        if (
+            str(r.get("name") or "").strip()
+            or str(r.get("vehicle_no") or "").strip()
+        )
     ]
 
     for r in rows:
