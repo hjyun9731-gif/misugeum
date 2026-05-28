@@ -1,84 +1,60 @@
 {% extends "base.html" %}
-{% set active = "work" %}
-{% block title %}처리대기 상세{% endblock %}
-{% block page_title %}처리대기 상세{% endblock %}
+{% block title %}처리대기 상세/수정{% endblock %}
+{% block page_title %}처리대기 상세/수정{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <div>
-    <div class="page-title" style="font-size:18px;font-weight:800;">처리대기 상세</div>
-  </div>
-  <div class="flex-gap" style="margin-left:auto;">
-    <a href="/work/pending-board" class="btn btn-ghost btn-sm">← 목록으로</a>
-  </div>
-</div>
+<style>
+.detail-wrap{display:grid;grid-template-columns:360px 1fr;gap:16px;}
+.cardx{background:#fff;border:1px solid #eee;border-radius:16px;padding:16px;margin-bottom:16px;}
+.title-name{font-size:24px;font-weight:900;margin-bottom:6px;}
+.sub{color:#777;font-size:13px;}
+.info-grid{display:grid;grid-template-columns:160px 1fr;border-top:1px solid #eee;}
+.info-grid div{padding:10px;border-bottom:1px solid #eee;font-size:13px;}
+.info-grid .label{background:#fafafa;font-weight:900;color:#555;}
+.btnx{display:inline-block;padding:8px 12px;border-radius:10px;border:1px solid #ddd;background:#fff;text-decoration:none;color:#333;font-weight:800;font-size:13px;}
+.btn-blue{background:#2f6fed;color:#fff!important;border-color:#2f6fed;}
+@media(max-width:900px){.detail-wrap{grid-template-columns:1fr;}}
+</style>
 
-{% if not data %}
-<div class="msg-box msg-err">해당 항목을 찾을 수 없습니다.</div>
+{% if not item %}
+<div class="cardx">
+  <h2>자료를 찾을 수 없습니다.</h2>
+  <a class="btnx" href="/work/pending-board">목록으로</a>
+</div>
 {% else %}
 
-<div class="detail-grid">
-  <div class="detail-section">
-    <h3>기본 정보</h3>
-    <div class="detail-row"><span class="dl">처리구분</span>
-      <span class="dv">
-        <span class="badge {% if data.process_type in ['폐지','양도','이관','사망','말소'] %}b-red{% elif data.process_type in ['협회비','관리비'] %}b-blue{% else %}b-gray{% endif %}">
-          {{ data.process_type or '–' }}
-        </span>
-      </span>
+<div class="detail-wrap">
+  <div>
+    <div class="cardx">
+      <div class="title-name">{{ item.name or '성명 없음' }}</div>
+      <div class="sub">{{ item.vehicle_no }} / {{ item.process_type }} / {{ item.status }}</div>
+      <div style="margin-top:14px;">
+        <a class="btnx" href="/work/pending-board">← 목록</a>
+      </div>
     </div>
-    <div class="detail-row"><span class="dl">상태</span>
-      <span class="dv">
-        <span class="badge {% if data.status == '반영대기' %}b-warn{% elif data.status == '반영완료' %}b-ok{% else %}b-gray{% endif %}">
-          {{ data.status or '–' }}
-        </span>
-      </span>
+
+    <div class="cardx">
+      <h3 style="margin-top:0;">업무 기준</h3>
+      <div class="sub">
+        협회비는 가입일자 기준입니다.<br>
+        관리비는 인가일자 기준, 없으면 자격증명발급일자 기준입니다.<br>
+        폐업계열은 처리일자 또는 비고 날짜 기준입니다.
+      </div>
     </div>
-    <div class="detail-row"><span class="dl">지역</span><span class="dv">{{ data.region or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">성명</span><span class="dv"><strong>{{ data.name or '–' }}</strong></span></div>
-    <div class="detail-row"><span class="dl">차량번호</span><span class="dv" style="font-family:monospace;">{{ data.vehicle_no or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">계정</span><span class="dv">{{ data.account or '–' }}</span></div>
   </div>
 
-  <div class="detail-section">
-    <h3>업무 정보</h3>
-    {% if data.before_arrears %}
-    <div class="detail-row"><span class="dl">이전 미수금</span><span class="dv amount">{{ "{:,}".format(data.before_arrears|int) }}원</span></div>
-    {% endif %}
-    <div class="detail-row"><span class="dl">요청일자</span><span class="dv">{{ data.request_date or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">다음부과일</span><span class="dv">{{ data.next_billing_date or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">출처</span><span class="dv">{{ data.source or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">원본시트</span><span class="dv text-sm">{{ data.source_sheet or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">원본행</span><span class="dv text-sm">{{ data.source_row or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">사유</span><span class="dv">{{ data.reason or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">비고</span><span class="dv">{{ data.note or '–' }}</span></div>
-    {% if data.amount %}
-    <div class="detail-row"><span class="dl">금액</span><span class="dv amount">{{ "{:,}".format(data.amount|int) }}원</span></div>
-    {% endif %}
-    <div class="detail-row"><span class="dl">등록일시</span><span class="dv text-xs">{{ data.created_at or '–' }}</span></div>
+  <div>
+    <div class="cardx">
+      <h3 style="margin-top:0;">상세 정보</h3>
+      <div class="info-grid">
+        {% for r in raw_items %}
+          <div class="label">{{ r.label }}</div>
+          <div>{{ r.value }}</div>
+        {% endfor %}
+      </div>
+    </div>
   </div>
 </div>
-
-<!-- 처리 버튼 -->
-{% if data.status == "반영대기" %}
-<div class="flex-gap" style="margin-top:8px;">
-  {% if data.kind == "work_queue" %}
-  <form method="post" action="/work/{{ data.id }}/reflect">
-    <button type="submit" class="btn btn-primary" onclick="return confirm('{{ data.name }} → {{ data.process_type }} 반영하시겠습니까?')">반영</button>
-  </form>
-  <form method="post" action="/work/{{ data.id }}/cancel">
-    <button type="submit" class="btn btn-ghost">취소</button>
-  </form>
-  {% elif data.kind == "billing_person" %}
-  <form method="post" action="/billing-person/{{ data.id }}/reflect">
-    <button type="submit" class="btn btn-primary" onclick="return confirm('{{ data.name }} → {{ data.process_type }} 반영하시겠습니까?')">반영</button>
-  </form>
-  <form method="post" action="/billing-person/{{ data.id }}/hold">
-    <button type="submit" class="btn btn-ghost">보류</button>
-  </form>
-  {% endif %}
-</div>
-{% endif %}
 
 {% endif %}
 {% endblock %}

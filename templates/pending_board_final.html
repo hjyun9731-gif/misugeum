@@ -143,14 +143,14 @@
         <td>{{ r.process_type }}</td>
         <td>{{ r.ym }}</td>
         <td>{{ r.region }}</td>
-        <td><a href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}" style="font-weight:900;color:#1f5fd1;text-decoration:none;">{{ r.name }}</a></td>
+        <td><a href="/work/pending-board/detail?id={{ r.id }}&row_type={{ r.row_type }}" style="font-weight:900;color:#1f5fd1;text-decoration:none;">{{ r.name }}</a></td>
         <td>{{ r.vehicle_no }}</td>
         <td>{{ r.account }}</td>
         <td>{{ r.request_date }}</td>
         <td>{{ r.next_billing_date }}</td>
         <td>{{ r.source }}</td>
         <td style="white-space:nowrap;">
-          <a class="btn-small" href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}">상세/수정</a>
+          <a class="btn-small" href="/work/pending-board/detail?id={{ r.id }}&row_type={{ r.row_type }}">상세/수정</a>
 
           {% if r.status == "반영대기" and r.pt_norm in ["협회비","관리비"] %}
           <form method="post" action="/work/pending-board/action" style="display:inline;">

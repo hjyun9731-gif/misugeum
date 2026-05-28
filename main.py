@@ -3983,6 +3983,112 @@ def pending_board_final_page(
     })
 
 
+
+
+# ── 처리대기 상세/수정 화면 ─────────────────────────────────────────
+@app.get("/work/pending-board/detail", response_class=HTMLResponse)
+def pending_board_detail_page(
+    request: Request,
+    id: int,
+    row_type: str = "billing",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    처리대기목록 상세/수정 화면.
+    JSON API가 아니라 사람이 보는 상세 화면.
+    """
+    import json
+
+    def safe(obj, name, default=""):
+        try:
+            v = getattr(obj, name, default)
+            if v is None:
+                return default
+            return v
+        except Exception:
+            return default
+
+    def parse_raw(obj):
+        raw = safe(obj, "raw_data", "")
+        if isinstance(raw, dict):
+            return raw
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+
+    obj = None
+    if row_type == "billing":
+        obj = db.query(BillingPerson).filter(BillingPerson.id == id).first()
+    elif row_type == "work":
+        obj = db.query(WorkQueue).filter(WorkQueue.id == id).first()
+
+    if not obj:
+        return templates.TemplateResponse(request, "pending_board_detail.html", {
+            "request": request,
+            "user": user,
+            "item": None,
+            "raw_items": [],
+            "row_type": row_type,
+        })
+
+    raw = parse_raw(obj)
+    raw_items = []
+
+    def add(label, value):
+        if value not in [None, ""]:
+            raw_items.append({"label": label, "value": value})
+
+    # 기본 정보
+    add("상태", safe(obj, "reflect_status") or safe(obj, "status"))
+    add("처리구분", safe(obj, "process_type") or safe(obj, "work_type"))
+    add("연도", safe(obj, "year"))
+    add("월", safe(obj, "month"))
+    add("지역", safe(obj, "region"))
+    add("성명", str(safe(obj, "name") or safe(obj, "related_name") or "").replace(" ", ""))
+    add("차량번호", safe(obj, "vehicle_no") or safe(obj, "related_vehicle_no"))
+    add("계정", safe(obj, "account"))
+    add("인가일자", safe(obj, "permit_date"))
+    add("가입일자", safe(obj, "join_date"))
+    add("자격증명발급일자", safe(obj, "cert_issue_date"))
+    add("처리일자", safe(obj, "process_date"))
+    add("요청일", safe(obj, "request_date"))
+    add("다음부과일", safe(obj, "next_billing_date"))
+    add("출처", safe(obj, "source") or safe(obj, "source_screen"))
+    add("비고", safe(obj, "note") or safe(obj, "reason") or safe(obj, "work_reason"))
+
+    # raw_data도 아래에 접어서 확인 가능하게
+    if isinstance(raw, dict):
+        nested = raw.get("raw_data") if isinstance(raw.get("raw_data"), dict) else {}
+        for k, v in raw.items():
+            if k == "raw_data":
+                continue
+            add(str(k), v)
+        for k, v in nested.items():
+            add(str(k), v)
+
+    item = {
+        "id": id,
+        "row_type": row_type,
+        "name": str(safe(obj, "name") or safe(obj, "related_name") or "").replace(" ", ""),
+        "vehicle_no": safe(obj, "vehicle_no") or safe(obj, "related_vehicle_no"),
+        "process_type": safe(obj, "process_type") or safe(obj, "work_type"),
+        "status": safe(obj, "reflect_status") or safe(obj, "status"),
+    }
+
+    return templates.TemplateResponse(request, "pending_board_detail.html", {
+        "request": request,
+        "user": user,
+        "item": item,
+        "raw_items": raw_items,
+        "row_type": row_type,
+    })
+
+
+
 @app.post("/work/pending-board/action")
 async def pending_board_final_action(
     request: Request,
