@@ -3968,6 +3968,34 @@ def pending_board_final_page(
     MAIN_TABS = ["전체", "반영대기", "폐업", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
     CLOSURE_TABS = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
 
+    # 처리대기목록 미처리 업무 기준 연월
+    # 26.05, 26.06 이외 연월은 화면에서 완료 처리한다.
+    ACTIVE_PENDING_MONTHS = {(2026, 5), (2026, 6)}
+
+    def _int_or_none(v):
+        try:
+            t = str(v or "").strip()
+            if not t:
+                return None
+            n = int(float(t))
+            if n < 100:
+                n = 2000 + n
+            return n
+        except Exception:
+            return None
+
+    def is_active_pending_month(y, m):
+        yy = _int_or_none(y)
+        mm = _int_or_none(m)
+        return (yy, mm) in ACTIVE_PENDING_MONTHS
+
+    def display_ym(y, m):
+        yy = _int_or_none(y)
+        mm = _int_or_none(m)
+        if not yy or not mm:
+            return ""
+        return f"{str(yy)[-2:]}.{mm:02d}"
+
     # URL에 year=&month= 처럼 빈값이 붙어도 터지지 않게 처리
     year_raw = str(year or "").strip()
     month_raw = str(month or "").strip()
@@ -4188,6 +4216,11 @@ def pending_board_final_page(
             pt_norm = norm_pt(raw_pt)
             raw_status = pick(bp, "reflect_status", "status")
             view_status = calc_status("billing", raw_status, pt_norm)
+
+            # 26.05 / 26.06 이외 연월은 미처리 업무에서 제외되도록 완료 처리
+            if not is_active_pending_month(safe(bp, "year"), safe(bp, "month")):
+                view_status = "완료"
+
             req_date, next_date = request_dates(bp, pt_norm)
 
             rows.append({
@@ -4197,7 +4230,7 @@ def pending_board_final_page(
                 "raw_status": raw_status,
                 "process_type": source_pt_label(pt_norm, raw_pt),
                 "pt_norm": pt_norm,
-                "ym": f'{safe(bp,"year")}-{int(safe(bp,"month") or 0):02d}' if safe(bp, "month") else "",
+                "ym": display_ym(safe(bp, "year"), safe(bp, "month")),
                 "year": safe(bp, "year"),
                 "month": safe(bp, "month"),
                 "region": pick(bp, "region", "지역"),
