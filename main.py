@@ -4222,6 +4222,21 @@ def pending_board_final_page(
             if not is_active_pending_month(safe(bp, "year"), safe(bp, "month")):
                 view_status = "완료"
 
+            # 최종 보정:
+            # 26.05 / 26.06 부과대수 자료는 미처리 업무에 남겨야 한다.
+            # 단, 이미 완료/반영완료로 명확히 처리된 건만 완료 유지.
+            if is_active_pending_month(safe(bp, "year"), safe(bp, "month")):
+                if str(raw_status or "").strip() in ["완료", "처리완료", "반영완료"]:
+                    view_status = "완료"
+                elif pt_norm in ["협회비", "관리비"]:
+                    view_status = "반영대기"
+                elif pt_norm in CLOSURE_TYPES or pt_norm == "탈퇴":
+                    view_status = "확인필요"
+                elif pt_norm == "70세":
+                    view_status = "확인필요"
+            else:
+                view_status = "완료"
+
             req_date, next_date = request_dates(bp, pt_norm)
 
             rows.append({
