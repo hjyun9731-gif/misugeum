@@ -3722,6 +3722,224 @@ def debug_arrears_tables(
 
 
 
+
+
+@app.post("/work/pending-board/arrears-upload")
+async def pending_board_arrears_excel_upload(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    처리대기목록 현재 미수금 표시용.
+    프로그램 미수금명단 DB가 아니라, 사용자가 올리는 '미수금' 엑셀파일을 읽어서
+    성명/차량번호별 현재 미수금을 lookup 테이블에 저장한다.
+    """
+    from fastapi.responses import RedirectResponse
+    from sqlalchemy import text as _text
+    from openpyxl import load_workbook
+    import tempfile, os, json, re
+
+    def clean_name(v):
+        return str(v or "").replace(" ", "").strip()
+
+    def clean_vehicle(v):
+        return str(v or "").replace(" ", "").replace("-", "").replace("호", "").strip()
+
+    def cell(v):
+        if v is None:
+            return ""
+        return str(v).strip()
+
+    def to_amount(v):
+        if v is None:
+            return 0
+        t = str(v).replace(",", "").replace("원", "").replace(" ", "").strip()
+        if not t:
+            return 0
+        try:
+            return int(float(t))
+        except Exception:
+            nums = re.findall(r"-?\d+", t)
+            if nums:
+                try:
+                    return int("".join(nums))
+                except Exception:
+                    return 0
+        return 0
+
+    tmp_path = None
+
+    try:
+        content = await file.read()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        wb = load_workbook(tmp_path, data_only=True)
+
+        db.execute(_text("""
+        CREATE TABLE IF NOT EXISTS pending_arrears_lookup (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            name_norm TEXT,
+            vehicle_no TEXT,
+            vehicle_norm TEXT,
+            amount INTEGER DEFAULT 0,
+            region TEXT,
+            account TEXT,
+            source_file TEXT,
+            source_sheet TEXT,
+            source_row INTEGER,
+            raw_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """))
+
+        # 새로 올린 미수금 엑셀 기준으로 갈아끼움
+        db.execute(_text("DELETE FROM pending_arrears_lookup"))
+
+        inserted = 0
+
+        name_keys = ["성명", "이름", "회원명", "차주명"]
+        vehicle_keys = ["차량번호", "차량", "차번", "차량 번호"]
+        amount_keys = [
+            "미수금", "현재미수금", "총미수금", "미납금", "체납액",
+            "잔액", "미수", "미납", "합계", "총액", "금액"
+        ]
+        region_keys = ["지역", "시군", "관할"]
+        account_keys = ["계정", "구분", "회비구분"]
+
+        for ws in wb.worksheets:
+            max_r = ws.max_row
+            max_c = ws.max_column
+
+            header_row = None
+            headers = {}
+
+            # 상단 30줄 안에서 헤더 찾기
+            for r in range(1, min(max_r, 30) + 1):
+                vals = [cell(ws.cell(r, c).value) for c in range(1, max_c + 1)]
+                joined = " ".join(vals)
+
+                has_name = any(k in joined for k in name_keys)
+                has_vehicle = any(k in joined for k in vehicle_keys)
+                has_amount = any(k in joined for k in amount_keys)
+
+                if (has_name or has_vehicle) and has_amount:
+                    header_row = r
+                    for c, v in enumerate(vals, start=1):
+                        if v:
+                            headers[c] = v
+                    break
+
+            if not header_row:
+                continue
+
+            def find_col(keys):
+                for c, h in headers.items():
+                    h2 = str(h).replace(" ", "")
+                    for k in keys:
+                        if k.replace(" ", "") in h2:
+                            return c
+                return None
+
+            name_col = find_col(name_keys)
+            vehicle_col = find_col(vehicle_keys)
+            region_col = find_col(region_keys)
+            account_col = find_col(account_keys)
+
+            amount_cols = []
+            for c, h in headers.items():
+                h2 = str(h).replace(" ", "")
+                if any(k.replace(" ", "") in h2 for k in amount_keys):
+                    amount_cols.append(c)
+
+            if not amount_cols:
+                continue
+
+            for r in range(header_row + 1, max_r + 1):
+                row = {headers.get(c, f"col{c}"): cell(ws.cell(r, c).value) for c in range(1, max_c + 1)}
+
+                name = cell(ws.cell(r, name_col).value) if name_col else ""
+                vehicle = cell(ws.cell(r, vehicle_col).value) if vehicle_col else ""
+
+                if not name and not vehicle:
+                    continue
+
+                # 후보 금액 컬럼 중 가장 큰 값을 현재 미수금으로 사용
+                amounts = [to_amount(ws.cell(r, c).value) for c in amount_cols]
+                amount = max(amounts) if amounts else 0
+
+                if amount == 0:
+                    continue
+
+                region = cell(ws.cell(r, region_col).value) if region_col else ""
+                account = cell(ws.cell(r, account_col).value) if account_col else ""
+
+                db.execute(_text("""
+                INSERT INTO pending_arrears_lookup
+                (name, name_norm, vehicle_no, vehicle_norm, amount, region, account, source_file, source_sheet, source_row, raw_json)
+                VALUES
+                (:name, :name_norm, :vehicle_no, :vehicle_norm, :amount, :region, :account, :source_file, :source_sheet, :source_row, :raw_json)
+                """), {
+                    "name": name,
+                    "name_norm": clean_name(name),
+                    "vehicle_no": vehicle,
+                    "vehicle_norm": clean_vehicle(vehicle),
+                    "amount": amount,
+                    "region": region,
+                    "account": account,
+                    "source_file": file.filename,
+                    "source_sheet": ws.title,
+                    "source_row": r,
+                    "raw_json": json.dumps(row, ensure_ascii=False)
+                })
+
+                inserted += 1
+
+        db.commit()
+
+        return RedirectResponse(
+            f"/work/pending-board?tab=폐업&page_size=50&msg=arrears_uploaded_{inserted}",
+            status_code=303
+        )
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("pending arrears excel upload error:", repr(e))
+        return RedirectResponse("/work/pending-board?tab=폐업&page_size=50&msg=arrears_upload_error", status_code=303)
+
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+@app.get("/api/debug/pending-arrears-lookup")
+def debug_pending_arrears_lookup(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import text as _text
+    try:
+        cnt = db.execute(_text("SELECT COUNT(*) FROM pending_arrears_lookup")).scalar()
+        sample = db.execute(_text("SELECT * FROM pending_arrears_lookup ORDER BY id DESC LIMIT 10")).mappings().all()
+        return {"ok": True, "count": cnt, "sample": [dict(r) for r in sample]}
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": repr(e)}
+
+
+
 @app.get("/work/pending-board", response_class=HTMLResponse)
 def pending_board_final_page(
     request: Request,
@@ -3860,57 +4078,57 @@ def pending_board_final_page(
 
     def lookup_member_arrears(name, vehicle_no):
         """
-        폐업/폐지/양도/이관/탈퇴 대상도 현재 미수금이 보여야 하므로
-        Member에서 성명/차량번호로 찾아 미수금 컬럼을 표시한다.
+        현재 미수금은 프로그램 미수금명단이 아니라
+        사용자가 업로드한 '미수금' 엑셀 lookup 테이블에서 읽는다.
         """
         try:
+            from sqlalchemy import text as _text
+
             n = str(name or "").replace(" ", "").strip()
             v = str(vehicle_no or "").replace(" ", "").replace("-", "").replace("호", "").strip()
 
             if not n and not v:
                 return ""
 
-            q = db.query(Member)
+            # 1순위: 차량번호 정확 매칭
+            if v:
+                row = db.execute(_text("""
+                    SELECT amount FROM pending_arrears_lookup
+                    WHERE vehicle_norm = :v
+                    ORDER BY amount DESC
+                    LIMIT 1
+                """), {"v": v}).mappings().first()
 
-            candidates = []
-            try:
-                if n:
-                    candidates.append(Member.name.ilike(f"%{n}%"))
-            except Exception:
-                pass
+                if row and row.get("amount"):
+                    return row.get("amount")
 
-            try:
-                if v:
-                    candidates.append(Member.vehicle_no.ilike(f"%{v}%"))
-            except Exception:
-                pass
+            # 2순위: 성명 정확 매칭
+            if n:
+                row = db.execute(_text("""
+                    SELECT amount FROM pending_arrears_lookup
+                    WHERE name_norm = :n
+                    ORDER BY amount DESC
+                    LIMIT 1
+                """), {"n": n}).mappings().first()
 
-            if candidates:
-                m = q.filter(or_(*candidates)).first()
-            else:
-                m = None
+                if row and row.get("amount"):
+                    return row.get("amount")
 
-            if not m:
-                return ""
+            # 3순위: 이름+차량 일부 검색
+            if n or v:
+                row = db.execute(_text("""
+                    SELECT amount FROM pending_arrears_lookup
+                    WHERE (:n = '' OR name_norm LIKE '%' || :n || '%')
+                       OR (:v = '' OR vehicle_norm LIKE '%' || :v || '%')
+                    ORDER BY amount DESC
+                    LIMIT 1
+                """), {"n": n, "v": v}).mappings().first()
 
-            for col in [
-                "current_arrears",
-                "total_arrears",
-                "arrears_total",
-                "arrears",
-                "unpaid_amount",
-                "balance",
-                "미수금",
-            ]:
-                try:
-                    if hasattr(m, col):
-                        val = getattr(m, col)
-                        if val not in [None, ""]:
-                            return val
-                except Exception:
-                    pass
+                if row and row.get("amount"):
+                    return row.get("amount")
 
             return ""
+
         except Exception:
             try:
                 db.rollback()

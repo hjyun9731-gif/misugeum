@@ -54,6 +54,18 @@
   {% endif %}
 </div>
 
+
+<div class="filter-card" style="border-color:#ffd6e8;">
+  <form method="post" action="/work/pending-board/arrears-upload" enctype="multipart/form-data">
+    <div>
+      <label>미수금 엑셀 업로드</label>
+      <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required>
+    </div>
+    <button class="btn-small btn-primary2" type="submit">미수금 엑셀 읽기</button>
+    <span style="color:#777;font-size:13px;">폐지/양도/이관/탈퇴 대상의 현재 미수금 표시용입니다.</span>
+  </form>
+</div>
+
 <div class="filter-card">
   <form method="get" action="/work/pending-board">
     <input type="hidden" name="tab" value="{{ tab }}">
