@@ -117,10 +117,10 @@
         <th>성명</th>
         <th>차량번호</th>
         <th>계정</th>
-        <th>요청일</th>
+        <th>처리일자/요청일</th>
         <th>다음부과일</th>
         <th>출처</th>
-        <th>비고</th>
+        
         <th>처리</th>
       </tr>
     </thead>
@@ -143,13 +143,12 @@
         <td>{{ r.process_type }}</td>
         <td>{{ r.ym }}</td>
         <td>{{ r.region }}</td>
-        <td>{{ r.name }}</td>
+        <td><a href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}" style="font-weight:900;color:#1f5fd1;text-decoration:none;">{{ r.name }}</a></td>
         <td>{{ r.vehicle_no }}</td>
         <td>{{ r.account }}</td>
         <td>{{ r.request_date }}</td>
         <td>{{ r.next_billing_date }}</td>
         <td>{{ r.source }}</td>
-        <td class="note-short" title="{{ r.note }}">{{ r.note }}</td>
         <td style="white-space:nowrap;">
           <a class="btn-small" href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}">상세/수정</a>
 
@@ -185,7 +184,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="12" style="text-align:center;padding:24px;color:#888;">조회 결과가 없습니다.</td>
+        <td colspan="11" style="text-align:center;padding:24px;color:#888;">조회 결과가 없습니다.</td>
       </tr>
       {% endfor %}
     </tbody>

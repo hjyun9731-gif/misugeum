@@ -3683,6 +3683,9 @@ def pending_board_final_page(
                 return v
         return ""
 
+    def clean_name(v):
+        return str(v or "").replace(" ", "").strip()
+
     def norm_pt(pt):
         pt = str(pt or "").strip()
         if pt in ["협회가입", "협회가입원"]:
@@ -3810,14 +3813,14 @@ def pending_board_final_page(
                 "year": safe(bp, "year"),
                 "month": safe(bp, "month"),
                 "region": pick(bp, "region", "지역"),
-                "name": pick(bp, "name", "성명"),
+                "name": clean_name(pick(bp, "name", "성명")),
                 "vehicle_no": pick(bp, "vehicle_no", "차량번호"),
                 "account": pick(bp, "account", "계정"),
                 "request_date": req_date,
                 "next_billing_date": next_date,
                 "source": "부과대수",
                 "source_sheet": pick(bp, "source_sheet", "원본시트"),
-                "note": pick(bp, "note", "비고"),
+                "note": "",
             })
     except Exception as e:
         try:
@@ -3851,14 +3854,14 @@ def pending_board_final_page(
                 "year": "",
                 "month": "",
                 "region": pick(w, "region", "지역"),
-                "name": pick(w, "name", "related_name", "성명"),
+                "name": clean_name(pick(w, "name", "related_name", "성명")),
                 "vehicle_no": pick(w, "vehicle_no", "related_vehicle_no", "차량번호"),
                 "account": pick(w, "account", "계정"),
                 "request_date": req_date,
                 "next_billing_date": next_date,
                 "source": pick(w, "source", "source_screen") or "처리대기",
                 "source_sheet": pick(w, "source_sheet", "원본시트"),
-                "note": pick(w, "note", "reason", "work_reason", "비고"),
+                "note": pick(w, "reason", "work_reason", "note", "비고"),
             })
     except Exception as e:
         try:
