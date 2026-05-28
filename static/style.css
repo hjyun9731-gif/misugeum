@@ -386,3 +386,175 @@ tbody tr:hover td { background: var(--bg); }
 .stat-item-label { font-size:11px; color:var(--text-3); font-weight:600; margin-bottom:4px; }
 .stat-item-val { font-size:16px; font-weight:800; color:var(--text-1); }
 .stat-item-sub { font-size:11px; color:var(--text-4); }
+
+/* ═══════════════════════════════════════════════════════════
+   추가 공통 컴포넌트 — v4.1
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 버튼 추가 ── */
+.btn-warn   { background: var(--amber-lt); color: var(--amber); border-color: #fcd34d; }
+.btn-warn:hover { background: #fef3c7; }
+.btn-purple { background: var(--purple-lt); color: var(--purple); border-color: #c4b5fd; }
+.btn-purple:hover { background: #ede9fe; }
+.btn-teal   { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
+.btn-teal:hover { background: #ccfbf1; }
+
+/* ── 링크 스타일 ── */
+.nl { color: var(--primary); font-weight: 600; text-decoration: none; }
+.nl:hover { text-decoration: underline; }
+
+/* ── 금액 색상 ── */
+.amount { color: var(--red); font-weight: 700; }
+.overpay { color: var(--primary); font-weight: 700; }
+
+/* ── 페이지 헤더 (flex) ── */
+.page-header {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  margin-bottom: 20px;
+}
+.flex-gap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ── 요약 카드 그리드 ── */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.summary-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  box-shadow: var(--sh-xs);
+}
+.summary-card small { font-size: 11px; color: var(--text-3); font-weight: 600; display: block; margin-bottom: 4px; }
+.summary-card .sc-val { font-size: 20px; font-weight: 800; color: var(--text-1); }
+.summary-card .sc-val.red   { color: var(--red); }
+.summary-card .sc-val.blue  { color: var(--primary); }
+.summary-card .sc-val.green { color: var(--green); }
+.summary-card .sc-val.amber { color: var(--amber); }
+.summary-card .sc-val.purple{ color: var(--purple); }
+
+/* ── 필터 카드 ── */
+.filter-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--sh-xs);
+}
+.filter-card .filter-row {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+}
+.filter-card .fg { display: flex; flex-direction: column; }
+.filter-card label { font-size: 11px; font-weight: 700; color: var(--text-3); margin-bottom: 3px; }
+.filter-card input[type=text], .filter-card select { width: auto; min-width: 100px; }
+.filter-card input[type=text] { min-width: 200px; }
+
+/* ── 페이지네이션 ── */
+.pagination {
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px; margin-top: 14px; padding: 4px 0;
+}
+.pagination .page-info {
+  padding: 5px 14px;
+  background: var(--primary-lt);
+  border-radius: 20px;
+  font-size: 12px; font-weight: 700; color: var(--primary);
+}
+
+/* ── 회원 상세 ── */
+.detail-header {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--sh-xs);
+  display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+}
+.detail-header-info { flex: 1; min-width: 200px; }
+.detail-header-name { font-size: 22px; font-weight: 900; color: var(--text-1); margin-bottom: 4px; }
+.detail-header-sub  { font-size: 13px; color: var(--text-3); display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.detail-header-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.detail-section {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  box-shadow: var(--sh-xs);
+}
+.detail-section h3 {
+  font-size: 13px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin-bottom: 12px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.detail-row {
+  display: flex; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--bg-2);
+  font-size: 13px;
+}
+.detail-row:last-child { border-bottom: none; }
+.dl { width: 100px; min-width: 100px; color: var(--text-3); font-size: 12px; }
+.dv { flex: 1; color: var(--text-1); font-weight: 500; word-break: break-all; }
+.verify-reason { font-size: 12px; color: var(--amber); background: var(--amber-lt); padding: 4px 8px; border-radius: 4px; }
+hr.div { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+
+/* ── 모달 ── */
+.modal-bg {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.4); z-index: 200;
+  align-items: center; justify-content: center;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--white);
+  border-radius: var(--r-xl);
+  padding: 24px;
+  max-width: 500px; width: 94%;
+  box-shadow: var(--sh-lg);
+}
+.modal h3 { font-size: 16px; font-weight: 800; margin-bottom: 16px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.form-grid { display: grid; gap: 12px; }
+.fg { display: flex; flex-direction: column; gap: 4px; }
+
+/* ── 통장매칭 ── */
+.card-sm { background: var(--white); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; box-shadow: var(--sh-xs); }
+.paste-area {
+  width: 100%; min-height: 100px; max-height: 180px;
+  border: 1px solid var(--border-2); border-radius: var(--r-sm);
+  padding: 10px; font-size: 12px; font-family: monospace;
+  resize: vertical;
+}
+.collapsible-toggle {
+  cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 700; color: var(--text-2);
+}
+.collapsible-toggle::after { content: ' ▸'; color: var(--text-3); }
+.collapsible-toggle.open::after { content: ' ▾'; }
+.collapsible-body { display: none; margin-top: 10px; }
+.collapsible-body.open { display: block; }
+
+/* ── 탭 pill (처리대기 하위탭) ── */
+.sub-tab-bar {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  background: var(--bg-2); border-radius: var(--r-lg);
+  padding: 8px 12px; margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+.sub-tab-bar .sub-label {
+  font-size: 11px; font-weight: 700; color: var(--text-3);
+  align-self: center; margin-right: 4px;
+}

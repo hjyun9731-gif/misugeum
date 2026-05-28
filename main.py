@@ -1491,14 +1491,25 @@ def _reconcile_license(db: Session):
 def license_check(request: Request, db: Session = Depends(get_db),
                   user: User = Depends(require_user)):
     """
-    전체자대조 응급 안전 화면.
-    템플릿/없는 컬럼/관계 문제로 Internal Server Error가 나지 않도록
-    HTML을 직접 반환한다.
+    전체자대조 안전 화면 (페이지네이션 포함).
     """
     from html import escape
 
     msg = request.query_params.get("msg", "") or ""
     q = (request.query_params.get("q", "") or "").strip()
+    match_status = (request.query_params.get("match_status", "") or "").strip()
+    try:
+        page = int(request.query_params.get("page", 1) or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(request.query_params.get("page_size", 50) or 50)
+    except Exception:
+        page_size = 50
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
 
     def sg(obj, attr, default=""):
         try:
@@ -1582,12 +1593,26 @@ def license_check(request: Request, db: Session = Depends(get_db),
     if msg:
         err_msg = msg + " " + err_msg
 
+    total = len(items)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+    start = (page - 1) * page_size
+    page_rows = items[start:start + page_size]
+
     return templates.TemplateResponse(request, "license_check_safe.html", {
         "user": user,
         "lic_count": lic_count,
         "items": items,
+        "page_rows": page_rows,
         "q": q,
+        "match_status": match_status,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
         "err_msg": err_msg,
+        "msg": msg,
     })
 
 
@@ -2974,6 +2999,30 @@ def emergency_income_ledger_page(
         "err": err,
     })
 
+
+@app.get("/work/pending-board/detail/{row_type}/{id}", response_class=HTMLResponse)
+def pending_board_detail_html(
+    row_type: str,
+    id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """처리대기목록 상세 - HTML 페이지 반환"""
+    try:
+        obj, obj_kind = _find_pending_detail_obj(db, id, row_type)
+        data = _pack_pending_detail_obj(obj, obj_kind) if obj else None
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        data = None
+
+    return templates.TemplateResponse(request, "pending_board_detail.html", {
+        "user": user,
+        "data": data,
+    })
 
 
 @app.get("/work", response_class=HTMLResponse)

@@ -1,51 +1,50 @@
 {% extends "base.html" %}
+{% set active = "billing" %}
+{% block title %}부과대수 관리{% endblock %}
+{% block page_title %}부과대수 관리{% endblock %}
+
 {% block content %}
 
-<div class="page-title">
+<div class="page-header">
   <div>
-    <h2>부과대수</h2>
-    <span class="page-sub">월별 부과대수 파일 업로드 · 항목별 집계 · 엑셀 추출</span>
+    <div class="page-title" style="font-size:18px;font-weight:800;color:var(--text-1);margin:0 0 2px 0;">부과대수 관리</div>
+    <div class="page-sub">월별 부과대수 파일 업로드 · 항목별 집계 · 엑셀 추출</div>
+  </div>
+  <div class="flex-gap" style="margin-left:auto;">
+    <a href="/billing-details" class="btn btn-ghost btn-sm">부과대수 상세조회</a>
+    <a href="/work/pending-board?tab=반영대기" class="btn btn-ghost btn-sm">처리대기목록</a>
   </div>
 </div>
 
 {% if msg %}
-<div class="alert success">{{ msg }}</div>
+<div class="msg-box msg-ok">✓ {{ msg }}</div>
 {% endif %}
 
+<!-- 업로드 카드 -->
 <div class="card" style="margin-bottom:16px;">
-  <h3>부과대수 파일 업로드</h3>
-  <form method="post" action="/billing-counts/upload" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
-    <div>
-      <label>기본연도</label>
-      <input type="number" name="year" value="{{ year }}" style="width:120px;">
+  <div class="card-title">부과대수 파일 업로드</div>
+  <form method="post" action="/billing-counts/upload" enctype="multipart/form-data">
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      <div>
+        <label>기준연도</label>
+        <input type="number" name="year" value="{{ year }}" style="width:120px;">
+      </div>
+      <div>
+        <label>부과대수 엑셀 파일</label>
+        <input type="file" name="file" accept=".xlsx,.xlsm" required style="width:auto;">
+      </div>
+      <button class="btn btn-primary" type="submit">업로드 및 집계</button>
     </div>
-    <div>
-      <label>부과대수 엑셀</label>
-      <input type="file" name="file" accept=".xlsx,.xlsm" required>
-    </div>
-    <button class="btn btn-primary" type="submit">업로드 및 집계</button>
-<a href="/billing-details" class="btn btn-ghost" style="margin-left:8px;">부과대수 상세조회</a>
-
+    <p class="muted" style="font-size:12px;margin-top:8px;">
+      시트명 예: 6월부과, 12월부과(25년). 항목: 협회가입, 양도, 타도, 폐지, 탈퇴, 택배신규, 관리비폐지, 70세.
+    </p>
   </form>
-
-<form method="post" action="/billing-counts/generate-next-arrears"
-      onsubmit="return confirm('??? ???? ?????? ??? ?????? ?????. ?? ??? ?? ?? ???? ????. ??????');"
-      style="margin-top:12px;">
-  <input type="hidden" name="year" value="{{ year|default(selected_year|default(2026)) }}">
-  <input type="hidden" name="month" value="{{ month|default(selected_month|default(5)) }}">
-  <button type="submit" class="btn btn-primary" style="width:100%;height:44px;border-radius:12px;font-weight:900;">
-    &#xC800;&#xC7A5; &#xBC0F; &#xB2E4;&#xC74C;&#xB2EC; &#xBBF8;&#xC218;&#xAE08;&#xBA85;&#xB2E8; &#xC0DD;&#xC131;
-  </button>
-</form>
-
-  <p class="muted" style="font-size:12px;margin-top:8px;">
-    시트명 예: 6월부과, 12월부과(25년). 항목: 협회가입, 양도, 타도, 폐지, 탈퇴, 택배신규, 관리비폐지, 70세.
-  </p>
 </div>
 
+<!-- 조회 카드 -->
 <div class="card" style="margin-bottom:16px;">
-  <h3>조회</h3>
-  <form method="get" action="/billing-counts" style="display:flex;gap:8px;align-items:end;">
+  <div class="card-title">조회</div>
+  <form method="get" action="/billing-counts" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
     <div>
       <label>연도</label>
       <input type="number" name="year" value="{{ year }}" style="width:120px;">
@@ -54,33 +53,36 @@
       <label>월</label>
       <input type="number" name="month" value="{{ month }}" style="width:90px;">
     </div>
-    <button class="btn btn-outline" type="submit">조회</button>
+    <button class="btn btn-ghost" type="submit">조회</button>
     <a class="btn btn-primary" href="/billing-counts/export?year={{ year }}&month={{ month }}">엑셀 추출</a>
   </form>
 </div>
 
+<!-- 집계 카드 -->
 {% if current %}
-<div class="grid-cards" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px;">
-  <div class="card"><div class="muted">협회가입</div><h2>{{ current.cnt_join or 0 }}</h2></div>
-  <div class="card"><div class="muted">양도</div><h2>{{ current.cnt_transfer or 0 }}</h2></div>
-  <div class="card"><div class="muted">타도</div><h2>{{ current.cnt_cross or 0 }}</h2></div>
-  <div class="card"><div class="muted">폐지</div><h2>{{ current.cnt_close or 0 }}</h2></div>
-  <div class="card"><div class="muted">탈퇴</div><h2>{{ current.cnt_quit or 0 }}</h2></div>
-  <div class="card"><div class="muted">택배신규</div><h2>{{ current.cnt_delivery_new or 0 }}</h2></div>
-  <div class="card"><div class="muted">관리비폐지</div><h2>{{ current.cnt_mgmt_close or 0 }}</h2></div>
-  <div class="card"><div class="muted">70세</div><h2>{{ current.cnt_age70 or 0 }}</h2></div>
-  <div class="card"><div class="muted">협회기본대수</div><h2>{{ current.cnt_base or 0 }}</h2></div>
-  <div class="card"><div class="muted">총부과대수</div><h2>{{ current.cnt_total or 0 }}</h2></div>
-  <div class="card"><div class="muted">{{ month }}월 택배관리</div><h2>{{ current.cnt_delivery or 0 }}</h2></div>
-  <div class="card"><div class="muted">원본파일</div><div style="font-weight:700;">{{ current.source_file or '-' }}</div></div>
+<div class="summary-grid" style="margin-bottom:16px;">
+  <div class="summary-card"><small>협회가입</small><div class="sc-val">{{ current.cnt_join or 0 }}</div></div>
+  <div class="summary-card"><small>양도</small><div class="sc-val">{{ current.cnt_transfer or 0 }}</div></div>
+  <div class="summary-card"><small>타도</small><div class="sc-val">{{ current.cnt_cross or 0 }}</div></div>
+  <div class="summary-card"><small>폐지</small><div class="sc-val red">{{ current.cnt_close or 0 }}</div></div>
+  <div class="summary-card"><small>탈퇴</small><div class="sc-val red">{{ current.cnt_quit or 0 }}</div></div>
+  <div class="summary-card"><small>택배신규</small><div class="sc-val blue">{{ current.cnt_delivery_new or 0 }}</div></div>
+  <div class="summary-card"><small>관리비폐지</small><div class="sc-val red">{{ current.cnt_mgmt_close or 0 }}</div></div>
+  <div class="summary-card"><small>70세</small><div class="sc-val amber">{{ current.cnt_age70 or 0 }}</div></div>
+  <div class="summary-card"><small>협회기본대수</small><div class="sc-val">{{ current.cnt_base or 0 }}</div></div>
+  <div class="summary-card"><small>총부과대수</small><div class="sc-val blue" style="font-size:24px;">{{ current.cnt_total or 0 }}</div></div>
+  <div class="summary-card"><small>{{ month }}월 택배관리</small><div class="sc-val">{{ current.cnt_delivery or 0 }}</div></div>
+  <div class="summary-card"><small>원본파일</small><div style="font-size:12px;font-weight:700;word-break:break-all;">{{ current.source_file or '–' }}</div></div>
 </div>
 {% else %}
-<div class="card">선택한 월의 부과대수 자료가 없습니다.</div>
+<div class="card" style="margin-bottom:16px;color:var(--text-3);">선택한 월의 부과대수 자료가 없습니다.</div>
 {% endif %}
 
-<div class="card" style="margin-bottom:16px;">
-  <h3>최근 부과대수 이력</h3>
-  <table class="table">
+<!-- 이력 테이블 -->
+<div class="tbl-card" style="margin-bottom:16px;">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">최근 부과대수 이력</div>
+  <div style="overflow-x:auto;">
+  <table>
     <thead>
       <tr>
         <th>기준월</th>
@@ -99,7 +101,7 @@
     <tbody>
       {% for r in reports %}
       <tr>
-        <td><a href="/billing-counts?year={{ r.year }}&month={{ r.month }}">{{ r.year }}-{{ "%02d"|format(r.month) }}</a></td>
+        <td><a href="/billing-counts?year={{ r.year }}&month={{ r.month }}" class="nl">{{ r.year }}-{{ "%02d"|format(r.month) }}</a></td>
         <td>{{ r.cnt_join or 0 }}</td>
         <td>{{ r.cnt_transfer or 0 }}</td>
         <td>{{ r.cnt_cross or 0 }}</td>
@@ -108,17 +110,22 @@
         <td>{{ r.cnt_delivery_new or 0 }}</td>
         <td>{{ r.cnt_mgmt_close or 0 }}</td>
         <td>{{ r.cnt_age70 or 0 }}</td>
-        <td>{{ r.cnt_total or 0 }}</td>
+        <td><strong>{{ r.cnt_total or 0 }}</strong></td>
         <td>{{ r.cnt_delivery or 0 }}</td>
       </tr>
+      {% else %}
+      <tr><td colspan="11"><div class="empty-state"><div class="ei">📊</div><div class="et">이력 없음</div></div></td></tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
-<div class="card">
-  <h3>상세내역</h3>
-  <table class="table">
+<!-- 상세내역 테이블 -->
+<div class="tbl-card">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">상세내역</div>
+  <div style="overflow-x:auto;">
+  <table>
     <thead>
       <tr>
         <th>항목</th>
@@ -132,18 +139,19 @@
     <tbody>
       {% for p in persons %}
       <tr>
-        <td>{{ p.process_type }}</td>
-        <td>{{ p.region }}</td>
-        <td>{{ p.vehicle_no }}</td>
+        <td><span class="badge {% if p.process_type in ['폐지','양도','이관','사망','말소'] %}b-red{% elif p.process_type in ['협회가입','협회가입원'] %}b-blue{% elif p.process_type in ['택배신규'] %}b-ok{% else %}b-gray{% endif %}">{{ p.process_type }}</span></td>
+        <td class="text-sm">{{ p.region }}</td>
+        <td class="text-sm" style="font-family:monospace;">{{ p.vehicle_no }}</td>
         <td>{{ p.name }}</td>
-        <td>{{ p.source_sheet }}</td>
-        <td>{{ p.source_row }}</td>
+        <td class="text-xs" style="color:var(--text-4);">{{ p.source_sheet }}</td>
+        <td class="text-xs" style="color:var(--text-4);">{{ p.source_row }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6" style="text-align:center;">상세내역 없음</td></tr>
+      <tr><td colspan="6" style="text-align:center;padding:28px;color:var(--text-3);">상세내역 없음</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 {% endblock %}

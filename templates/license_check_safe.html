@@ -4,24 +4,55 @@
 {% block page_title %}전체자대조{% endblock %}
 
 {% block content %}
-<div class="card" style="padding:16px;margin-bottom:14px;">
-  <h2 style="margin:0 0 8px 0;">전체자대조</h2>
-  <div style="color:#8c7180;font-size:13px;margin-bottom:8px;">
-    전체자명단 {{ lic_count }}건
+
+<div class="page-header">
+  <div>
+    <div class="page-title" style="font-size:18px;font-weight:800;color:var(--text-1);margin:0 0 2px 0;">전체자대조</div>
+    <div class="page-sub">전체자명단 {{ lic_count }}건 · 미확인 {{ total }}건</div>
   </div>
-
-  {% if err_msg %}
-  <div style="color:#e11d48;font-weight:700;margin-bottom:8px;">{{ err_msg }}</div>
-  {% endif %}
-
-  <form method="get" action="/license-check" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-    <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역, 연락처" style="min-width:260px;">
-    <button class="btn btn-primary" type="submit">검색</button>
-    <a class="btn btn-ghost" href="/license-check">초기화</a>
-    <a class="btn btn-ghost" href="/work/pending-board">처리대기목록</a>
-  </form>
+  <div class="flex-gap" style="margin-left:auto;">
+    <a href="/work/pending-board" class="btn btn-ghost btn-sm">처리대기목록</a>
+  </div>
 </div>
 
+{% if err_msg %}
+<div class="msg-box msg-err">{{ err_msg }}</div>
+{% endif %}
+
+{% if msg %}
+<div class="msg-box msg-ok">✓ {{ msg }}</div>
+{% endif %}
+
+<!-- 필터 카드 -->
+<div class="filter-card">
+  <form method="get" action="/license-check" class="filter-row">
+    <div class="fg">
+      <label>검색</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역, 연락처" style="min-width:260px;">
+    </div>
+    <div class="fg">
+      <label>대조상태</label>
+      <select name="match_status">
+        <option value="">전체</option>
+        <option value="전체자미확인" {% if match_status=="전체자미확인" %}selected{% endif %}>전체자미확인</option>
+        <option value="불일치" {% if match_status=="불일치" %}selected{% endif %}>불일치</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>개수</label>
+      <select name="page_size">
+        <option value="30" {% if page_size==30 %}selected{% endif %}>30개</option>
+        <option value="50" {% if page_size==50 %}selected{% endif %}>50개</option>
+        <option value="100" {% if page_size==100 %}selected{% endif %}>100개</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-search btn-sm">검색</button>
+    <a href="/license-check" class="btn btn-ghost btn-sm">초기화</a>
+  </form>
+  <div style="margin-top:8px;font-size:12px;color:var(--text-3);">총 {{ total }}건 · {{ page }}/{{ total_pages }}페이지</div>
+</div>
+
+<!-- 테이블 -->
 <div class="tbl-card" style="overflow-x:auto;">
   <table>
     <thead>
@@ -33,36 +64,59 @@
         <th>주소</th>
         <th>대조상태</th>
         <th>사유</th>
-        <th>처리</th>
+        <th style="text-align:center;">처리</th>
       </tr>
     </thead>
     <tbody>
-      {% for r in items %}
+      {% for r in page_rows %}
       <tr>
-        <td>{{ r.region }}</td>
-        <td>{{ r.name }}</td>
-        <td>{{ r.vehicle }}</td>
-        <td>{{ r.phone }}</td>
-        <td style="max-width:280px;white-space:normal;">{{ r.address }}</td>
-        <td>{{ r.status }}</td>
-        <td style="max-width:240px;white-space:normal;">{{ r.reason }}</td>
-        <td style="white-space:nowrap;">
+        <td class="nowrap text-sm">{{ r.region }}</td>
+        <td class="nowrap"><a href="/member/{{ r.id }}" class="nl">{{ r.name }}</a></td>
+        <td class="nowrap text-sm" style="font-family:monospace;">{{ r.vehicle }}</td>
+        <td class="text-sm">{{ r.phone }}</td>
+        <td class="text-sm" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.address }}">{{ r.address }}</td>
+        <td>
+          {% if r.status == "정상매칭" or r.status == "수동매칭" %}
+            <span class="badge b-ok">{{ r.status }}</span>
+          {% elif r.status == "전체자미확인" or not r.status %}
+            <span class="badge b-gray">미확인</span>
+          {% else %}
+            <span class="badge b-warn">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        <td class="text-sm" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.reason }}">{{ r.reason }}</td>
+        <td style="text-align:center;white-space:nowrap;">
           <form method="post" action="/license-check/{{ r.id }}/confirm" style="display:inline;">
-            <button class="btn btn-primary" type="submit">확인</button>
+            <button class="btn btn-success btn-sm" type="submit">확인완료</button>
           </form>
           <form method="post" action="/license-check/{{ r.id }}/to-work" style="display:inline;">
-            <button class="btn btn-ghost" type="submit">처리대기</button>
+            <button class="btn btn-warn btn-sm" type="submit">처리대기 등록</button>
           </form>
         </td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="8" style="text-align:center;padding:28px;color:#8c7180;">
-          전체자대조 미확인 항목이 없습니다.
+        <td colspan="8">
+          <div class="empty-state">
+            <div class="ei">👥</div>
+            <div class="et">전체자대조 미확인 항목이 없습니다</div>
+            <div class="es">모든 항목이 확인 완료되었거나 검색 결과가 없습니다</div>
+          </div>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <div class="tbl-footer" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+    <span>총 {{ total }}건 중 {{ page_rows|length }}건 표시</span>
+    {% if total_pages > 1 %}
+    <div class="pagination" style="margin:0;">
+      {% if page > 1 %}<a href="?q={{ q }}&match_status={{ match_status }}&page_size={{ page_size }}&page={{ page-1 }}" class="btn btn-ghost btn-sm">← 이전</a>{% endif %}
+      <span class="page-info">{{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}<a href="?q={{ q }}&match_status={{ match_status }}&page_size={{ page_size }}&page={{ page+1 }}" class="btn btn-ghost btn-sm">다음 →</a>{% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
+
 {% endblock %}

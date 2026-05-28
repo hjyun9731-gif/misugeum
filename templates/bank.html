@@ -1,83 +1,103 @@
-
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;">
-  <form method="post" action="/bank/apply-auto-all" style="display:inline;" onsubmit="return confirm('자동매칭된 미반영 건을 모두 반영할까요?');">
-    <button type="submit" class="btn btn-primary btn-sm">⚡ 자동매칭 전체반영</button>
-  </form>
-  <a class="btn btn-ghost btn-sm" href="/bank?status=자동매칭">자동매칭 탭</a>
-  <a class="btn btn-ghost btn-sm" href="/bank?status=미매칭">미매칭 탭</a>
-</div>
-
 {% extends "base.html" %}
 {% set active = "bank" %}
 {% block title %}통장매칭{% endblock %}
 {% block page_title %}통장매칭{% endblock %}
 {% block content %}
 
-<div class="card reset-card" style="margin-bottom:14px;">
-  <div class="card-title">통장매칭 초기화</div>
-  <div class="flex-gap">
-    <form method="post" action="/bank/reset-unapplied" onsubmit="return confirm('미반영 통장내역만 삭제합니다. 반영완료 건은 보호됩니다. 진행할까요?')">
-      <button class="btn btn-sm btn-danger" type="submit">미반영 통장내역 삭제</button>
-    </form>
-    <form method="post" action="/bank/reset-match-status" onsubmit="return confirm('미반영 건의 매칭상태만 초기화합니다. 통장내역은 유지됩니다. 진행할까요?')">
-      <button class="btn btn-sm btn-ghost" type="submit">매칭상태 초기화</button>
-    </form>
-    <form method="post" action="/bank/reset-all" onsubmit="return confirm('통장내역을 초기화합니다. 기본은 반영완료 보호입니다. 진행할까요?')">
-      <label style="font-size:12px;margin-right:8px;">
-        <input type="checkbox" name="include_applied" value="yes">
-        반영완료까지 포함
-      </label>
-      <button class="btn btn-sm btn-danger" type="submit">통장내역 전체 초기화</button>
-    </form>
+<div class="page-header">
+  <div>
+    <div class="page-title" style="font-size:18px;font-weight:800;color:var(--text-1);margin:0 0 2px 0;">통장매칭</div>
+    <div class="page-sub">입금내역 자동/수동 매칭 및 반영 관리</div>
   </div>
-  <p class="text-sm" style="margin-top:8px;">기본적으로 반영완료 입금은 보호됩니다. 전체 초기화에서 체크한 경우에만 반영완료까지 삭제됩니다.</p>
 </div>
 
-{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
+{% if msg %}<div class="msg-box msg-ok">✓ {{ msg }}</div>{% endif %}
 
+<!-- 요약 카드 -->
+<div class="summary-grid" style="margin-bottom:16px;">
+  <div class="summary-card"><small>전체</small><div class="sc-val">{{ counts.get('전체', 0) }}</div></div>
+  <div class="summary-card"><small>자동매칭</small><div class="sc-val blue">{{ counts.get('자동매칭', 0) }}</div></div>
+  <div class="summary-card"><small>확인필요</small><div class="sc-val amber">{{ counts.get('확인필요', 0) }}</div></div>
+  <div class="summary-card"><small>미매칭</small><div class="sc-val red">{{ counts.get('미매칭', 0) }}</div></div>
+  <div class="summary-card"><small>반영완료</small><div class="sc-val green">{{ counts.get('반영완료', 0) }}</div></div>
+</div>
+
+<!-- 탭 -->
 <div class="tabs">
   {% for t, label in [('','전체'),('자동매칭','자동매칭'),('확인필요','확인필요'),('미매칭','미매칭'),('반영완료','반영완료')] %}
   <a href="/bank?status={{ t }}" class="tab-btn {% if status==t %}active{% endif %}">
-    {{ label }} <span class="tab-cnt {% if counts.get(label,0)>0 %}has{% endif %}">{{ counts.get(label, counts.get('전체',0) if not t else 0) }}</span>
+    {{ label }}
+    {% set cnt = counts.get(label, counts.get('전체',0) if not t else 0) %}
+    {% if cnt %}<span class="tab-cnt has">{{ cnt }}</span>{% endif %}
   </a>
   {% endfor %}
 </div>
 
-<div style="display:grid;grid-template-columns:3fr 1fr;gap:12px;margin-bottom:14px;">
-  <div class="card card-sm">
-    <div class="card-title">
-<div id="bank-bulk-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0;padding:12px;background:#fff;border:1px solid #f5c2d8;border-radius:14px;">
+<!-- 일괄 반영 / 초기화 영역 -->
+<div class="flex-gap" style="margin-bottom:14px;flex-wrap:wrap;">
   <form method="post" action="/bank/apply-auto-all" style="display:inline;" onsubmit="return confirm('자동매칭된 미반영 건을 모두 반영할까요?');">
     <button type="submit" class="btn btn-primary btn-sm">⚡ 자동매칭 전체반영</button>
   </form>
-  <a class="btn btn-ghost btn-sm" href="/bank?status=자동매칭">자동매칭만 보기</a>
-  <a class="btn btn-ghost btn-sm" href="/bank?status=미매칭">미매칭만 보기</a>
-  <a class="btn btn-ghost btn-sm" href="/bank?status=확인필요">확인필요만 보기</a>
+  <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+    <form method="post" action="/bank/reset-unapplied" onsubmit="return confirm('미반영 통장내역만 삭제합니다. 반영완료 건은 보호됩니다. 진행할까요?')">
+      <button class="btn btn-danger btn-sm" type="submit">미반영 내역 삭제</button>
+    </form>
+    <form method="post" action="/bank/reset-match-status" onsubmit="return confirm('미반영 건의 매칭상태만 초기화합니다. 통장내역은 유지됩니다. 진행할까요?')">
+      <button class="btn btn-ghost btn-sm" type="submit">매칭상태 초기화</button>
+    </form>
+    <form method="post" action="/bank/reset-all" onsubmit="return confirm('통장내역을 초기화합니다. 진행할까요?')">
+      <label style="font-size:12px;align-self:center;">
+        <input type="checkbox" name="include_applied" value="yes"> 반영완료 포함
+      </label>
+      <button class="btn btn-danger btn-sm" type="submit">전체 초기화</button>
+    </form>
+  </div>
 </div>
 
-통장내역 붙여넣기</div>
-    <form method="post" action="/bank/paste">
+<!-- 통장내역 붙여넣기 (접기/펼치기) -->
+<div class="card" style="margin-bottom:14px;">
+  <div class="collapsible-toggle" id="paste-toggle" onclick="togglePaste()">
+    통장내역 붙여넣기
+  </div>
+  <div class="collapsible-body" id="paste-body">
+    <form method="post" action="/bank/paste" style="margin-top:8px;">
       <textarea name="pasted_text" class="paste-area" placeholder="통장 내역을 여기에 붙여넣으세요:
 2026-05-13   35,000   2,354,865   E-국민은행   이정기1016
 2026-05-14   30,000   2,384,865   폰하나은행   강원80배1075"></textarea>
-      <div style="margin-top:8px;"><button type="submit" class="btn btn-primary btn-sm">📥 파싱 및 자동매칭</button></div>
-    </form>
-  </div>
-  <div class="card card-sm">
-    <div class="card-title">검색</div>
-    <form method="get" action="/bank">
-      <input type="hidden" name="status" value="{{ status }}">
-      <input type="text" name="q" value="{{ q }}" placeholder="이체메모 검색" class="fi" style="width:100%;margin-bottom:8px;">
-      <button type="submit" class="btn btn-search btn-sm" style="width:100%;">검색</button>
+      <div style="margin-top:8px;">
+        <button type="submit" class="btn btn-primary btn-sm">📥 파싱 및 자동매칭</button>
+      </div>
     </form>
   </div>
 </div>
 
-<div class="tbl-card">
+<!-- 검색 필터 -->
+<div class="filter-card">
+  <form method="get" action="/bank" class="filter-row">
+    <input type="hidden" name="status" value="{{ status }}">
+    <div class="fg">
+      <label>검색</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="이체메모 검색">
+    </div>
+    <button type="submit" class="btn btn-search btn-sm">검색</button>
+    <a href="/bank?status={{ status }}" class="btn btn-ghost btn-sm">초기화</a>
+  </form>
+</div>
+
+<!-- 테이블 -->
+<div class="tbl-card" style="overflow-x:auto;">
   <table>
     <thead>
-      <tr><th style="width:32px;"></th><th>입금일자</th><th style="text-align:right;">입금액</th>
-      <th>이체메모</th><th>상태</th><th>매칭대상</th><th>사유</th><th>처리</th></tr>
+      <tr>
+        <th style="width:32px;"></th>
+        <th>입금일자</th>
+        <th style="text-align:right;">입금액</th>
+        <th>이체메모</th>
+        <th>상태</th>
+        <th>매칭대상</th>
+        <th>사유</th>
+        <th style="text-align:center;">처리</th>
+      </tr>
     </thead>
     <tbody>
     {% for tx in txs %}
@@ -94,66 +114,71 @@
           {% if tx.applied %}<span class="badge b-ok">✓ 반영완료</span>
           {% elif tx.match_status == '자동매칭' %}<span class="badge b-blue">⚡ 자동매칭</span>
           {% elif tx.match_status == '확인필요' %}<span class="badge b-warn">⚠ 확인필요</span>
-          {% elif tx.match_status == '<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm 미매칭수동매칭">수동매칭</a>' %}<span class="badge b-gray"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a></span>
           {% else %}<span class="badge b-gray">미매칭</span>{% endif %}
         </td>
         <td class="text-sm nowrap">
           {% if tx.matched_member %}
-          <a href="/member/{{ tx.matched_member.id }}" style="color:var(--blue);font-weight:600;">{{ tx.matched_member.name }}</a>
-          <span class="text-xs" style="margin-left:4px;">{{ tx.matched_member.vehicle_no or '' }}</span>
+          <a href="/member/{{ tx.matched_member.id }}" class="nl">{{ tx.matched_member.name }}</a>
+          <span class="text-xs" style="margin-left:4px;color:var(--text-3);">{{ tx.matched_member.vehicle_no or '' }}</span>
           {% else %}–{% endif %}
         </td>
         <td class="text-xs" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ tx.match_reason or '' }}">{{ tx.match_reason or '' }}</td>
-        <td class="nowrap">
+        <td class="nowrap" style="text-align:center;">
           {% if tx.applied %}
-          <span class="text-sm amount-pos">{{ fmt_amt(tx.applied_amount) }}원</span>
+          <span class="text-sm" style="color:var(--green);">{{ fmt_amt(tx.applied_amount) }}원</span>
           {% else %}
           {% if tx.match_status == '자동매칭' and tx.matched_member %}
           <button class="btn btn-primary btn-sm" onclick="openApplyModal({{ tx.id }}, {{ tx.matched_member.id }}, '{{ tx.matched_member.name }}', {{ tx.deposit_amount or 0 }})">반영</button>
           {% endif %}
           {% if tx.match_status == '확인필요' %}
-          <button class="btn btn-warn btn-sm" onclick="toggleExpand(this.closest('tr').nextElementSibling?.previousElementSibling || document.getElementById('btx-{{ tx.id }}'))">후보선택</button>
+          <button class="btn btn-warn btn-sm" onclick="toggleExpandById('exp-{{ tx.id }}')">후보선택</button>
           {% endif %}
-          <form method="post" action="/bank/{{ tx.id }}/hold" style="display:inline;">
-            <button type="submit" class="btn btn-ghost btn-sm"><a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a></button>
+          <a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>
+          {% if not (tx.income_kind) %}
+          <a href="/bank/{{ tx.id }}/mark-income?kind=잡수입" class="btn btn-sm" style="background:var(--purple-lt);color:var(--purple);border-color:#c4b5fd;">잡수입</a>
+          <a href="/bank/{{ tx.id }}/mark-income?kind=가수금" class="btn btn-sm btn-teal">가수금</a>
+          {% endif %}
+          <form method="post" action="/bank/{{ tx.id }}/delete" style="display:inline;" onsubmit="return confirm('삭제하시겠습니까?')">
+            <button type="submit" class="btn btn-danger btn-sm">삭제</button>
           </form>
           {% endif %}
         </td>
       </tr>
       {% if not tx.applied %}
-      <tr class="expand-row">
+      <tr id="exp-{{ tx.id }}" class="expand-row">
         <td colspan="8">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:8px 0;">
             <div>
-              <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">후보 목록</div>
+              <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:8px;">후보 목록</div>
               {% if tx._candidates %}
               <table style="width:100%;font-size:12px;border-collapse:collapse;">
-                <thead><tr style="background:var(--surface-2);">
-                  <th style="padding:5px 8px;text-align:left;">성명</th><th style="padding:5px 8px;">차량번호</th>
-                  <th style="padding:5px 8px;text-align:right;">미수금</th><th style="padding:5px 8px;">사유</th><th style="padding:5px 8px;"></th>
+                <thead><tr style="background:var(--bg-2);">
+                  <th style="padding:5px 8px;text-align:left;">성명</th>
+                  <th style="padding:5px 8px;">차량번호</th>
+                  <th style="padding:5px 8px;text-align:right;">미수금</th>
+                  <th style="padding:5px 8px;"></th>
                 </tr></thead>
                 <tbody>
                 {% for cand in tx._candidates %}
                 <tr style="border-bottom:1px solid var(--border);">
-                  <td style="padding:5px 8px;font-weight:600;"><a href="/member/{{ cand.id }}" style="color:var(--blue);">{{ cand.name }}</a></td>
+                  <td style="padding:5px 8px;font-weight:600;"><a href="/member/{{ cand.id }}" class="nl">{{ cand.name }}</a></td>
                   <td style="padding:5px 8px;font-family:monospace;font-size:11px;">{{ cand.vehicle_no }}</td>
                   <td style="padding:5px 8px;text-align:right;font-weight:700;color:var(--red);">{{ fmt_amt(cand.amount) }}원</td>
-                  <td style="padding:5px 8px;font-size:11px;color:var(--text-3);">{{ cand.reason }}</td>
                   <td style="padding:5px 8px;">
-                    <button class="btn btn-primary btn-sm" onclick="openApplyModal({{ tx.id }}, {{ cand.id }}, '{{ cand.name }}', {{ tx.deposit_amount or 0 }})">이 사람으로 반영</button>
+                    <button class="btn btn-primary btn-sm" onclick="openApplyModal({{ tx.id }}, {{ cand.id }}, '{{ cand.name }}', {{ tx.deposit_amount or 0 }})">반영</button>
                   </td>
                 </tr>
                 {% endfor %}
                 </tbody>
               </table>
               {% else %}
-              <div class="text-sm" style="color:var(--text-3);">후보 없음 — 아래에서 직접 검색</div>
+              <div class="text-sm" style="color:var(--text-3);">후보 없음</div>
               {% endif %}
             </div>
             <div>
-              <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">직접 검색</div>
+              <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:8px;">직접 검색</div>
               <div style="display:flex;gap:6px;margin-bottom:8px;">
-                <input type="text" id="bq-{{ tx.id }}" placeholder="이름 또는 차량번호 뒷자리" style="flex:1;height:30px;padding:0 9px;border:1px solid var(--border-2);border-radius:var(--r-sm);font-size:12.5px;">
+                <input type="text" id="bq-{{ tx.id }}" placeholder="이름 또는 차량번호" style="flex:1;height:30px;padding:0 9px;border:1px solid var(--border-2);border-radius:var(--r-sm);font-size:12px;">
                 <button class="btn btn-search btn-sm" onclick="searchMember({{ tx.id }}, {{ tx.deposit_amount or 0 }})">검색</button>
               </div>
               <div id="bres-{{ tx.id }}"></div>
@@ -163,7 +188,15 @@
       </tr>
       {% endif %}
     {% else %}
-    <tr><td colspan="8"><div class="empty-state"><div class="ei">🏦</div><div class="et">통장내역을 붙여넣으세요</div></div></td></tr>
+    <tr>
+      <td colspan="8">
+        <div class="empty-state">
+          <div class="ei">🏦</div>
+          <div class="et">통장내역을 붙여넣으세요</div>
+          <div class="es">위의 '통장내역 붙여넣기'에서 내역을 입력하면 자동으로 매칭됩니다</div>
+        </div>
+      </td>
+    </tr>
     {% endfor %}
     </tbody>
   </table>
@@ -174,7 +207,7 @@
 <div class="modal-bg" id="apply-modal">
   <div class="modal">
     <h3>💳 입금 반영 확인</h3>
-    <div id="apply-preview" style="background:var(--surface-2);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px;">로딩중...</div>
+    <div id="apply-preview" style="background:var(--bg-2);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px;">로딩중...</div>
     <form method="post" id="apply-form" action="">
       <div class="fg"><label>메모 (선택)</label><input type="text" name="note" placeholder="예: 5월분 납부"></div>
       <div class="modal-footer">
@@ -184,16 +217,36 @@
     </form>
   </div>
 </div>
+
 {% endblock %}
 {% block scripts %}
 <script>
-function toggleExpand(btn) {
-  const row = btn.closest ? btn.closest('tr') : btn;
-  const next = row.nextElementSibling;
-  if (!next || !next.classList.contains('expand-row')) return;
-  next.classList.toggle('open');
-  if (btn.textContent !== undefined) btn.textContent = next.classList.contains('open') ? '▴' : '▾';
+function togglePaste() {
+  const toggle = document.getElementById('paste-toggle');
+  const body = document.getElementById('paste-body');
+  toggle.classList.toggle('open');
+  body.classList.toggle('open');
 }
+
+function toggleExpand(btn) {
+  const row = btn.closest('tr');
+  const next = row.nextElementSibling;
+  if (!next) return;
+  const isOpen = next.style.display === 'table-row';
+  next.style.display = isOpen ? 'none' : 'table-row';
+  btn.textContent = isOpen ? '▾' : '▴';
+}
+
+function toggleExpandById(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isOpen = el.style.display === 'table-row';
+  el.style.display = isOpen ? 'none' : 'table-row';
+}
+
+// 초기에 expand-row 숨김
+document.querySelectorAll('.expand-row').forEach(el => { el.style.display = 'none'; });
+
 async function openApplyModal(txId, memberId, name, deposit) {
   const modal = document.getElementById('apply-modal');
   const preview = document.getElementById('apply-preview');
@@ -215,15 +268,16 @@ async function openApplyModal(txId, memberId, name, deposit) {
         <div><span style="color:var(--text-3);">반영 후</span><br><strong style="color:${d.after<=0?'var(--blue)':'var(--red)'};">${d.after.toLocaleString()}원</strong></div>
       </div>${ovHtml}`;
     document.getElementById('apply-btn').disabled = false;
-  } catch(e) { preview.innerHTML = '<div style="color:var(--red);">오류</div>'; }
+  } catch(e) { preview.innerHTML = '<div style="color:var(--red);">오류 발생</div>'; }
 }
 document.getElementById('apply-modal').addEventListener('click', function(e) { if(e.target===this) this.classList.remove('open'); });
+
 async function searchMember(txId, deposit) {
   const q = document.getElementById('bq-'+txId).value;
   const res = document.getElementById('bres-'+txId);
   const r = await fetch('/api/member-search?q='+encodeURIComponent(q));
   const d = await r.json();
-  if (!d.items || !d.items.length) { res.innerHTML='<span class="text-sm">결과 없음</span>'; return; }
+  if (!d.items || !d.items.length) { res.innerHTML='<span class="text-sm" style="color:var(--text-3);">결과 없음</span>'; return; }
   res.innerHTML = d.items.map(m => `
     <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
       <strong style="min-width:60px;">${m.name}</strong>
@@ -233,206 +287,4 @@ async function searchMember(txId, deposit) {
     </div>`).join('');
 }
 </script>
-
-
-<script id="income-mark-buttons">
-(function(){
-  const labelMisc = String.fromCharCode(0xC7A1,0xC218,0xC785); // ???
-  const labelSusp = String.fromCharCode(0xAC00,0xC218,0xAE08); // ???
-
-  function makeLink(id, kindValue, label, bg){
-    const a = document.createElement("a");
-    a.href = "/bank/" + id + "/mark-income?kind=" + kindValue;
-    a.textContent = label;
-    a.style.border = "0";
-    a.style.borderRadius = "9px";
-    a.style.padding = "6px 9px";
-    a.style.fontWeight = "800";
-    a.style.cursor = "pointer";
-    a.style.background = bg;
-    a.style.color = "#fff";
-    a.style.fontSize = "12px";
-    a.style.textDecoration = "none";
-    a.style.boxShadow = "0 3px 8px rgba(0,0,0,.12)";
-    return a;
-  }
-
-  function installIncomeButtons(){
-    document.querySelectorAll('tr[id^="btx-"]').forEach(function(row){
-      if(row.querySelector(".income-mark-box")) return;
-
-      const id = row.id.replace("btx-", "").trim();
-      if(!id) return;
-
-      const cells = row.querySelectorAll("td");
-      if(!cells.length) return;
-
-      const lastCell = cells[cells.length - 1];
-
-      const box = document.createElement("span");
-      box.className = "income-mark-box";
-      box.style.display = "inline-flex";
-      box.style.gap = "4px";
-      box.style.marginLeft = "6px";
-      box.style.verticalAlign = "middle";
-
-      box.appendChild(makeLink(id, "misc", labelMisc, "#7c3aed"));
-      box.appendChild(makeLink(id, "suspense", labelSusp, "#0ea5e9"));
-
-      lastCell.appendChild(box);
-    });
-  }
-
-  document.addEventListener("DOMContentLoaded", function(){
-    installIncomeButtons();
-    let tries = 0;
-    const timer = setInterval(function(){
-      installIncomeButtons();
-      tries += 1;
-      if(tries >= 10) clearInterval(timer);
-    }, 300);
-  });
-})();
-</script>
-
-
-
-<script id="bank-delete-buttons">
-(function(){
-  const labelDelete = String.fromCharCode(0xC0AD,0xC81C); // ??
-
-  function makeDeleteBtn(id){
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = "/bank/" + id + "/delete";
-    form.style.display = "inline";
-    form.style.margin = "0 0 0 4px";
-    form.onsubmit = function(){
-      return confirm("? ????? ????????? ???? ?? ???? ????.");
-    };
-
-    const btn = document.createElement("button");
-    btn.type = "submit";
-    btn.textContent = labelDelete;
-    btn.style.border = "0";
-    btn.style.borderRadius = "9px";
-    btn.style.padding = "6px 9px";
-    btn.style.fontWeight = "800";
-    btn.style.cursor = "pointer";
-    btn.style.background = "#ef4444";
-    btn.style.color = "#fff";
-    btn.style.fontSize = "12px";
-
-    form.appendChild(btn);
-    return form;
-  }
-
-  function installDeleteButtons(){
-    document.querySelectorAll('tr[id^="btx-"]').forEach(function(row){
-      if(row.querySelector(".bank-delete-box")) return;
-
-      const id = row.id.replace("btx-", "").trim();
-      if(!id) return;
-
-      const cells = row.querySelectorAll("td");
-      if(!cells.length) return;
-
-      const lastCell = cells[cells.length - 1];
-
-      const box = document.createElement("span");
-      box.className = "bank-delete-box";
-      box.style.display = "inline-flex";
-      box.style.marginLeft = "6px";
-      box.appendChild(makeDeleteBtn(id));
-
-      lastCell.appendChild(box);
-    });
-  }
-
-  document.addEventListener("DOMContentLoaded", function(){
-    installDeleteButtons();
-    let tries = 0;
-    const timer = setInterval(function(){
-      installDeleteButtons();
-      tries += 1;
-      if(tries >= 10) clearInterval(timer);
-    }, 300);
-  });
-})();
-</script>
-
 {% endblock %}
-
-
-
-
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  document.querySelectorAll('form[action*="/bank/"][action*="/apply"]').forEach(function(form){
-    var action = form.getAttribute('action') || '';
-    var m = action.match(/\/bank\/(\d+)\/apply/);
-    if (!m) return;
-    if (form.parentElement && form.parentElement.querySelector('.manual-match-link')) return;
-
-    var a = document.createElement('a');
-    a.href = '/bank/' + m[1] + '/match';
-    a.textContent = '수동매칭';
-    a.className = 'btn btn-ghost btn-sm manual-match-link';
-    a.style.marginLeft = '6px';
-    form.insertAdjacentElement('afterend', a);
-  });
-});
-</script>
-
-
-<script id="manual-match-fix-js">
-document.addEventListener('DOMContentLoaded', function () {
-  // 1) 반영 form 옆에 수동매칭 붙이기
-  document.querySelectorAll('form[action*="/bank/"][action*="/apply"]').forEach(function(form){
-    var action = form.getAttribute('action') || '';
-    var m = action.match(/\/bank\/(\d+)\/apply/);
-    if (!m) return;
-    if (form.parentElement && form.parentElement.querySelector('.manual-match-link')) return;
-
-    var a = document.createElement('a');
-    a.href = '/bank/' + m[1] + '/match';
-    a.textContent = '수동매칭';
-    a.className = 'btn btn-ghost btn-sm manual-match-link';
-    a.style.marginLeft = '6px';
-    form.insertAdjacentElement('afterend', a);
-  });
-
-  // 2) 처리칸이 <a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>인 미매칭 행에도 수동매칭 버튼 붙이기
-  document.querySelectorAll('tr').forEach(function(tr){
-    if (tr.querySelector('.manual-match-link')) return;
-
-    var text = tr.innerText || '';
-    if (!text.includes('미매칭') || !text.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>')) return;
-
-    // 행 안의 펼침/상세 링크나 data에서 id 찾기
-    var html = tr.innerHTML || '';
-    var idMatch =
-      html.match(/\/bank\/(\d+)\/match/) ||
-      html.match(/\/bank\/(\d+)\/apply/) ||
-      html.match(/data-id=["'](\d+)["']/) ||
-      html.match(/tx-id=["'](\d+)["']/);
-
-    // 못 찾으면 체크박스 value에서 찾기
-    if (!idMatch) {
-      var cb = tr.querySelector('input[type="checkbox"][value]');
-      if (cb && cb.value) idMatch = [null, cb.value];
-    }
-
-    if (!idMatch) return;
-
-    var tid = idMatch[1];
-    var cells = tr.querySelectorAll('td');
-    if (!cells.length) return;
-
-    var last = cells[cells.length - 1];
-    if (!last.innerText.includes('<a href="/bank/{{ tx.id }}/match" class="btn btn-ghost btn-sm">수동매칭</a>')) return;
-
-    last.innerHTML = '<a href="/bank/' + tid + '/match" class="btn btn-ghost btn-sm manual-match-link">수동매칭</a>';
-  });
-});
-</script>

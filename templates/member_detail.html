@@ -1,35 +1,82 @@
 {% extends "base.html" %}
 {% set active = "arrears" %}
 {% block title %}{{ m.name }} 상세{% endblock %}
-{% block page_title %}{{ m.name }} 상세{% endblock %}
+{% block page_title %}회원 상세{% endblock %}
 {% block content %}
 
-<div class="page-header">
-  <span class="badge b-{{ m.account }}" style="font-size:12px;padding:4px 10px;">{{ fmt_acc(m.account) }}</span>
-  {% if m.status != "정상" %}<span class="badge b-red" style="font-size:12px;padding:4px 10px;">{{ m.status }}</span>{% endif %}
-  {% if m.is_overpay %}<span class="badge b-blue" style="font-size:12px;padding:4px 10px;">선납/초과납부</span>{% endif %}
-  {% if not m.arrears_verified %}<span class="badge b-warn" style="font-size:12px;padding:4px 10px;">검증필요</span>{% endif %}
-  <div class="flex-gap" style="margin-left:auto;">
-    <a href="/member/{{ m.id }}/edit" class="btn btn-search btn-sm">✏️ 수정</a>
+<!-- 상단 헤더 카드 -->
+<div class="detail-header">
+  <div class="detail-header-info">
+    <div class="detail-header-name">{{ m.name }}</div>
+    <div class="detail-header-sub">
+      <span style="font-family:monospace;font-weight:700;">{{ m.vehicle_no or '–' }}</span>
+      <span>{{ m.region or '–' }}</span>
+      <span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span>
+      {% if m.status != "정상" %}<span class="badge b-red">{{ m.status }}</span>{% endif %}
+      {% if m.is_overpay %}<span class="badge b-blue">선납/초과납부</span>{% endif %}
+      {% if not m.arrears_verified %}<span class="badge b-warn">검증필요</span>{% endif %}
+    </div>
+    <div style="font-size:22px;font-weight:900;{% if (m.excel_arrears or 0) < 0 %}color:var(--primary);{% elif (m.excel_arrears or 0) > 0 %}color:var(--red);{% else %}color:var(--text-3);{% endif %}">
+      현재 미수금: {{ fmt_amt(m.excel_arrears) }}원
+    </div>
+  </div>
+  <div class="detail-header-actions">
+    <a href="/member/{{ m.id }}/edit" class="btn btn-ghost btn-sm">✏️ 수정</a>
     <button class="btn btn-purple btn-sm" onclick="document.getElementById('amount-modal').classList.add('open')">💰 금액수정</button>
     <button class="btn btn-warn btn-sm" onclick="document.getElementById('work-modal').classList.add('open')">⚙️ 부과대수 등록</button>
     <a href="/arrears" class="btn btn-ghost btn-sm">← 목록</a>
   </div>
 </div>
 
-{% if msg %}<div class="msg-box msg-ok">{{ msg }}</div>{% endif %}
+{% if msg %}<div class="msg-box msg-ok">✓ {{ msg }}</div>{% endif %}
 
-<div class="detail-grid" style="margin-bottom:14px;">
-  <!-- 미수금 정보 -->
+<!-- 정보 카드 그리드 -->
+<div class="detail-grid">
+
+  <!-- 기본 정보 -->
   <div class="detail-section">
-    <h3>미수금 정보</h3>
-    <div class="detail-row"><span class="dl">지역</span><span class="dv">{{ m.region or '–' }}</span></div>
+    <h3>기본 정보</h3>
     <div class="detail-row"><span class="dl">성명</span><span class="dv"><strong>{{ m.name }}</strong></span></div>
     <div class="detail-row"><span class="dl">차량번호</span><span class="dv" style="font-family:monospace;">{{ m.vehicle_no or '–' }}</span></div>
     <div class="detail-row"><span class="dl">계정</span><span class="dv"><span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span></span></div>
+    <div class="detail-row"><span class="dl">지역</span><span class="dv">{{ m.region or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">휴대폰</span><span class="dv">{{ m.mobile or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">전화번호</span><span class="dv">{{ m.phone or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">주소</span><span class="dv text-sm">{{ m.official_address or m.address or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">상세주소</span><span class="dv text-sm">{{ m.address or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">상태</span><span class="dv">{{ m.status or '정상' }}</span></div>
+    <div class="detail-row"><span class="dl">전체자대조</span>
+      <span class="dv">
+        <span class="badge {% if m.match_status=='정상매칭' or m.match_status=='수동매칭' %}b-ok{% elif m.match_status=='전체자미확인' %}b-gray{% else %}b-warn{% endif %}">{{ m.match_status or '미확인' }}</span>
+        {% if m.match_fail_reason %}<span class="text-xs" style="margin-left:6px;color:var(--text-3);">{{ m.match_fail_reason }}</span>{% endif %}
+      </span>
+    </div>
+  </div>
+
+  <!-- 인허가/자격 정보 -->
+  <div class="detail-section">
+    <h3>인허가/자격 정보</h3>
+    {% if lic %}
+    <div class="detail-row"><span class="dl">가입일자</span><span class="dv">{{ m.join_date_raw or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">인가일자</span><span class="dv">{{ m.permit_date_raw or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">자격증명 발급</span><span class="dv">{{ m.cert_issue_date_raw or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">자격증명 번호</span><span class="dv text-sm">{{ m.cert_no or '–' }}</span></div>
+    {% else %}
+    <div style="padding:12px 0;color:var(--text-3);font-size:13px;">전체자 연결 없음</div>
+    {% endif %}
+    <hr class="div">
+    <div class="detail-row"><span class="dl">원본파일</span><span class="dv text-xs">{{ m.source_file or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">시트</span><span class="dv text-xs">{{ m.source_sheet or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">행번호</span><span class="dv text-xs">{{ m.source_row or '–' }}</span></div>
+  </div>
+
+  <!-- 미수금 요약 -->
+  <div class="detail-section">
+    <h3>미수금 요약</h3>
     <div class="detail-row"><span class="dl">현재 미수금</span>
-      <span class="dv {% if m.is_overpay %}overpay{% else %}amount{% endif %}" style="font-size:20px;font-weight:900;letter-spacing:-1px;">
-        {{ fmt_amt(m.excel_arrears) }}원{% if m.is_overpay %} <span class="badge b-blue" style="font-size:11px;vertical-align:middle;">초과납부</span>{% endif %}
+      <span class="dv {% if (m.excel_arrears or 0) < 0 %}overpay{% elif (m.excel_arrears or 0) > 0 %}amount{% endif %}" style="font-size:18px;font-weight:900;">
+        {{ fmt_amt(m.excel_arrears) }}원
+        {% if m.is_overpay %}<span class="badge b-blue" style="font-size:10px;vertical-align:middle;">초과납부</span>{% endif %}
       </span>
     </div>
     <div class="detail-row"><span class="dl">재계산</span>
@@ -40,74 +87,57 @@
       <span class="dv"><div class="verify-reason">{{ m.verify_reason or '' }}</div></span>
     </div>
     {% endif %}
-    <div class="detail-row"><span class="dl">첫미납월</span><span class="dv">{{ m.first_unpaid_month or '–' }}</span></div>
     <div class="detail-row"><span class="dl">최근입금일</span><span class="dv">{{ m.last_paid_date or '–' }}</span></div>
+    <div class="detail-row"><span class="dl">첫미납월</span><span class="dv">{{ m.first_unpaid_month or '–' }}</span></div>
     <div class="detail-row"><span class="dl">자동이체</span>
       <span class="dv">{% if m.is_auto_transfer %}<span class="badge b-blue">자동이체</span>{% else %}–{% endif %}</span>
     </div>
   </div>
 
-  <!-- 기본정보 -->
+  <!-- 부과대수/업무 이력 -->
   <div class="detail-section">
-    <h3>기본 정보</h3>
-    <div class="detail-row"><span class="dl">핸드폰</span><span class="dv">{{ m.mobile or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">전화번호</span><span class="dv">{{ m.phone or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">공문주소</span><span class="dv text-sm">{{ m.official_address or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">주소</span><span class="dv text-sm">{{ m.address or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">상태</span><span class="dv">{{ m.status }}</span></div>
-    <div class="detail-row"><span class="dl">전체자대조</span>
-      <span class="dv">
-        <span class="badge {% if m.match_status=='정상매칭' or m.match_status=='수동매칭' %}b-ok{% elif m.match_status=='전체자미확인' %}b-gray{% else %}b-warn{% endif %}">{{ m.match_status }}</span>
-        {% if m.match_fail_reason %}<span class="text-xs" style="margin-left:6px;">{{ m.match_fail_reason }}</span>{% endif %}
-      </span>
-    </div>
-    {% if lic %}
-    <hr class="div">
-    <div class="detail-row"><span class="dl">가입일자</span><span class="dv">{{ m.join_date_raw or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">인가일자</span><span class="dv">{{ m.permit_date_raw or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">자격증명 발급</span><span class="dv">{{ m.cert_issue_date_raw or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">자격증명 번호</span><span class="dv text-sm">{{ m.cert_no or '–' }}</span></div>
-    {% endif %}
-  </div>
-
-  <!-- 원본 추적 -->
-  <div class="detail-section">
-    <h3>원본 추적</h3>
-    <div class="detail-row"><span class="dl">파일</span><span class="dv text-sm">{{ m.source_file or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">시트</span><span class="dv text-sm">{{ m.source_sheet or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">행번호</span><span class="dv text-sm">{{ m.source_row or '–' }}</span></div>
-  </div>
-
-  <!-- 부과대수 이력 -->
-  <div class="detail-section">
-    <h3>부과대수 이력</h3>
+    <h3>업무처리 이력</h3>
     {% if work_history %}
     {% for wq in work_history %}
     <div class="detail-row">
-      <span class="dl">{{ wq.submitted_at.strftime('%m/%d') if wq.submitted_at else '' }}</span>
+      <span class="dl text-xs">{{ wq.submitted_at.strftime('%Y/%m/%d') if wq.submitted_at else '–' }}</span>
       <span class="dv">
         <span class="badge {% if wq.status=='반영완료' %}b-ok{% elif wq.status=='취소' %}b-gray{% else %}b-warn{% endif %}">{{ wq.process_type }}</span>
-        <span class="text-xs" style="margin-left:4px;">{{ wq.status }}</span>
+        <span class="text-xs" style="margin-left:4px;color:var(--text-3);">{{ wq.status }}</span>
       </span>
     </div>
     {% endfor %}
     {% else %}
-    <div class="text-sm" style="padding:12px 0;">이력 없음</div>
+    <div class="text-sm" style="padding:12px 0;color:var(--text-3);">이력 없음</div>
+    {% endif %}
+
+    {% if events %}
+    <hr class="div">
+    <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:6px;">상태 이력</div>
+    {% for ev in events %}
+    <div class="detail-row">
+      <span class="dl text-xs">{{ ev.event_date_raw or '–' }}</span>
+      <span class="dv">
+        <span class="badge b-red" style="font-size:10px;">{{ ev.event_type }}</span>
+        <span class="text-xs" style="margin-left:4px;color:var(--text-3);">{{ ev.reason_raw or '' }}</span>
+      </span>
+    </div>
+    {% endfor %}
     {% endif %}
   </div>
 </div>
 
-<!-- 월별 원장 (기본 단순화) -->
+<!-- 월별 원장 -->
 {% if ledgers %}
-<div class="tbl-card" style="margin-bottom:14px;">
+<div class="tbl-card" style="margin-bottom:16px;">
   <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-    <span style="font-size:12px;font-weight:700;color:var(--text-2);">월별 원장 ({{ ledgers|length }}건)</span>
+    <span style="font-size:13px;font-weight:700;">월별 원장 ({{ ledgers|length }}건)</span>
     <div style="display:flex;gap:8px;align-items:center;">
       {% if dup_count > 0 %}<span class="badge b-warn">중복 {{ dup_count }}건</span>{% endif %}
       <button class="btn btn-ghost btn-sm" onclick="toggleAdvanced()" id="adv-btn">⚙ 고급보기</button>
     </div>
   </div>
-  <div style="max-height:400px;overflow-y:auto;">
+  <div style="max-height:480px;overflow-y:auto;">
     <table>
       <thead>
         <tr>
@@ -116,7 +146,6 @@
           <th style="text-align:right;">입금액</th>
           <th style="text-align:right;">미수금</th>
           <th>입금일자</th>
-          <!-- 고급보기 컬럼 (기본 숨김) -->
           <th class="adv-col" style="display:none;text-align:right;">이월금</th>
           <th class="adv-col" style="display:none;text-align:right;">재계산</th>
           <th class="adv-col" style="display:none;">원본</th>
@@ -134,7 +163,6 @@
             {{ fmt_amt(l.arrears_amount) }}원
           </td>
           <td class="text-xs">{{ l.paid_date or '' }}</td>
-          <!-- 고급보기 -->
           <td class="adv-col text-sm text-right" style="display:none;">{{ fmt_amt(l.carry_over) if l.carry_over else '–' }}</td>
           <td class="adv-col text-sm text-right" style="display:none;color:var(--text-4);">{{ fmt_amt(l.calc_arrears) }}</td>
           <td class="adv-col text-xs" style="display:none;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ l.source_file }}/{{ l.source_sheet }}/{{ l.source_row }}">{{ l.source_sheet }}/{{ l.source_row }}</td>
@@ -146,32 +174,11 @@
 </div>
 {% endif %}
 
-<!-- 상태이력 -->
-{% if events %}
-<div class="tbl-card">
-  <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:700;color:var(--text-2);">상태 이력</div>
-  <table>
-    <thead><tr><th>이벤트</th><th>날짜</th><th>사유</th><th style="text-align:right;">당시미수금</th><th>파일/시트</th></tr></thead>
-    <tbody>
-      {% for ev in events %}
-      <tr>
-        <td><span class="badge b-red">{{ ev.event_type }}</span></td>
-        <td class="text-sm">{{ ev.event_date_raw or '–' }}</td>
-        <td class="text-sm">{{ ev.reason_raw or '' }}</td>
-        <td class="amount text-right" style="font-size:12px;">{{ fmt_amt(ev.arrears_at_event) }}원</td>
-        <td class="text-xs">{{ ev.source_sheet }}/{{ ev.source_row }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
-
 <!-- 업무처리 모달 -->
 <div class="modal-bg" id="work-modal">
   <div class="modal">
     <h3>⚙️ 업무처리 — {{ m.name }}</h3>
-    <div style="background:var(--surface-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;">
+    <div style="background:var(--bg-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;">
       현재 미수금: <strong style="color:var(--red);">{{ fmt_amt(m.excel_arrears) }}원</strong>
     </div>
     <form method="post" action="/arrears/{{ m.id }}/to-work">
@@ -181,16 +188,14 @@
             <option value="폐업">폐업</option><option value="양도">양도</option>
             <option value="이관">이관</option><option value="탈퇴">탈퇴</option>
             <option value="사망">사망</option><option value="말소">말소</option>
-            <option value="휴업">휴업</option><option value="현역유지">현역유지</option>
-            <option value="현역복구">현역복구</option><option value="금액수정">금액수정</option>
-            <option value="기타">기타</option>
+            <option value="현역복구">현역복구</option><option value="기타">기타</option>
           </select>
         </div>
         <div class="fg"><label>처리일자</label><input type="date" name="event_date"></div>
       </div>
       <div class="fg"><label>사유/비고</label><input type="text" name="reason" placeholder="선택 입력"></div>
       <div style="margin-top:10px;padding:9px 12px;background:var(--amber-lt);border-radius:6px;font-size:12px;color:var(--amber);">
-        ⚠ 업무처리현황에 <strong>반영대기</strong>로 등록됩니다. 실제 반영은 업무처리현황에서 확정합니다.
+        ⚠ 처리대기목록에 <strong>반영대기</strong>로 등록됩니다.
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="document.getElementById('work-modal').classList.remove('open')">취소</button>
@@ -204,25 +209,21 @@
 <div class="modal-bg" id="amount-modal">
   <div class="modal">
     <h3>💰 금액수정 — {{ m.name }}</h3>
-    <div style="background:var(--surface-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;">
-      현재 미수금: <strong style="color:{% if m.excel_arrears < 0 %}var(--blue){% else %}var(--red){% endif %};">{{ fmt_amt(m.excel_arrears) }}원</strong>
+    <div style="background:var(--bg-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;">
+      현재 미수금: <strong style="color:{% if (m.excel_arrears or 0) < 0 %}var(--blue){% else %}var(--red){% endif %};">{{ fmt_amt(m.excel_arrears) }}원</strong>
     </div>
     <form method="post" action="/member/{{ m.id }}/amount-adjust">
       <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
         <div class="fg">
           <label>수정 후 미수금</label>
-          <input type="number" name="adjust_amount" value="{{ m.excel_arrears or 0 }}" required
-            placeholder="음수 가능 (선납/초과납부)">
+          <input type="number" name="adjust_amount" value="{{ m.excel_arrears or 0 }}" required placeholder="음수 가능 (선납/초과납부)">
         </div>
         <div class="fg">
           <label>수정 사유</label>
           <input type="text" name="adjust_reason" placeholder="예: 엑셀 음수 반영 누락">
         </div>
       </div>
-      <div class="fg">
-        <label>메모</label>
-        <input type="text" name="note" placeholder="선택">
-      </div>
+      <div class="fg"><label>메모</label><input type="text" name="note" placeholder="선택"></div>
       <div style="margin-top:10px;padding:9px 12px;background:var(--amber-lt);border-radius:6px;font-size:12px;color:var(--amber);">
         ⚠ 부과대수 관리에 <strong>금액수정 반영대기</strong>로 등록됩니다.
       </div>
@@ -236,7 +237,6 @@
 
 {% endblock %}
 {% block scripts %}
-
 <script>
 let advVisible = false;
 function toggleAdvanced() {

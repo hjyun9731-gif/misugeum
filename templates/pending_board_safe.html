@@ -5,76 +5,79 @@
 
 {% block content %}
 
+<div class="page-header">
+  <div>
+    <div class="page-title" style="font-size:18px;font-weight:800;color:var(--text-1);margin:0 0 2px 0;">처리대기목록</div>
+    <div class="page-sub">부과대수 업로드 및 업무처리 대기 항목 관리</div>
+  </div>
+  <div class="flex-gap" style="margin-left:auto;">
+    <a href="/work/pending-board/add" class="btn btn-ghost btn-sm">+ 수동 추가</a>
+  </div>
+</div>
+
 {% if err %}
-<div style="color:#e11d48;font-weight:700;margin-bottom:10px;">{{ err }}</div>
+<div class="msg-box msg-err">{{ err }}</div>
 {% endif %}
 
-<!-- 탭 -->
-<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+<!-- 메인 탭 -->
+<div class="tabs">
   {% for t in main_tabs %}
-  <a class="btn {% if t == tab %}btn-primary{% else %}btn-ghost{% endif %}"
-     href="/work/pending-board?tab={{ t|urlencode }}">
-    {{ t }} <b style="background:rgba(0,0,0,.08);border-radius:999px;padding:2px 7px;font-size:11px;">{{ counts.get(t, 0) }}</b>
+  <a href="/work/pending-board?tab={{ t|urlencode }}&page_size={{ page_size }}" class="tab-btn {% if tab==t %}active{% endif %}">
+    {{ t }}
+    {% if counts.get(t, 0) %}<span class="tab-cnt has">{{ counts.get(t, 0) }}</span>{% endif %}
   </a>
   {% endfor %}
 </div>
 
+<!-- 폐업 하위탭 -->
 {% if tab in ["폐업","폐지","관리비폐지","양도","이관","사망","말소"] %}
-<div style="margin-bottom:10px;padding:10px;background:#fff7fb;border:1px solid #ffd6e8;border-radius:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-  <b style="color:#d63384;">폐업 하위분류</b>
+<div class="sub-tab-bar">
+  <span class="sub-label">폐업 하위분류</span>
   {% for t in closure_tabs %}
-  <a class="btn {% if t == tab %}btn-primary{% else %}btn-ghost{% endif %}"
-     href="/work/pending-board?tab={{ t|urlencode }}">
-    {{ t }} <b style="background:rgba(0,0,0,.08);border-radius:999px;padding:2px 7px;font-size:11px;">{{ counts.get(t, 0) }}</b>
+  <a href="/work/pending-board?tab={{ t|urlencode }}&page_size={{ page_size }}" class="tab-btn btn-sm {% if tab==t %}active{% endif %}">
+    {{ t }}
+    {% if counts.get(t, 0) %}<span class="tab-cnt has">{{ counts.get(t, 0) }}</span>{% endif %}
   </a>
   {% endfor %}
 </div>
 {% endif %}
 
-<!-- 필터 -->
-<div class="tbl-card" style="padding:14px;margin-bottom:12px;">
-  <form method="get" action="/work/pending-board" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+<!-- 필터 카드 -->
+<div class="filter-card">
+  <form method="get" action="/work/pending-board" class="filter-row">
     <input type="hidden" name="tab" value="{{ tab }}">
-    <div>
-      <label style="font-size:12px;font-weight:700;color:#7b6473;">연도</label><br>
-      <select name="year" style="min-width:90px;">
-        {{ year_options|safe }}
-      </select>
+    <div class="fg">
+      <label>연도</label>
+      <select name="year" style="min-width:90px;">{{ year_options|safe }}</select>
     </div>
-    <div>
-      <label style="font-size:12px;font-weight:700;color:#7b6473;">월</label><br>
-      <select name="month" style="min-width:70px;">
-        {{ month_options|safe }}
-      </select>
+    <div class="fg">
+      <label>월</label>
+      <select name="month" style="min-width:70px;">{{ month_options|safe }}</select>
     </div>
-    <div>
-      <label style="font-size:12px;font-weight:700;color:#7b6473;">처리구분</label><br>
-      <select name="process_type">
-        {{ process_options|safe }}
-      </select>
+    <div class="fg">
+      <label>처리구분</label>
+      <select name="process_type">{{ process_options|safe }}</select>
     </div>
-    <div>
-      <label style="font-size:12px;font-weight:700;color:#7b6473;">상태</label><br>
-      <select name="status">
-        {{ status_options|safe }}
-      </select>
+    <div class="fg">
+      <label>상태</label>
+      <select name="status">{{ status_options|safe }}</select>
     </div>
-    <div>
-      <label style="font-size:12px;font-weight:700;color:#7b6473;">검색</label><br>
-      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역">
+    <div class="fg">
+      <label>검색</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 지역" style="min-width:200px;">
     </div>
-    <div>
-      <label style="font-size:12px;font-weight:700;color:#7b6473;">개수</label><br>
+    <div class="fg">
+      <label>개수</label>
       <select name="page_size">
-        <option value="30" {% if page_size == 30 %}selected{% endif %}>30개</option>
-        <option value="50" {% if page_size == 50 %}selected{% endif %}>50개</option>
-        <option value="100" {% if page_size == 100 %}selected{% endif %}>100개</option>
+        <option value="30" {% if page_size==30 %}selected{% endif %}>30개</option>
+        <option value="50" {% if page_size==50 %}selected{% endif %}>50개</option>
+        <option value="100" {% if page_size==100 %}selected{% endif %}>100개</option>
       </select>
     </div>
-    <button class="btn btn-primary" type="submit">조회</button>
-    <a class="btn btn-ghost" href="/work/pending-board?tab={{ tab|urlencode }}">초기화</a>
+    <button class="btn btn-search btn-sm" type="submit">조회</button>
+    <a class="btn btn-ghost btn-sm" href="/work/pending-board?tab={{ tab|urlencode }}">초기화</a>
   </form>
-  <div style="margin-top:10px;color:#8c7180;font-size:13px;">총 {{ total }}건 · {{ page }}/{{ total_pages }}페이지</div>
+  <div style="margin-top:8px;font-size:12px;color:var(--text-3);">총 {{ total }}건 · {{ page }}/{{ total_pages }}페이지</div>
 </div>
 
 <!-- 테이블 -->
@@ -92,53 +95,78 @@
         <th>출처</th>
         <th>원본시트</th>
         <th>비고</th>
-        <th>상세</th>
+        <th style="text-align:center;">상세/처리</th>
       </tr>
     </thead>
     <tbody>
       {% for r in page_rows %}
       <tr>
-        <td>
+        <td class="nowrap">
           {% if r.status == "반영대기" %}<span class="badge b-warn">반영대기</span>
           {% elif r.status == "반영완료" %}<span class="badge b-ok">반영완료</span>
-          {% elif r.status == "부과대수상세" %}<span class="badge b-gray">부과대수상세</span>
+          {% elif r.status == "부과대수상세" %}<span class="badge b-gray">부과대수</span>
           {% else %}<span class="badge b-gray">{{ r.status }}</span>{% endif %}
         </td>
-        <td>
+        <td class="nowrap">
           {% set pt = r.pt_norm %}
-          <span class="badge {% if pt in ['폐지','양도','이관','사망','말소'] %}b-red{% elif pt in ['협회비','관리비'] %}b-blue{% else %}b-gray{% endif %}">
+          <span class="badge {% if pt in ['폐지','양도','이관','사망','말소'] %}b-red{% elif pt in ['협회비','관리비'] %}b-blue{% elif pt == '탈퇴' %}b-warn{% else %}b-gray{% endif %}">
             {{ pt }}
           </span>
         </td>
-        <td class="text-sm">{{ r.ym }}</td>
+        <td class="text-sm nowrap">{{ r.ym }}</td>
         <td class="text-sm">{{ r.region }}</td>
-        <td>{{ r.name }}</td>
-        <td class="text-sm" style="font-family:monospace;">{{ r.vehicle }}</td>
+        <td class="nowrap"><strong>{{ r.name }}</strong></td>
+        <td class="nowrap text-sm" style="font-family:monospace;">{{ r.vehicle }}</td>
         <td class="text-sm">{{ r.account }}</td>
         <td class="text-sm">{{ r.source }}</td>
-        <td class="text-sm" style="color:#9ca3af;">{{ r.sheet }}</td>
+        <td class="text-xs" style="color:var(--text-4);">{{ r.sheet }}</td>
         <td class="text-sm" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.note }}">{{ r.note }}</td>
-        <td>
-          <a class="btn btn-ghost" style="font-size:12px;padding:4px 10px;"
-             href="/api/work/detail?id={{ r.id }}&row_type={{ r.kind }}">상세</a>
+        <td style="text-align:center;white-space:nowrap;">
+          <a class="btn btn-ghost btn-sm" href="/work/pending-board/detail/{{ r.kind }}/{{ r.id }}">상세</a>
+          {% if tab != "부과대수상세" and r.status == "반영대기" %}
+            {% if r.kind == "work" %}
+            <form method="post" action="/work/{{ r.id }}/reflect" style="display:inline;">
+              <button type="submit" class="btn btn-primary btn-sm"
+                onclick="return confirm('{{ r.name }} → {{ r.pt_norm }} 반영하시겠습니까?')">반영</button>
+            </form>
+            <form method="post" action="/work/{{ r.id }}/cancel" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">취소</button>
+            </form>
+            {% elif r.kind == "billing" %}
+            <form method="post" action="/billing-person/{{ r.id }}/reflect" style="display:inline;">
+              <button type="submit" class="btn btn-primary btn-sm"
+                onclick="return confirm('{{ r.name }} → {{ r.pt_norm }} 반영하시겠습니까?')">반영</button>
+            </form>
+            <form method="post" action="/billing-person/{{ r.id }}/hold" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">보류</button>
+            </form>
+            {% endif %}
+          {% endif %}
         </td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="11" style="text-align:center;padding:28px;color:#8c7180;">
-          {{ tab }} 조회 결과 없음
+        <td colspan="11">
+          <div class="empty-state">
+            <div class="ei">⚙️</div>
+            <div class="et">{{ tab }} 항목 없음</div>
+            <div class="es">부과대수 업로드 또는 미수금명단에서 등록하세요</div>
+          </div>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-</div>
-
-<!-- 페이지네이션 -->
-<div style="text-align:center;margin-top:14px;">
-  {{ prev_link|safe }}
-  <span style="display:inline-block;padding:8px 16px;background:#fff0f7;border-radius:999px;color:#7b3e5c;font-weight:900;">{{ page }} / {{ total_pages }}</span>
-  {{ next_link|safe }}
+  <div class="tbl-footer" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+    <span>총 {{ total }}건 중 {{ page_rows|length }}건 표시</span>
+    {% if total_pages > 1 %}
+    <div class="pagination" style="margin:0;">
+      {% if page > 1 %}<a href="/work/pending-board?tab={{ tab|urlencode }}&q={{ q }}&year={{ year or '' }}&month={{ month or '' }}&process_type={{ process_type }}&status={{ status }}&page_size={{ page_size }}&page={{ page-1 }}" class="btn btn-ghost btn-sm">← 이전</a>{% endif %}
+      <span class="page-info">{{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}<a href="/work/pending-board?tab={{ tab|urlencode }}&q={{ q }}&year={{ year or '' }}&month={{ month or '' }}&process_type={{ process_type }}&status={{ status }}&page_size={{ page_size }}&page={{ page+1 }}" class="btn btn-ghost btn-sm">다음 →</a>{% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
 
 {% endblock %}
