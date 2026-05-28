@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}잡수입/가수금 관리{% endblock %}
+{% block page_title %}잡수입/가수금 관리{% endblock %}
+
+{% block content %}
+<style>
+.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:14px;margin-bottom:16px;}
+.summary-card{background:#fff;border:1px solid #eee;border-radius:16px;padding:18px;box-shadow:0 4px 16px rgba(0,0,0,.04);}
+.summary-card .label{color:#888;font-size:13px;font-weight:800;}
+.summary-card .num{font-size:30px;font-weight:900;margin-top:6px;color:#222;}
+.filter-card{background:#fff;border:1px solid #eee;border-radius:16px;padding:14px;margin-bottom:16px;}
+.filter-card form{display:flex;gap:8px;flex-wrap:wrap;align-items:end;}
+.filter-card label{font-size:12px;color:#777;font-weight:800;display:block;margin-bottom:4px;}
+.filter-card input,.filter-card select{height:36px;border:1px solid #ddd;border-radius:10px;padding:7px 10px;}
+.tbl-card{background:#fff;border:1px solid #eee;border-radius:16px;overflow:auto;}
+.tbl-card table{width:100%;border-collapse:collapse;}
+.tbl-card th,.tbl-card td{border-bottom:1px solid #eee;padding:10px 12px;font-size:13px;vertical-align:middle;}
+.tbl-card th{background:#fff2f7;color:#6b3752;font-weight:900;text-align:left;white-space:nowrap;}
+.tbl-card tr:hover td{background:#fffafd;}
+.btn-small{display:inline-block;padding:7px 10px;border-radius:9px;border:1px solid #ddd;background:#fff;text-decoration:none;color:#333;font-size:12px;font-weight:800;margin:2px;}
+.btn-primary2{background:#f05a95;color:#fff!important;border-color:#f05a95;}
+.btn-danger2{background:#fff;color:#e11d48!important;border-color:#ffc4cf;}
+.edit-card{background:#fff;border:1px solid #ffd6e8;border-radius:16px;padding:16px;margin-bottom:16px;}
+.edit-grid{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;}
+.edit-grid label{font-size:12px;font-weight:800;color:#777;}
+.edit-grid input{width:100%;height:36px;border:1px solid #ddd;border-radius:10px;padding:7px 10px;}
+.memo-cell{max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pager{display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0;}
+</style>
+
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="label">잡수입 건수</div>
+    <div class="num">{{ misc_count }}</div>
+  </div>
+  <div class="summary-card">
+    <div class="label">가수금 건수</div>
+    <div class="num">{{ suspense_count }}</div>
+  </div>
+</div>
+
+{% if edit_row %}
+<div class="edit-card">
+  <h3 style="margin-top:0;">상세/수정</h3>
+  <form method="post" action="/income-ledger/update">
+    <input type="hidden" name="source" value="{{ edit_row.source }}">
+    <input type="hidden" name="id" value="{{ edit_row.id }}">
+    <div class="edit-grid">
+      <div><label>입금일자</label><input name="deposit_date" value="{{ edit_row.deposit_date }}"></div>
+      <div><label>입금액</label><input name="amount" value="{{ edit_row.amount }}"></div>
+      <div><label>이체메모</label><input name="memo" value="{{ edit_row.memo }}"></div>
+      <div><label>성명</label><input name="name" value="{{ edit_row.name }}"></div>
+      <div><label>차량번호</label><input name="vehicle_no" value="{{ edit_row.vehicle_no }}"></div>
+      <div><label>업무사유</label><input name="work_reason" value="{{ edit_row.work_reason }}"></div>
+      <div><label>다음부과일</label><input name="next_billing_date" value="{{ edit_row.next_billing_date }}"></div>
+      <div style="grid-column:span 2;"><label>비고</label><input name="note" value="{{ edit_row.note }}"></div>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn-small btn-primary2" type="submit">저장</button>
+      <a class="btn-small" href="/income-ledger">닫기</a>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="filter-card">
+  <form method="get" action="/income-ledger">
+    <div>
+      <label>구분</label>
+      <select name="kind">
+        <option value="" {% if not kind %}selected{% endif %}>전체</option>
+        <option value="잡수입" {% if kind == "잡수입" %}selected{% endif %}>잡수입</option>
+        <option value="가수금" {% if kind == "가수금" %}selected{% endif %}>가수금</option>
+      </select>
+    </div>
+    <div>
+      <label>검색</label>
+      <input type="text" name="q" value="{{ q or '' }}" placeholder="이체메모, 성명, 차량번호">
+    </div>
+    <div>
+      <label>개수</label>
+      <select name="page_size">
+        {% for n in [30,50,100] %}
+        <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}개</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn-small btn-primary2" type="submit">조회</button>
+    <a class="btn-small" href="/income-ledger">초기화</a>
+  </form>
+</div>
+
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr>
+        <th>입금일자</th>
+        <th>입금액</th>
+        <th>이체메모</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>업무사유</th>
+        <th>다음부과일</th>
+        <th>비고</th>
+        <th>처리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.deposit_date }}</td>
+        <td style="text-align:right;font-weight:900;">{{ fmt_amt(r.amount or 0) }}원</td>
+        <td class="memo-cell" title="{{ r.memo }}">{{ r.memo }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.vehicle_no }}</td>
+        <td>{{ r.work_reason }}</td>
+        <td>{{ r.next_billing_date }}</td>
+        <td class="memo-cell" title="{{ r.note }}">{{ r.note }}</td>
+        <td style="white-space:nowrap;">
+          <a class="btn-small btn-primary2" href="/income-ledger?edit_source={{ r.source }}&edit_id={{ r.id }}&kind={{ kind }}&q={{ q }}&page={{ page }}&page_size={{ page_size }}">상세/수정</a>
+          <form method="post" action="/income-ledger/delete" style="display:inline;" onsubmit="return confirm('삭제할까요?');">
+            <input type="hidden" name="source" value="{{ r.source }}">
+            <input type="hidden" name="id" value="{{ r.id }}">
+            <button class="btn-small btn-danger2" type="submit">삭제</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="9" style="text-align:center;padding:24px;color:#888;">조회 결과가 없습니다.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="pager">
+  {% if page > 1 %}
+  <a class="btn-small" href="/income-ledger?kind={{ kind }}&q={{ q }}&page={{ page-1 }}&page_size={{ page_size }}">이전</a>
+  {% endif %}
+  <span>{{ page }} / {{ total_pages }} · 총 {{ total }}건</span>
+  {% if page < total_pages %}
+  <a class="btn-small" href="/income-ledger?kind={{ kind }}&q={{ q }}&page={{ page+1 }}&page_size={{ page_size }}">다음</a>
+  {% endif %}
+</div>
+{% endblock %}

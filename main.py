@@ -2813,6 +2813,246 @@ def pending_detail_rowtype_alias_safe(
 
 
 # ── 잡수입/가수금 응급 안전 화면 ─────────────────────────────────────
+
+
+# ── 잡수입/가수금 관리 최종 화면 ─────────────────────────────────────
+@app.get("/income-ledger", response_class=HTMLResponse)
+def income_ledger_final_page(
+    request: Request,
+    kind: str = "",
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    edit_source: str = "",
+    edit_id: int = 0,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    잡수입/가수금 관리 최종 기준.
+    상단: 잡수입 건수, 가수금 건수
+    컬럼: 입금일자, 입금액, 이체메모, 성명, 차량번호, 업무사유, 다음부과일, 비고, 처리
+    버튼: 상세/수정, 삭제
+    """
+    from sqlalchemy import text as _text
+    import json
+
+    def val(row, *keys):
+        for k in keys:
+            try:
+                v = row.get(k)
+                if v not in [None, ""]:
+                    return v
+            except Exception:
+                pass
+        return ""
+
+    def norm_kind(row):
+        txt = " ".join(str(x or "") for x in row.values())
+        k = str(val(row, "income_kind", "category", "kind", "income_type", "ledger_type") or "").strip()
+        if "잡수입" in k or "잡수입" in txt:
+            return "잡수입"
+        if "가수금" in k or "가수금" in txt:
+            return "가수금"
+        return k or "미분류"
+
+    def fetch_table(table):
+        try:
+            rows = db.execute(_text(f"SELECT * FROM {table} ORDER BY id DESC LIMIT 5000")).mappings().all()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["_source_table"] = table
+                d["_kind"] = norm_kind(d)
+                out.append(d)
+            return out
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print("income fetch error", table, repr(e))
+            return []
+
+    raw_rows = []
+    raw_rows.extend(fetch_table("income_ledger_details"))
+
+    # income_ledger_details가 비어 있으면 보조 큐도 확인
+    if not raw_rows:
+        raw_rows.extend(fetch_table("bank_income_pending_queue"))
+
+    rows = []
+    for r in raw_rows:
+        k = norm_kind(r)
+        item = {
+            "id": val(r, "id"),
+            "source": r.get("_source_table", ""),
+            "kind": k,
+            "deposit_date": str(val(r, "deposit_date", "income_date", "date", "created_at"))[:10],
+            "amount": val(r, "amount", "deposit_amount", "income_amount"),
+            "memo": val(r, "transfer_memo", "memo", "bank_memo", "deposit_memo", "description"),
+            "name": val(r, "related_name", "name", "member_name"),
+            "vehicle_no": val(r, "related_vehicle_no", "vehicle_no", "car_no"),
+            "work_reason": val(r, "work_reason", "business_reason", "pending_target", "process_type", "reason"),
+            "next_billing_date": str(val(r, "next_billing_date", "billing_date", "next_due_date"))[:10],
+            "note": val(r, "note", "remark", "memo2", "비고"),
+            "raw": r,
+        }
+        rows.append(item)
+
+    # 전체 건수
+    misc_count = sum(1 for r in rows if r["kind"] == "잡수입")
+    suspense_count = sum(1 for r in rows if r["kind"] == "가수금")
+
+    # 필터
+    filtered = rows
+    if kind in ["잡수입", "가수금"]:
+        filtered = [r for r in filtered if r["kind"] == kind]
+
+    if q:
+        q2 = q.strip()
+        filtered = [
+            r for r in filtered
+            if q2 in " ".join(str(r.get(k, "") or "") for k in ["memo", "name", "vehicle_no", "work_reason", "note"])
+        ]
+
+    try:
+        page = int(page or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(page_size or 50)
+    except Exception:
+        page_size = 50
+
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
+
+    total = len(filtered)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * page_size
+    page_rows = filtered[start:start + page_size]
+
+    edit_row = None
+    if edit_source and edit_id:
+        for r in rows:
+            if str(r["source"]) == str(edit_source) and str(r["id"]) == str(edit_id):
+                edit_row = r
+                break
+
+    return templates.TemplateResponse(request, "income_ledger_final.html", {
+        "request": request,
+        "user": user,
+        "rows": page_rows,
+        "edit_row": edit_row,
+        "misc_count": misc_count,
+        "suspense_count": suspense_count,
+        "kind": kind,
+        "q": q,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "fmt_amt": fmt_amt,
+    })
+
+
+@app.post("/income-ledger/delete")
+async def income_ledger_final_delete(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import text as _text
+    from fastapi.responses import RedirectResponse
+
+    form = await request.form()
+    source = str(form.get("source") or "")
+    rid = int(form.get("id") or 0)
+
+    allowed = ["income_ledger_details", "bank_income_pending_queue"]
+    if source in allowed and rid:
+        try:
+            db.execute(_text(f"DELETE FROM {source} WHERE id = :id"), {"id": rid})
+            db.commit()
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print("income delete error:", repr(e))
+
+    return RedirectResponse("/income-ledger", status_code=303)
+
+
+@app.post("/income-ledger/update")
+async def income_ledger_final_update(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from sqlalchemy import text as _text, inspect
+    from fastapi.responses import RedirectResponse
+
+    form = await request.form()
+    source = str(form.get("source") or "")
+    rid = int(form.get("id") or 0)
+
+    allowed = ["income_ledger_details", "bank_income_pending_queue"]
+    if source not in allowed or not rid:
+        return RedirectResponse("/income-ledger", status_code=303)
+
+    try:
+        inspector = inspect(db.bind)
+        cols = {c["name"] for c in inspector.get_columns(source)}
+
+        desired = {
+            "deposit_date": str(form.get("deposit_date") or ""),
+            "deposit_amount": str(form.get("amount") or ""),
+            "amount": str(form.get("amount") or ""),
+            "transfer_memo": str(form.get("memo") or ""),
+            "memo": str(form.get("memo") or ""),
+            "related_name": str(form.get("name") or ""),
+            "name": str(form.get("name") or ""),
+            "related_vehicle_no": str(form.get("vehicle_no") or ""),
+            "vehicle_no": str(form.get("vehicle_no") or ""),
+            "work_reason": str(form.get("work_reason") or ""),
+            "reason": str(form.get("work_reason") or ""),
+            "next_billing_date": str(form.get("next_billing_date") or ""),
+            "billing_date": str(form.get("next_billing_date") or ""),
+            "note": str(form.get("note") or ""),
+        }
+
+        sets = []
+        params = {"id": rid}
+
+        # 같은 의미의 컬럼이 둘 다 있으면 둘 다 업데이트 가능
+        for col, v in desired.items():
+            if col in cols:
+                sets.append(f"{col} = :{col}")
+                params[col] = v
+
+        if sets:
+            sql = f"UPDATE {source} SET " + ", ".join(sets) + " WHERE id = :id"
+            db.execute(_text(sql), params)
+            db.commit()
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("income update error:", repr(e))
+
+    return RedirectResponse("/income-ledger", status_code=303)
+
+
+
 @app.get("/income-ledger", response_class=HTMLResponse)
 @app.get("/work/income-ledger", response_class=HTMLResponse)
 @app.get("/income-ledger/page", response_class=HTMLResponse)
