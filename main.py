@@ -3961,7 +3961,8 @@ def safe_pending_board_page(
     from sqlalchemy import or_
 
     ACTIVE_MONTHS = {(2026, 5), (2026, 6)}
-    MAIN_TABS = ["전체", "반영대기", "폐업", "폐지", "양도", "이관", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
+    MAIN_TABS = ["미처리업무", "반영대기", "폐업", "탈퇴", "협회가입", "택배신규", "70세", "협회비", "관리비", "부과대수상세", "반영완료"]
+    CLOSURE_TABS = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
     CLOSURE_TYPES = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
 
     def safe(obj, name, default=""):
@@ -4015,7 +4016,8 @@ def safe_pending_board_page(
             return "관리비폐지"
         return t
 
-    def to_int(v):
+    def to_year(v):
+        """연도 변환: 26 → 2026, 2026 → 2026"""
         try:
             t = str(v or "").strip()
             if not t:
@@ -4027,16 +4029,29 @@ def safe_pending_board_page(
         except Exception:
             return None
 
+    def to_month(v):
+        """월 변환: 5 → 5, 6 → 6 (절대 2000+ 변환 안 함)"""
+        try:
+            t = str(v or "").strip()
+            if not t:
+                return None
+            n = int(float(t))
+            if 1 <= n <= 12:
+                return n
+            return None
+        except Exception:
+            return None
+
     def ym_text(y, m):
-        yy = to_int(y)
-        mm = to_int(m)
+        yy = to_year(y)
+        mm = to_month(m)
         if not yy or not mm:
             return ""
         return f"{str(yy)[-2:]}.{mm:02d}"
 
     def active_month(y, m):
-        yy = to_int(y)
-        mm = to_int(m)
+        yy = to_year(y)
+        mm = to_month(m)
         return (yy, mm) in ACTIVE_MONTHS
 
     def norm_date(v):
@@ -4131,9 +4146,7 @@ def safe_pending_board_page(
             req, nxt = request_dates(bp, pt)
 
             if raw_status in ["완료", "처리완료", "반영완료"]:
-                st = "완료"
-            elif not active_month(yy, mm):
-                st = "완료"
+                st = "반영완료"
             elif pt in ["협회비", "관리비"]:
                 st = "반영대기"
             elif pt in CLOSURE_TYPES or pt in ["탈퇴", "70세"]:
@@ -4215,23 +4228,28 @@ def safe_pending_board_page(
     def match_tab(r, t):
         pt = r.get("pt_norm", "")
         st = r.get("status", "")
+        is_done = st in ["반영완료", "완료", "처리완료"]
 
-        if t == "전체":
-            return st not in ["완료", "처리완료", "반영완료", "부과대수상세"]
+        if t == "미처리업무":
+            return not is_done and active_month(r.get("year"), r.get("month"))
         if t == "반영대기":
             return st == "반영대기" and pt in ["협회비", "관리비"]
         if t == "폐업":
-            return pt in CLOSURE_TYPES
+            return pt in CLOSURE_TYPES and not is_done
         if t == "폐지":
-            return pt in ["폐지", "관리비폐지"]
+            return pt in ["폐지", "관리비폐지"] and not is_done
         if t == "관리비폐지":
-            return pt == "관리비폐지"
+            return pt == "관리비폐지" and not is_done
         if t == "양도":
-            return pt == "양도"
+            return pt == "양도" and not is_done
         if t == "이관":
-            return pt in ["이관", "타도", "이관/타도"]
+            return pt in ["이관", "타도", "이관/타도"] and not is_done
+        if t == "사망":
+            return pt == "사망" and not is_done
+        if t == "말소":
+            return pt == "말소" and not is_done
         if t == "탈퇴":
-            return pt == "탈퇴"
+            return pt == "탈퇴" and not is_done
         if t == "협회가입":
             return pt == "협회비"
         if t == "택배신규":
@@ -4245,11 +4263,12 @@ def safe_pending_board_page(
         if t == "부과대수상세":
             return r.get("row_type") == "billing"
         if t == "반영완료":
-            return st in ["완료", "처리완료", "반영완료"]
+            return is_done
         return True
 
     counts = {}
-    for t in MAIN_TABS:
+    all_count_tabs = MAIN_TABS + CLOSURE_TABS
+    for t in all_count_tabs:
         counts[t] = sum(1 for r in rows if match_tab(r, t))
 
     filtered = [r for r in rows if match_tab(r, tab)]
@@ -4289,6 +4308,7 @@ def safe_pending_board_page(
         "counts": counts,
         "tab": tab,
         "main_tabs": MAIN_TABS,
+        "closure_tabs": CLOSURE_TABS,
         "year": year,
         "month": month,
         "process_type": process_type,
