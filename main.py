@@ -1487,6 +1487,337 @@ def _reconcile_license(db: Session):
     db.commit()
 
 # ── 전체자 대조 미확인 ────────────────────────────────────────────────────────
+
+
+# ── 전체자대조 최종 화면 ─────────────────────────────────────────────
+@app.get("/license-check", response_class=HTMLResponse)
+def license_check_final_page(
+    request: Request,
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    edit_id: int = 0,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    전체자대조 최종 기준.
+    미수금명단에는 있는데 전체자명단에는 없는 사람을 찾아
+    폐지/양도/이관/말소/사망/탈퇴/유지/보류로 판단하는 검증 화면.
+    """
+    from sqlalchemy import or_
+
+    def sg(obj, name, default=""):
+        try:
+            v = getattr(obj, name, default)
+            if v is None:
+                return default
+            return v
+        except Exception:
+            return default
+
+    def money_of(m):
+        for name in ["total_arrears", "arrears_total", "arrears", "amount_due", "unpaid_amount", "balance"]:
+            v = sg(m, name, "")
+            if v not in ["", None]:
+                return v
+        return ""
+
+    try:
+        page = int(page or 1)
+    except Exception:
+        page = 1
+    try:
+        page_size = int(page_size or 50)
+    except Exception:
+        page_size = 50
+
+    if page < 1:
+        page = 1
+    if page_size not in [30, 50, 100]:
+        page_size = 50
+
+    rows = []
+    msg = ""
+
+    try:
+        query = db.query(Member)
+
+        try:
+            query = query.filter(_clean_filter())
+        except Exception:
+            pass
+
+        # 전체자명단에는 없거나, 전체자대조 미확인 상태인 회원
+        try:
+            query = query.filter(or_(
+                Member.match_license_id == None,
+                Member.match_status == "전체자미확인",
+                Member.match_status == "전체자 없음",
+                Member.match_status == "미확인"
+            ))
+        except Exception:
+            pass
+
+        if q:
+            like = f"%{q}%"
+            try:
+                query = query.filter(or_(
+                    Member.name.ilike(like),
+                    Member.vehicle_no.ilike(like),
+                    Member.region.ilike(like),
+                    Member.mobile.ilike(like),
+                    Member.phone.ilike(like),
+                    Member.address.ilike(like),
+                ))
+            except Exception:
+                pass
+
+        members = query.order_by(Member.region, Member.name).limit(5000).all()
+
+        for m in members:
+            reason = sg(m, "match_fail_reason", "") or "미수금명단에는 있으나 전체자명단에서 확인되지 않음"
+            status = sg(m, "match_status", "") or "전체자미확인"
+
+            rows.append({
+                "id": sg(m, "id"),
+                "region": sg(m, "region"),
+                "name": sg(m, "name"),
+                "vehicle_no": sg(m, "vehicle_no"),
+                "phone": sg(m, "mobile") or sg(m, "phone"),
+                "address": sg(m, "address") or sg(m, "official_address"),
+                "arrears": money_of(m),
+                "match_status": status,
+                "reason": reason,
+                "raw": m,
+            })
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        rows = []
+        msg = "전체자대조 목록 조회 오류: " + repr(e)
+
+    total = len(rows)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * page_size
+    page_rows = rows[start:start + page_size]
+
+    edit_row = None
+    if edit_id:
+        for r in rows:
+            if str(r["id"]) == str(edit_id):
+                edit_row = r
+                break
+
+    return templates.TemplateResponse(request, "license_check_final.html", {
+        "request": request,
+        "user": user,
+        "rows": page_rows,
+        "edit_row": edit_row,
+        "q": q,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "msg": msg,
+        "fmt_amt": fmt_amt,
+    })
+
+
+@app.post("/license-check/confirm")
+async def license_check_final_confirm(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    from fastapi.responses import RedirectResponse
+
+    form = await request.form()
+    mid = int(form.get("member_id") or 0)
+
+    if mid:
+        try:
+            m = db.query(Member).filter(Member.id == mid).first()
+            if m:
+                if hasattr(m, "user_confirmed_match"):
+                    m.user_confirmed_match = True
+                if hasattr(m, "match_status"):
+                    m.match_status = "확인완료"
+                if hasattr(m, "match_fail_reason"):
+                    m.match_fail_reason = "전체자누락/유지 확인"
+                db.commit()
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print("license confirm error:", repr(e))
+
+    return RedirectResponse("/license-check", status_code=303)
+
+
+@app.post("/license-check/process")
+async def license_check_final_process(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user)
+):
+    """
+    전체자대조 상세/처리.
+    선택값에 따라 처리대기목록 분류로 넘긴다.
+    반영대기가 아니라 폐업 하위분류/탈퇴/유지 처리다.
+    """
+    from fastapi.responses import RedirectResponse
+    from sqlalchemy import inspect, text as _text
+    from datetime import date
+
+    form = await request.form()
+
+    mid = int(form.get("member_id") or 0)
+    process_type = str(form.get("process_type") or "").strip()
+    process_date = str(form.get("process_date") or "").strip()
+    reason = str(form.get("reason") or "").strip()
+    note = str(form.get("note") or "").strip()
+
+    if not process_date:
+        process_date = str(date.today())
+
+    if not mid:
+        return RedirectResponse("/license-check", status_code=303)
+
+    try:
+        m = db.query(Member).filter(Member.id == mid).first()
+        if not m:
+            return RedirectResponse("/license-check", status_code=303)
+
+        # 전체자누락/유지, 보류는 전체자대조 상태만 변경
+        if process_type in ["전체자누락/유지", "유지"]:
+            if hasattr(m, "user_confirmed_match"):
+                m.user_confirmed_match = True
+            if hasattr(m, "match_status"):
+                m.match_status = "확인완료"
+            if hasattr(m, "match_fail_reason"):
+                m.match_fail_reason = reason or "전체자누락/유지"
+            db.commit()
+            return RedirectResponse("/license-check", status_code=303)
+
+        if process_type == "보류":
+            if hasattr(m, "match_status"):
+                m.match_status = "보류"
+            if hasattr(m, "match_fail_reason"):
+                m.match_fail_reason = reason or "보류"
+            db.commit()
+            return RedirectResponse("/license-check", status_code=303)
+
+        # 처리대기목록으로 넘길 처리구분 정규화
+        pt_map = {
+            "폐지": "폐지",
+            "양도": "양도",
+            "이관/타도": "이관",
+            "타도": "이관",
+            "이관": "이관",
+            "말소": "말소",
+            "사망": "사망",
+            "탈퇴": "탈퇴",
+            "기타 확인필요": "기타 확인필요",
+        }
+        pt = pt_map.get(process_type, process_type)
+
+        # WorkQueue 모델이 있으면 우선 모델로 생성
+        created = False
+        try:
+            w = WorkQueue()
+            pairs = {
+                "status": "처리대기",
+                "process_type": pt,
+                "work_type": pt,
+                "region": getattr(m, "region", "") or "",
+                "name": getattr(m, "name", "") or "",
+                "vehicle_no": getattr(m, "vehicle_no", "") or "",
+                "account": getattr(m, "account", "") or "",
+                "request_date": process_date,
+                "process_date": process_date,
+                "source": "전체자대조",
+                "source_screen": "전체자대조",
+                "reason": reason or "전체자명단 없음",
+                "work_reason": reason or "전체자명단 없음",
+                "note": note,
+            }
+            for k, v in pairs.items():
+                if hasattr(w, k):
+                    setattr(w, k, v)
+            db.add(w)
+            created = True
+        except Exception as e:
+            print("workqueue model create skip:", repr(e))
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            created = False
+
+        # 모델 생성 실패 시 raw table 시도
+        if not created:
+            try:
+                inspector = inspect(db.bind)
+                tables = inspector.get_table_names()
+                target = "work_queue" if "work_queue" in tables else ("work_queues" if "work_queues" in tables else "")
+                if target:
+                    cols = {c["name"] for c in inspector.get_columns(target)}
+                    data = {
+                        "status": "처리대기",
+                        "process_type": pt,
+                        "work_type": pt,
+                        "region": getattr(m, "region", "") or "",
+                        "name": getattr(m, "name", "") or "",
+                        "vehicle_no": getattr(m, "vehicle_no", "") or "",
+                        "account": getattr(m, "account", "") or "",
+                        "request_date": process_date,
+                        "process_date": process_date,
+                        "source": "전체자대조",
+                        "source_screen": "전체자대조",
+                        "reason": reason or "전체자명단 없음",
+                        "work_reason": reason or "전체자명단 없음",
+                        "note": note,
+                    }
+                    use = {k: v for k, v in data.items() if k in cols}
+                    if use:
+                        names = ", ".join(use.keys())
+                        binds = ", ".join(":" + k for k in use.keys())
+                        db.execute(_text(f"INSERT INTO {target} ({names}) VALUES ({binds})"), use)
+                        created = True
+            except Exception as e:
+                print("workqueue raw create error:", repr(e))
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+
+        # 원 회원 대조상태 업데이트
+        if hasattr(m, "match_status"):
+            m.match_status = "처리대기등록" if created else "처리확인필요"
+        if hasattr(m, "match_fail_reason"):
+            m.match_fail_reason = f"{pt} 처리 필요"
+
+        db.commit()
+
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print("license process error:", repr(e))
+
+    return RedirectResponse("/license-check", status_code=303)
+
+
+
 @app.get("/license-check", response_class=HTMLResponse)
 def license_check(request: Request, db: Session = Depends(get_db),
                   user: User = Depends(require_user)):

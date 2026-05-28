@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}전체자대조{% endblock %}
+{% block page_title %}전체자대조{% endblock %}
+
+{% block content %}
+<style>
+.summary-card{background:#fff;border:1px solid #eee;border-radius:16px;padding:16px;margin-bottom:16px;}
+.summary-card h2{margin:0 0 6px 0;}
+.desc{color:#777;font-size:13px;}
+.filter-card{background:#fff;border:1px solid #eee;border-radius:16px;padding:14px;margin-bottom:16px;}
+.filter-card form{display:flex;gap:8px;flex-wrap:wrap;align-items:end;}
+.filter-card label{font-size:12px;color:#777;font-weight:800;display:block;margin-bottom:4px;}
+.filter-card input,.filter-card select{height:36px;border:1px solid #ddd;border-radius:10px;padding:7px 10px;}
+.tbl-card{background:#fff;border:1px solid #eee;border-radius:16px;overflow:auto;}
+.tbl-card table{width:100%;border-collapse:collapse;}
+.tbl-card th,.tbl-card td{border-bottom:1px solid #eee;padding:10px 12px;font-size:13px;vertical-align:middle;}
+.tbl-card th{background:#fff2f7;color:#6b3752;font-weight:900;text-align:left;white-space:nowrap;}
+.tbl-card tr:hover td{background:#fffafd;}
+.btn-small{display:inline-block;padding:7px 10px;border-radius:9px;border:1px solid #ddd;background:#fff;text-decoration:none;color:#333;font-size:12px;font-weight:800;margin:2px;}
+.btn-primary2{background:#f05a95;color:#fff!important;border-color:#f05a95;}
+.btn-green{background:#00a870;color:#fff!important;border-color:#00a870;}
+.edit-card{background:#fff;border:1px solid #ffd6e8;border-radius:16px;padding:16px;margin-bottom:16px;}
+.edit-grid{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;}
+.edit-grid label{font-size:12px;font-weight:800;color:#777;}
+.edit-grid input,.edit-grid select{width:100%;height:36px;border:1px solid #ddd;border-radius:10px;padding:7px 10px;}
+.memo-cell{max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pager{display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0;}
+</style>
+
+<div class="summary-card">
+  <h2>전체자대조</h2>
+  <div class="desc">
+    미수금명단에는 있으나 전체자명단에는 없는 사람을 폐지/양도/이관/말소/사망/탈퇴/유지 중 하나로 판단하는 화면입니다.
+  </div>
+  {% if msg %}
+  <div style="margin-top:8px;color:#e11d48;font-weight:900;">{{ msg }}</div>
+  {% endif %}
+</div>
+
+{% if edit_row %}
+<div class="edit-card">
+  <h3 style="margin-top:0;">상세/처리</h3>
+  <div style="margin-bottom:10px;color:#555;">
+    <b>{{ edit_row.name }}</b> / {{ edit_row.vehicle_no }} / {{ edit_row.region }}
+  </div>
+  <form method="post" action="/license-check/process">
+    <input type="hidden" name="member_id" value="{{ edit_row.id }}">
+    <div class="edit-grid">
+      <div>
+        <label>처리구분</label>
+        <select name="process_type" required>
+          <option value="">선택</option>
+          <option value="폐지">폐지</option>
+          <option value="양도">양도</option>
+          <option value="이관/타도">이관/타도</option>
+          <option value="말소">말소</option>
+          <option value="사망">사망</option>
+          <option value="탈퇴">탈퇴</option>
+          <option value="전체자누락/유지">전체자누락/유지</option>
+          <option value="보류">보류</option>
+          <option value="기타 확인필요">기타 확인필요</option>
+        </select>
+      </div>
+      <div>
+        <label>처리일자</label>
+        <input type="date" name="process_date">
+      </div>
+      <div>
+        <label>처리사유</label>
+        <input name="reason" placeholder="전체자명단 없음, 폐업 의심 등">
+      </div>
+      <div style="grid-column:span 3;">
+        <label>비고</label>
+        <input name="note" placeholder="상세 메모">
+      </div>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn-small btn-primary2" type="submit">저장</button>
+      <a class="btn-small" href="/license-check">닫기</a>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="filter-card">
+  <form method="get" action="/license-check">
+    <div>
+      <label>검색</label>
+      <input type="text" name="q" value="{{ q or '' }}" placeholder="성명, 차량번호, 지역, 연락처">
+    </div>
+    <div>
+      <label>개수</label>
+      <select name="page_size">
+        {% for n in [30,50,100] %}
+        <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}개</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn-small btn-primary2" type="submit">조회</button>
+    <a class="btn-small" href="/license-check">초기화</a>
+  </form>
+  <div style="margin-top:10px;color:#777;">총 {{ total }}건 · {{ page }} / {{ total_pages }}페이지</div>
+</div>
+
+<div class="tbl-card">
+  <table>
+    <thead>
+      <tr>
+        <th>지역</th>
+        <th>성명</th>
+        <th>차량번호</th>
+        <th>연락처</th>
+        <th>주소</th>
+        <th>현재 미수금</th>
+        <th>대조상태</th>
+        <th>사유</th>
+        <th>처리</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.region }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.vehicle_no }}</td>
+        <td>{{ r.phone }}</td>
+        <td class="memo-cell" title="{{ r.address }}">{{ r.address }}</td>
+        <td style="text-align:right;font-weight:900;">{% if r.arrears %}{{ fmt_amt(r.arrears) }}원{% else %}-{% endif %}</td>
+        <td>{{ r.match_status }}</td>
+        <td class="memo-cell" title="{{ r.reason }}">{{ r.reason }}</td>
+        <td style="white-space:nowrap;">
+          <a class="btn-small btn-primary2" href="/license-check?edit_id={{ r.id }}&q={{ q }}&page={{ page }}&page_size={{ page_size }}">상세/처리</a>
+          <form method="post" action="/license-check/confirm" style="display:inline;">
+            <input type="hidden" name="member_id" value="{{ r.id }}">
+            <button class="btn-small btn-green" type="submit">확인완료</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="9" style="text-align:center;padding:24px;color:#888;">조회 결과가 없습니다.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="pager">
+  {% if page > 1 %}
+  <a class="btn-small" href="/license-check?q={{ q }}&page={{ page-1 }}&page_size={{ page_size }}">이전</a>
+  {% endif %}
+  <span>{{ page }} / {{ total_pages }} · 총 {{ total }}건</span>
+  {% if page < total_pages %}
+  <a class="btn-small" href="/license-check?q={{ q }}&page={{ page+1 }}&page_size={{ page_size }}">다음</a>
+  {% endif %}
+</div>
+{% endblock %}
