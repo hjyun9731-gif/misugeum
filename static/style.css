@@ -370,3 +370,19 @@ tbody tr:hover td { background: var(--bg); }
   .topbar { left: 0; }
   .dash-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── 대시보드 KPI (구버전 호환) ── */
+.kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:20px; }
+.kpi-card-hero, .kpi-card { background:var(--white); border:1px solid var(--border); border-radius:var(--r-lg); padding:16px 18px; box-shadow:var(--sh-xs); }
+.kpi-label { font-size:11px; font-weight:700; color:var(--text-3); margin-bottom:6px; }
+.kpi-value { font-size:22px; font-weight:800; color:var(--text-1); }
+.kpi-unit  { font-size:12px; color:var(--text-3); }
+.kpi-link  { font-size:12px; color:var(--primary); margin-top:6px; display:inline-block; }
+.dash-card { background:var(--white); border:1px solid var(--border); border-radius:var(--r-lg); padding:16px 18px; box-shadow:var(--sh-xs); }
+.dash-card-title { font-size:13px; font-weight:700; color:var(--text-2); margin-bottom:14px; }
+.badge-label { font-size:11px; color:var(--text-3); font-weight:400; margin-left:6px; }
+.stat-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.stat-item { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); padding:12px; }
+.stat-item-label { font-size:11px; color:var(--text-3); font-weight:600; margin-bottom:4px; }
+.stat-item-val { font-size:16px; font-weight:800; color:var(--text-1); }
+.stat-item-sub { font-size:11px; color:var(--text-4); }
