@@ -4364,20 +4364,29 @@ def pending_board_final_page(
     rows = fixed_rows
 
     def tab_match(r, t):
-        pt = r["pt_norm"]
-        st = r["status"]
+        # 안전 필터: 어떤 row에 필드가 빠져도 폐업/폐지 탭에서 터지지 않게 한다.
+        pt = str(r.get("pt_norm") or r.get("process_type") or "").strip()
+        st = str(r.get("status") or "").strip()
+        row_type = str(r.get("row_type") or "").strip()
+
+        closure_types = ["폐지", "관리비폐지", "양도", "이관", "사망", "말소"]
+        completed_status = ["완료", "처리완료", "반영완료"]
 
         if t == "전체":
-            # 미처리 업무 = 26.05 / 26.06 부과대수 중 아직 처리할 건
-            return st not in ["부과대수상세", "완료", "반영완료", "처리완료"]
+            # 미처리 업무 = 아직 처리할 건만 표시
+            # 완료/조회용은 제외
+            return st not in ["부과대수상세"] + completed_status
 
         if t == "반영대기":
-            return st == "반영대기" and pt in NEW_TYPES
+            # 반영대기는 협회비/관리비 신규 편입만
+            return st == "반영대기" and pt in ["협회비", "관리비"]
 
         if t == "폐업":
-            return pt in CLOSURE_TYPES
+            # 폐업 상위 = 폐지, 관리비폐지, 양도, 이관, 사망, 말소 전체
+            return pt in closure_types
 
         if t == "폐지":
+            # 폐지 탭에서는 일반 폐지 + 관리비폐지 같이 확인
             return pt in ["폐지", "관리비폐지"]
 
         if t == "관리비폐지":
@@ -4387,12 +4396,16 @@ def pending_board_final_page(
             return pt == "양도"
 
         if t == "이관":
-            return pt == "이관"
+            return pt in ["이관", "이관/타도", "타도"]
 
-        if t in ["사망", "말소"]:
-            return pt == t
+        if t == "사망":
+            return pt == "사망"
+
+        if t == "말소":
+            return pt == "말소"
 
         if t == "탈퇴":
+            # 탈퇴는 폐업 아님
             return pt == "탈퇴"
 
         if t == "협회가입":
@@ -4411,16 +4424,33 @@ def pending_board_final_page(
             return pt == "70세"
 
         if t == "부과대수상세":
-            return r["row_type"] == "billing"
+            # 전체 조회용
+            return row_type == "billing"
 
         if t == "반영완료":
-            return st in ["반영완료", "처리완료"]
+            return st in completed_status
 
         return True
 
     counts = {}
     for t in MAIN_TABS + CLOSURE_TABS:
         counts[t] = sum(1 for r in rows if tab_match(r, t))
+
+    # 템플릿 안전 기본값
+    for r in rows:
+        r.setdefault("status", "")
+        r.setdefault("process_type", "")
+        r.setdefault("pt_norm", "")
+        r.setdefault("ym", "")
+        r.setdefault("region", "")
+        r.setdefault("name", "")
+        r.setdefault("vehicle_no", "")
+        r.setdefault("arrears", "")
+        r.setdefault("request_date", "")
+        r.setdefault("next_billing_date", "")
+        r.setdefault("source", "")
+        r.setdefault("row_type", "")
+        r.setdefault("id", "")
 
     filtered = [r for r in rows if tab_match(r, tab)]
 
