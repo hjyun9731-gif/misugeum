@@ -1548,13 +1548,26 @@ def license_check_final_page(
         except Exception:
             pass
 
-        # 전체자명단에는 없거나, 전체자대조 미확인 상태인 회원
+        # 전체자대조 대상:
+        # 미수금명단에는 있는데 전체자명단에는 없는 사람 중
+        # 아직 확인완료/처리대기등록/보류 처리되지 않은 사람만 표시
+        try:
+            query = query.filter(Member.match_license_id == None)
+        except Exception:
+            pass
+
         try:
             query = query.filter(or_(
-                Member.match_license_id == None,
-                Member.match_status == "전체자미확인",
-                Member.match_status == "전체자 없음",
-                Member.match_status == "미확인"
+                Member.user_confirmed_match == False,
+                Member.user_confirmed_match == None
+            ))
+        except Exception:
+            pass
+
+        try:
+            query = query.filter(or_(
+                Member.match_status == None,
+                ~Member.match_status.in_(["확인완료", "처리대기등록", "처리완료", "보류"])
             ))
         except Exception:
             pass
@@ -1645,6 +1658,7 @@ async def license_check_final_confirm(
         try:
             m = db.query(Member).filter(Member.id == mid).first()
             if m:
+                # 확인완료 = 전체자대조 목록에서는 사라지고, 미수금명단에는 유지
                 if hasattr(m, "user_confirmed_match"):
                     m.user_confirmed_match = True
                 if hasattr(m, "match_status"):
@@ -1708,6 +1722,9 @@ async def license_check_final_process(
             return RedirectResponse("/license-check", status_code=303)
 
         if process_type == "보류":
+            # 보류도 처리된 상태로 보고 전체자대조 기본 목록에서는 제외
+            if hasattr(m, "user_confirmed_match"):
+                m.user_confirmed_match = True
             if hasattr(m, "match_status"):
                 m.match_status = "보류"
             if hasattr(m, "match_fail_reason"):
@@ -1800,6 +1817,9 @@ async def license_check_final_process(
                     pass
 
         # 원 회원 대조상태 업데이트
+        # 상세/처리 완료 = 전체자대조 목록에서는 사라지고, 처리대기목록의 맞는 분류로 이동
+        if hasattr(m, "user_confirmed_match"):
+            m.user_confirmed_match = True
         if hasattr(m, "match_status"):
             m.match_status = "처리대기등록" if created else "처리확인필요"
         if hasattr(m, "match_fail_reason"):
