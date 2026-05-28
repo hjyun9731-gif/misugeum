@@ -3215,6 +3215,27 @@ def emergency_pending_board_page(
     def h(v):
         return escape(str(v or ""))
 
+    # 필터 드롭다운 옵션 생성
+    year_options = '<option value="">전체</option>'
+    for y in sorted({r.get("ym", "")[:4] for r in rows if r.get("ym")}, reverse=True):
+        sel = "selected" if str(year or "") == str(y) else ""
+        year_options += f'<option value="{h(y)}" {sel}>{h(y)}년</option>'
+
+    month_options = '<option value="">전체</option>'
+    for m in range(1, 13):
+        sel = "selected" if str(month or "") == str(m) else ""
+        month_options += f'<option value="{m}" {sel}>{m}월</option>'
+
+    process_options = '<option value="">전체</option>'
+    for pt in ["협회비", "관리비", "폐업", "폐지", "관리비폐지", "양도", "이관", "탈퇴", "사망", "말소", "70세", "협회가입", "택배신규"]:
+        sel = "selected" if str(process_type or "") == pt else ""
+        process_options += f'<option value="{h(pt)}" {sel}>{h(pt)}</option>'
+
+    status_options = '<option value="">전체</option>'
+    for st_opt in ["반영대기", "부과대수상세", "반영완료", "처리대기", "보류"]:
+        sel = "selected" if str(status or "") == st_opt else ""
+        status_options += f'<option value="{h(st_opt)}" {sel}>{h(st_opt)}</option>'
+
     tab_html = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
     for t in main_tabs:
         cls = "primary" if t == tab else "ghost"
