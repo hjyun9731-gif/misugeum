@@ -19,6 +19,7 @@
 .tbl-card th,.tbl-card td{border-bottom:1px solid #eee;padding:10px 12px;font-size:13px;vertical-align:middle;}
 .tbl-card th{background:#f3f6fa;color:#333;font-weight:900;text-align:left;white-space:nowrap;}
 .tbl-card tr:hover td{background:#fffafd;}
+.note-short{max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:900;}
 .badge-pending{background:#fff4d8;color:#b77900;}
 .badge-work{background:#eef3ff;color:#2f6fed;}
@@ -34,12 +35,12 @@
 <div class="tab-card">
   <h2 style="margin:0 0 6px 0;">처리대기목록</h2>
   <div style="color:#777;font-size:13px;margin-bottom:12px;">
-    전체=부과대수상세 제외 업무대상 / 반영대기=협회비·관리비 신규 편입 / 폐업=제외·종료 확인 / 부과대수상세=조회용
+    업무대상=부과대수상세 제외 / 반영대기=협회비·관리비 신규 편입 / 폐업=제외·종료 확인 / 부과대수상세=조회용
   </div>
 
   <div class="tab-row">
     {% for t in main_tabs %}
-    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{{ t }} <b>{{ counts.get(t,0) }}</b></a>
+    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{% if t == "전체" %}업무대상{% else %}{{ t }}{% endif %} <b>{{ counts.get(t,0) }}</b></a>
     {% endfor %}
   </div>
 
@@ -47,7 +48,7 @@
   <div class="sub-tabs">
     <b style="margin-right:8px;">폐업 하위분류</b>
     {% for t in closure_tabs %}
-    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{{ t }} <b>{{ counts.get(t,0) }}</b></a>
+    <a class="tab-btn {% if tab == t %}active{% endif %}" href="/work/pending-board?tab={{ t }}">{% if t == "전체" %}업무대상{% else %}{{ t }}{% endif %} <b>{{ counts.get(t,0) }}</b></a>
     {% endfor %}
   </div>
   {% endif %}
@@ -148,7 +149,7 @@
         <td>{{ r.request_date }}</td>
         <td>{{ r.next_billing_date }}</td>
         <td>{{ r.source }}</td>
-        <td>{{ r.note }}</td>
+        <td class="note-short" title="{{ r.note }}">{{ r.note }}</td>
         <td style="white-space:nowrap;">
           <a class="btn-small" href="/api/work/detail?id={{ r.id }}&row_type={{ r.row_type }}">상세/수정</a>
 
@@ -157,7 +158,7 @@
             <input type="hidden" name="row_type" value="{{ r.row_type }}">
             <input type="hidden" name="id" value="{{ r.id }}">
             <input type="hidden" name="action" value="reflect">
-            <button class="btn-small btn-primary2" type="submit">반영</button>
+            <button class="btn-small btn-primary2" type="submit">부과대상 등록</button>
           </form>
           <form method="post" action="/work/pending-board/action" style="display:inline;" onsubmit="return confirm('삭제할까요?');">
             <input type="hidden" name="row_type" value="{{ r.row_type }}">
@@ -171,7 +172,7 @@
             <input type="hidden" name="row_type" value="{{ r.row_type }}">
             <input type="hidden" name="id" value="{{ r.id }}">
             <input type="hidden" name="action" value="complete">
-            <button class="btn-small btn-green" type="submit">완료</button>
+            <button class="btn-small btn-green" type="submit">제외처리 완료</button>
           </form>
           <form method="post" action="/work/pending-board/action" style="display:inline;" onsubmit="return confirm('삭제할까요?');">
             <input type="hidden" name="row_type" value="{{ r.row_type }}">

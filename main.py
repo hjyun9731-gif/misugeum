@@ -3724,25 +3724,53 @@ def pending_board_final_page(
 
         return raw_status or "확인필요"
 
+    def normalize_date_text(v):
+        """
+        26.05.19. / 2026-05-19 / 2026. 5. 19. 같은 날짜를 YYYY-MM-DD로 통일
+        """
+        import re
+        t = str(v or "").strip()
+        if not t:
+            return ""
+
+        m = re.search(r"(20\d{2}|19\d{2})\D+(\d{1,2})\D+(\d{1,2})", t)
+        if m:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return f"{y:04d}-{mo:02d}-{d:02d}"
+
+        m = re.search(r"(?<!\d)(\d{2})\D+(\d{1,2})\D+(\d{1,2})", t)
+        if m:
+            yy, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            y = 2000 + yy if yy <= 30 else 1900 + yy
+            return f"{y:04d}-{mo:02d}-{d:02d}"
+
+        return t[:10]
+
     def request_dates(obj, pt_norm):
         # 협회비 = 가입일자
         # 관리비 = 인가일자, 없으면 자격증명발급일자
-        # 폐업계열 = 처리일자/비고날짜
+        # 폐업계열 = 처리일자 또는 비고란 날짜
         if pt_norm == "협회비":
             rd = pick(obj, "join_date", "가입일자", "협회가입일")
         elif pt_norm == "관리비":
             rd = pick(obj, "permit_date", "인가일자", "허가일자", "cert_issue_date", "자격증명발급일자")
         else:
-            rd = pick(obj, "process_date", "처리일자", "request_date", "요청일", "created_at")
+            rd = pick(obj, "process_date", "처리일자", "request_date", "요청일", "created_at", "note", "비고")
 
-        rd = str(rd or "")[:10]
+        rd = normalize_date_text(rd)
 
         nb = ""
         if pt_norm in ["협회비", "관리비"] and rd:
             try:
                 nb = _calc_next_billing_date(rd)
+                nb = normalize_date_text(nb)
             except Exception:
                 nb = ""
+
+        # 폐업/양도/이관/말소/사망/탈퇴는 다음부과일 없음
+        if pt_norm not in ["협회비", "관리비"]:
+            nb = ""
+
         return rd, nb
 
     rows = []
