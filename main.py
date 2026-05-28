@@ -1582,8 +1582,7 @@ def license_check(request: Request, db: Session = Depends(get_db),
     if msg:
         err_msg = msg + " " + err_msg
 
-    return templates.TemplateResponse("license_check_safe.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "license_check_safe.html", {
         "user": user,
         "lic_count": lic_count,
         "items": items,
@@ -2961,8 +2960,7 @@ def emergency_income_ledger_page(
     prev_link = f'<a class="btn btn-ghost" href="{base}&page={page-1}">이전</a>' if page > 1 else ""
     next_link = f'<a class="btn btn-ghost" href="{base}&page={page+1}">다음</a>' if page < total_pages else ""
 
-    return templates.TemplateResponse("income_ledger_safe.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "income_ledger_safe.html", {
         "user": user,
         "kind": kind,
         "q": q,
@@ -3237,8 +3235,7 @@ def emergency_pending_board_page(
     prev_link = f'<a class="btn btn-ghost" href="{base}&page={page-1}">이전</a>' if page > 1 else ""
     next_link = f'<a class="btn btn-ghost" href="{base}&page={page+1}">다음</a>' if page < total_pages else ""
 
-    return templates.TemplateResponse("pending_board_safe.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "pending_board_safe.html", {
         "user": user,
         "tab": tab,
         "q": q,
