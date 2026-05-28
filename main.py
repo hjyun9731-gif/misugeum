@@ -4231,9 +4231,11 @@ def safe_pending_board_page(
         is_done = st in ["반영완료", "완료", "처리완료"]
 
         if t == "미처리업무":
-            return not is_done and active_month(r.get("year"), r.get("month"))
+            # 완료되지 않은 모든 건 (부과대수상세 조회용 제외)
+            return not is_done
         if t == "반영대기":
-            return st == "반영대기" and pt in ["협회비", "관리비"]
+            # 협회비/관리비 중 반영 안 된 것 → 반드시 미처리업무의 부분집합
+            return not is_done and pt in ["협회비", "관리비"]
         if t == "폐업":
             return pt in CLOSURE_TYPES and not is_done
         if t == "폐지":
@@ -4251,15 +4253,15 @@ def safe_pending_board_page(
         if t == "탈퇴":
             return pt == "탈퇴" and not is_done
         if t == "협회가입":
-            return pt == "협회비"
+            return pt == "협회비" and not is_done
         if t == "택배신규":
-            return pt == "관리비"
+            return pt == "관리비" and not is_done
         if t == "협회비":
             return pt == "협회비"
         if t == "관리비":
             return pt == "관리비"
         if t == "70세":
-            return pt == "70세"
+            return pt == "70세" and not is_done
         if t == "부과대수상세":
             return r.get("row_type") == "billing"
         if t == "반영완료":
