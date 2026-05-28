@@ -34,6 +34,19 @@ from core import (
 )
 
 app = FastAPI(title="강원도개인소형화물협회 v4")
+
+
+@app.middleware("http")
+async def pending_detail_api_redirect_middleware(request: Request, call_next):
+    if request.url.path == "/api/work/detail":
+        rid = request.query_params.get("id", "")
+        row_type = request.query_params.get("row_type", "billing")
+        return RedirectResponse(
+            f"/work/pending-board/detail?id={rid}&row_type={row_type}",
+            status_code=307
+        )
+    return await call_next(request)
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SECRET_KEY", "gwf4-secret-2026"),
@@ -238,23 +251,6 @@ def _migrate():
                 _ac(tbl, col, typ)
 
 # ── 유틸 ──────────────────────────────────────────────────────────────────────
-
-
-@app.middleware("http")
-async def pending_detail_api_redirect_middleware(request: Request, call_next):
-    """
-    /api/work/detail은 JSON API라 사람이 누르면 원문 JSON이 보인다.
-    브라우저에서 접근하면 처리대기 상세 화면으로 강제 이동시킨다.
-    """
-    if request.url.path == "/api/work/detail":
-        q = dict(request.query_params)
-        rid = q.get("id", "")
-        row_type = q.get("row_type", "billing")
-        return RedirectResponse(
-            f"/work/pending-board/detail?id={rid}&row_type={row_type}",
-            status_code=307
-        )
-    return await call_next(request)
 
 
 @app.get("/health")
