@@ -1,22 +1,110 @@
 {% extends "base.html" %}
 {% set active = "arrears" %}
-{% block title %}명단 추가{% endblock %}
-{% block page_title %}명단 추가{% endblock %}
+{% block title %}명단추가{% endblock %}
+{% block page_title %}명단추가{% endblock %}
 {% block content %}
-<div class="page-header"><a href="/arrears" class="btn btn-ghost btn-sm" style="margin-left:auto;">취소</a></div>
-<div class="card" style="max-width:750px;">
-  <form method="post" action="/member_add">
-    <div class="form-grid" style="margin-bottom:16px;">
-      <div class="fg"><label>성명 *</label><input type="text" name="name" required></div>
-      <div class="fg"><label>차량번호</label><input type="text" name="vehicle_no"></div>
-      <div class="fg"><label>지역</label><input type="text" name="region" list="rl2"><datalist id="rl2">{% for r in regions %}<option value="{{ r }}">{% endfor %}</datalist></div>
-      <div class="fg"><label>계정</label><select name="account"><option value="협">협회비</option><option value="관">관리비</option></select></div>
-      <div class="fg"><label>핸드폰</label><input type="text" name="mobile"></div>
-      <div class="fg"><label>미수금액</label><input type="number" name="amount" value="0" min="0"></div>
-      <div class="fg" style="grid-column:span 2;"><label>주소</label><input type="text" name="address"></div>
-      <div class="fg" style="grid-column:span 2;"><label>비고</label><textarea name="note" rows="2"></textarea></div>
+
+<style>
+.am-wrap { max-width:700px; }
+.am-card { background:white; border-radius:12px; border:1px solid #eee; padding:22px 24px; margin-bottom:14px; }
+.am-section-title { font-size:12px; font-weight:700; color:#e8356d; border-bottom:1.5px solid #fce; padding-bottom:6px; margin-bottom:14px; }
+.form-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.form-row { margin-bottom:12px; }
+.form-label { font-size:12px; color:#555; font-weight:600; margin-bottom:5px; display:block; }
+.req { color:#e8356d; }
+.form-inp,.form-sel { width:100%; border:1px solid #e2e8f0; border-radius:7px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; color:#222; background:white; }
+.form-inp:focus,.form-sel:focus { border-color:#e8356d; }
+.am-actions { display:flex; gap:8px; justify-content:flex-end; padding-top:4px; }
+.btn-cancel { background:white; border:1px solid #ddd; color:#666; padding:9px 20px; border-radius:7px; cursor:pointer; font-size:13px; font-family:inherit; text-decoration:none; display:inline-block; }
+.btn-cancel:hover { background:#f5f5f7; }
+.btn-confirm { background:#e8356d; color:white; border:none; padding:9px 24px; border-radius:7px; cursor:pointer; font-size:13px; font-weight:700; font-family:inherit; }
+.btn-confirm:hover { background:#c9285d; }
+.am-msg { background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:10px 16px; color:#15803d; font-size:13px; margin-bottom:14px; }
+</style>
+
+{% if msg %}<div class="am-msg">✅ {{ msg }}</div>{% endif %}
+
+<div class="am-wrap">
+<form method="post" action="/member/new">
+
+  <!-- 필수 정보 -->
+  <div class="am-card">
+    <div class="am-section-title">기본 정보 <span style="font-size:11px;color:#aaa;font-weight:400;">* 필수 항목</span></div>
+    <div class="form-grid2">
+      <div class="form-row">
+        <label class="form-label">성명 <span class="req">*</span></label>
+        <input class="form-inp" name="name" placeholder="성명 입력" required>
+      </div>
+      <div class="form-row">
+        <label class="form-label">차량번호 <span class="req">*</span></label>
+        <input class="form-inp" name="vehicle_no" placeholder="예: 82다 1234" required>
+      </div>
+      <div class="form-row">
+        <label class="form-label">지역 <span class="req">*</span></label>
+        <select class="form-sel" name="region" required>
+          <option value="">선택하세요</option>
+          {% for r in ['춘천시','원주시','강릉시','동해시','속초시','삼척시','태백시','정선군','홍천군','횡성군','영월군','평창군','양구군','화천군','인제군','고성군','양양군'] %}
+          <option value="{{ r }}">{{ r }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="form-label">계정 <span class="req">*</span></label>
+        <select class="form-sel" name="account" required>
+          <option value="">선택하세요</option>
+          <option value="협">협회비</option>
+          <option value="관">관리비</option>
+          <option value="택배">택배관리비</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="form-label">핸드폰</label>
+        <input class="form-inp" name="mobile" placeholder="010-0000-0000">
+      </div>
+      <div class="form-row">
+        <label class="form-label">미수금액</label>
+        <input class="form-inp" name="excel_arrears" type="number" placeholder="0" value="0">
+      </div>
     </div>
-    <button type="submit" class="btn btn-primary">저장</button>
-  </form>
+    <div class="form-row">
+      <label class="form-label">주소</label>
+      <input class="form-inp" name="address" placeholder="주소 입력">
+    </div>
+    <div class="form-row">
+      <label class="form-label">공문주소</label>
+      <input class="form-inp" name="official_address" placeholder="공문주소 입력">
+    </div>
+  </div>
+
+  <!-- 인허가/자격 정보 -->
+  <div class="am-card">
+    <div class="am-section-title">인허가 / 자격 정보</div>
+    <div class="form-grid2">
+      <div class="form-row">
+        <label class="form-label">가입일자</label>
+        <input class="form-inp" name="join_date_raw" type="date">
+      </div>
+      <div class="form-row">
+        <label class="form-label">인가일자</label>
+        <input class="form-inp" name="permit_date_raw" type="date">
+      </div>
+      <div class="form-row">
+        <label class="form-label">자격증명발급일자</label>
+        <input class="form-inp" name="cert_issue_date_raw" type="date">
+      </div>
+      <div class="form-row">
+        <label class="form-label">자격증명 번호</label>
+        <input class="form-inp" name="cert_no" placeholder="번호 입력">
+      </div>
+    </div>
+  </div>
+
+  <div class="am-actions">
+    <a class="btn-cancel" href="/arrears">취소</a>
+    <button type="submit" class="btn-confirm">등록</button>
+  </div>
+
+</form>
 </div>
+
 {% endblock %}
