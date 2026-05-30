@@ -4,253 +4,360 @@
 {% block page_title %}회원 상세{% endblock %}
 {% block content %}
 
-<!-- 상단 헤더 카드 -->
-<div class="detail-header">
-  <div class="detail-header-info">
-    <div class="detail-header-name">{{ m.name }}</div>
-    <div class="detail-header-sub">
-      <span style="font-family:monospace;font-weight:700;">{{ m.vehicle_no or '–' }}</span>
-      <span>{{ m.region or '–' }}</span>
-      <span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span>
-      {% if m.status != "정상" %}<span class="badge b-red">{{ m.status }}</span>{% endif %}
-      {% if m.is_overpay %}<span class="badge b-blue">선납/초과납부</span>{% endif %}
-      {% if not m.arrears_verified %}<span class="badge b-warn">검증필요</span>{% endif %}
+<style>
+.md-wrap { display:flex; flex-direction:column; gap:14px; }
+.md-card { background:white; border-radius:12px; border:1px solid #eee; padding:18px 22px; }
+.md-card.np { padding:0; overflow:hidden; }
+.md-card-hd { padding:12px 18px; border-bottom:1px solid #eee; display:flex; align-items:center; justify-content:space-between; }
+.md-card-title { font-size:12px; font-weight:700; color:#666; letter-spacing:.3px; }
+
+/* 상단 버튼 */
+.md-topbtns { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; justify-content:flex-end; }
+.btn-outline-sm { background:white; border:1px solid #e2e8f0; color:#555; border-radius:7px; padding:7px 14px; font-size:12px; cursor:pointer; font-family:inherit; text-decoration:none; display:inline-block; transition:all .12s; }
+.btn-outline-sm:hover { background:#f5f5f7; }
+.btn-outline-red { background:white; border:1px solid #fca5a5; color:#dc2626; border-radius:7px; padding:7px 14px; font-size:12px; cursor:pointer; font-family:inherit; text-decoration:none; display:inline-block; }
+.btn-outline-red:hover { background:#fef2f2; }
+.btn-pink { background:#e8356d; color:white; border:none; border-radius:7px; padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; display:inline-block; text-decoration:none; }
+.btn-pink:hover { background:#c9285d; }
+
+/* 회원 헤더 */
+.md-header { display:flex; align-items:center; gap:16px; }
+.md-avatar { width:54px; height:54px; border-radius:50%; background:#fde8ef; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:700; color:#c9285d; flex-shrink:0; }
+.md-name { font-size:20px; font-weight:700; color:#111; margin-bottom:6px; }
+.md-tags { display:flex; gap:6px; flex-wrap:wrap; }
+
+.tag { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap; }
+.tag-assoc { background:#fde8ef; color:#be185d; }
+.tag-mgmt  { background:#dbeafe; color:#1d4ed8; }
+.tag-gray  { background:#f3f4f6; color:#555; }
+.tag-green { background:#dcfce7; color:#15803d; }
+.tag-red   { background:#fee2e2; color:#991b1b; }
+.tag-blue  { background:#dbeafe; color:#1d4ed8; }
+
+/* 정보 그리드 */
+.info-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 24px; }
+.info-item .ii-label { font-size:11px; color:#aaa; margin-bottom:3px; }
+.info-item .ii-val   { font-size:13px; font-weight:600; color:#111; }
+
+/* 미수금 요약 */
+.arrear-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.a-card { background:#fafafa; border:1px solid #eee; border-radius:8px; padding:12px 14px; }
+.a-card-label { font-size:11px; color:#888; margin-bottom:4px; }
+.a-card-val { font-size:18px; font-weight:700; color:#111; }
+.a-card.red .a-card-val { color:#dc2626; }
+.a-card.green .a-card-val { color:#15803d; }
+
+/* 월별 원장 */
+.ledger-row { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; }
+.ledger-month { min-width:76px; border:1px solid #eee; border-radius:8px; padding:8px 10px; text-align:center; background:#fafafa; flex-shrink:0; }
+.ledger-month.paid { background:#f0fdf4; border-color:#86efac; }
+.ledger-month.unpaid { background:#fff5f5; border-color:#fca5a5; }
+.lm-ym { font-size:10px; color:#888; margin-bottom:3px; }
+.lm-status { font-size:11px; font-weight:700; }
+.paid .lm-status { color:#15803d; }
+.unpaid .lm-status { color:#dc2626; }
+.lm-amount { font-size:10px; color:#aaa; margin-top:2px; }
+
+/* 테이블 */
+.md-table { width:100%; border-collapse:collapse; }
+.md-table th { background:#fafafa; padding:9px 12px; text-align:left; font-size:12px; color:#666; font-weight:600; border-bottom:1px solid #eee; white-space:nowrap; }
+.md-table td { padding:9px 12px; border-bottom:1px solid #f3f3f3; font-size:13px; color:#222; vertical-align:middle; }
+.md-table tr:last-child td { border-bottom:none; }
+
+.md-msg { background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:10px 16px; color:#15803d; font-size:13px; }
+.name-link { color:#e8356d; font-weight:600; text-decoration:none; }
+.name-link:hover { text-decoration:underline; }
+
+/* ── 모달 ── */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:500; align-items:center; justify-content:center; padding:20px; }
+.modal-overlay.show { display:flex; }
+.modal-box { background:white; border-radius:14px; width:500px; max-height:90vh; overflow-y:auto; position:relative; box-shadow:0 20px 60px rgba(0,0,0,0.18); }
+.modal-box.wide { width:560px; }
+.modal-inner { padding:24px; }
+.modal-close-btn { position:absolute; top:14px; right:14px; background:none; border:none; cursor:pointer; color:#bbb; font-size:22px; line-height:1; padding:4px; font-family:inherit; }
+.modal-close-btn:hover { color:#555; }
+.modal-title { font-size:16px; font-weight:700; color:#111; margin-bottom:3px; }
+.modal-desc  { font-size:12px; color:#999; margin-bottom:16px; }
+.modal-member-bar { background:#fafafa; border:1px solid #eee; border-radius:8px; padding:10px 14px; margin-bottom:16px; display:flex; gap:16px; flex-wrap:wrap; }
+.mmi { font-size:12px; color:#777; }
+.mmi strong { color:#111; margin-left:3px; }
+.modal-warn { background:#fff5f5; border:1px solid #fecaca; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:12px; color:#991b1b; line-height:1.6; }
+.modal-section { background:#fff8fb; border:1px solid #fce4ef; border-radius:8px; padding:14px; margin-top:12px; }
+.modal-section-title { font-size:12px; font-weight:700; color:#e8356d; margin-bottom:10px; }
+.modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; padding-top:16px; border-top:1px solid #eee; }
+.btn-cancel { background:white; border:1px solid #ddd; color:#666; padding:8px 18px; border-radius:7px; cursor:pointer; font-size:13px; font-family:inherit; }
+.btn-confirm { background:#e8356d; color:white; border:none; padding:8px 22px; border-radius:7px; cursor:pointer; font-size:13px; font-weight:700; font-family:inherit; }
+.btn-confirm:hover { background:#c9285d; }
+.btn-danger { background:#dc2626; color:white; border:none; padding:8px 22px; border-radius:7px; cursor:pointer; font-size:13px; font-weight:700; font-family:inherit; }
+.btn-danger:hover { background:#b91c1c; }
+.form-row { margin-bottom:12px; }
+.form-label { font-size:12px; color:#555; font-weight:600; margin-bottom:5px; display:block; }
+.req { color:#e8356d; }
+.form-inp,.form-sel { width:100%; border:1px solid #e2e8f0; border-radius:7px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; color:#222; background:white; }
+.form-inp:focus,.form-sel:focus { border-color:#e8356d; }
+.form-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+</style>
+
+<div class="md-wrap">
+
+{% if msg %}<div class="md-msg">✅ {{ msg }}</div>{% endif %}
+
+<!-- 상단 버튼 -->
+<div class="md-topbtns">
+  <a class="btn-outline-sm" href="/member/{{ m.id }}/edit">수정</a>
+  <button class="btn-outline-sm" onclick="openModal('modal-amount')">금액수정</button>
+  <button class="btn-outline-red" onclick="openModal('modal-closure')">폐업</button>
+  <a class="btn-outline-sm" href="/arrears">목록</a>
+</div>
+
+<!-- 회원 요약 헤더 -->
+<div class="md-card">
+  <div class="md-header">
+    <div class="md-avatar">{{ m.name[0] if m.name else '?' }}</div>
+    <div>
+      <div class="md-name">{{ m.name }}</div>
+      <div class="md-tags">
+        {% set acc = m.account or '' %}
+        {% if '협' in acc %}
+          <span class="tag tag-assoc">협회비</span>
+        {% elif '관' in acc or '택' in acc %}
+          <span class="tag tag-mgmt">관리비</span>
+        {% endif %}
+        <span class="tag tag-gray">{{ m.region or '—' }}</span>
+        {% if m.status and m.status != '정상' %}
+          <span class="tag tag-red">{{ m.status }}</span>
+        {% else %}
+          <span class="tag tag-green">정상</span>
+        {% endif %}
+      </div>
     </div>
-    <div style="font-size:22px;font-weight:900;{% if (m.excel_arrears or 0) < 0 %}color:var(--primary);{% elif (m.excel_arrears or 0) > 0 %}color:var(--red);{% else %}color:var(--text-3);{% endif %}">
-      현재 미수금: {{ fmt_amt(m.excel_arrears) }}원
-    </div>
-  </div>
-  <div class="detail-header-actions">
-    <a href="/member/{{ m.id }}/edit" class="btn btn-ghost btn-sm">✏️ 수정</a>
-    <button class="btn btn-purple btn-sm" onclick="document.getElementById('amount-modal').classList.add('open')">💰 금액수정</button>
-    <button class="btn btn-warn btn-sm" onclick="document.getElementById('work-modal').classList.add('open')">⚙️ 부과대수 등록</button>
-    <a href="/arrears" class="btn btn-ghost btn-sm">← 목록</a>
   </div>
 </div>
 
-{% if msg %}<div class="msg-box msg-ok">✓ {{ msg }}</div>{% endif %}
-
-<!-- 정보 카드 그리드 -->
-<div class="detail-grid">
-
-  <!-- 기본 정보 -->
-  <div class="detail-section">
-    <h3>기본 정보</h3>
-    <div class="detail-row"><span class="dl">성명</span><span class="dv"><strong>{{ m.name }}</strong></span></div>
-    <div class="detail-row"><span class="dl">차량번호</span><span class="dv" style="font-family:monospace;">{{ m.vehicle_no or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">계정</span><span class="dv"><span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span></span></div>
-    <div class="detail-row"><span class="dl">지역</span><span class="dv">{{ m.region or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">휴대폰</span><span class="dv">{{ m.mobile or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">전화번호</span><span class="dv">{{ m.phone or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">주소</span><span class="dv text-sm">{{ m.official_address or m.address or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">상세주소</span><span class="dv text-sm">{{ m.address or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">상태</span><span class="dv">{{ m.status or '정상' }}</span></div>
-    <div class="detail-row"><span class="dl">전체자대조</span>
-      <span class="dv">
-        <span class="badge {% if m.match_status=='정상매칭' or m.match_status=='수동매칭' %}b-ok{% elif m.match_status=='전체자미확인' %}b-gray{% else %}b-warn{% endif %}">{{ m.match_status or '미확인' }}</span>
-        {% if m.match_fail_reason %}<span class="text-xs" style="margin-left:6px;color:var(--text-3);">{{ m.match_fail_reason }}</span>{% endif %}
-      </span>
-    </div>
+<!-- 기본 정보 -->
+<div class="md-card">
+  <div style="font-size:12px;font-weight:700;color:#e8356d;border-bottom:1.5px solid #fce;padding-bottom:7px;margin-bottom:12px;">기본 정보</div>
+  <div class="info-grid">
+    <div class="info-item"><div class="ii-label">차량번호</div><div class="ii-val">{{ m.vehicle_no or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">지역</div><div class="ii-val">{{ m.region or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">연락처(휴대폰)</div><div class="ii-val">{{ m.mobile or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">연락처(전화)</div><div class="ii-val">{{ m.phone or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">주소</div><div class="ii-val">{{ m.address or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">공문주소</div><div class="ii-val">{{ m.official_address or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">가입일자</div><div class="ii-val">{{ m.join_date_raw or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">계정</div><div class="ii-val">{{ m.account or '—' }}</div></div>
   </div>
+</div>
 
-  <!-- 인허가/자격 정보 -->
-  <div class="detail-section">
-    <h3>인허가/자격 정보</h3>
+<!-- 인허가/자격 정보 -->
+<div class="md-card">
+  <div style="font-size:12px;font-weight:700;color:#e8356d;border-bottom:1.5px solid #fce;padding-bottom:7px;margin-bottom:12px;">인허가 / 자격 정보</div>
+  <div class="info-grid">
+    <div class="info-item"><div class="ii-label">인가일자</div><div class="ii-val">{{ m.permit_date_raw or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">자격증명발급일자</div><div class="ii-val">{{ m.cert_issue_date_raw or '—' }}</div></div>
+    <div class="info-item"><div class="ii-label">자격증명 번호</div><div class="ii-val">{{ m.cert_no or '—' }}</div></div>
     {% if lic %}
-    <div class="detail-row"><span class="dl">가입일자</span><span class="dv">{{ m.join_date_raw or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">인가일자</span><span class="dv">{{ m.permit_date_raw or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">자격증명 발급</span><span class="dv">{{ m.cert_issue_date_raw or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">자격증명 번호</span><span class="dv text-sm">{{ m.cert_no or '–' }}</span></div>
-    {% else %}
-    <div style="padding:12px 0;color:var(--text-3);font-size:13px;">전체자 연결 없음</div>
+    <div class="info-item"><div class="ii-label">자격증 매칭</div><div class="ii-val">{{ lic.license_no or '—' }}</div></div>
     {% endif %}
-    <hr class="div">
-    <div class="detail-row"><span class="dl">원본파일</span><span class="dv text-xs">{{ m.source_file or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">시트</span><span class="dv text-xs">{{ m.source_sheet or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">행번호</span><span class="dv text-xs">{{ m.source_row or '–' }}</span></div>
   </div>
+</div>
 
-  <!-- 미수금 요약 -->
-  <div class="detail-section">
-    <h3>미수금 요약</h3>
-    <div class="detail-row"><span class="dl">현재 미수금</span>
-      <span class="dv {% if (m.excel_arrears or 0) < 0 %}overpay{% elif (m.excel_arrears or 0) > 0 %}amount{% endif %}" style="font-size:18px;font-weight:900;">
-        {{ fmt_amt(m.excel_arrears) }}원
-        {% if m.is_overpay %}<span class="badge b-blue" style="font-size:10px;vertical-align:middle;">초과납부</span>{% endif %}
-      </span>
+<!-- 미수금 요약 -->
+<div class="md-card">
+  <div style="font-size:12px;font-weight:700;color:#e8356d;border-bottom:1.5px solid #fce;padding-bottom:7px;margin-bottom:12px;">미수금 요약</div>
+  <div class="arrear-grid">
+    <div class="a-card {% if (m.excel_arrears or 0) > 0 %}red{% elif (m.excel_arrears or 0) == 0 %}green{% endif %}">
+      <div class="a-card-label">현재 미수금</div>
+      <div class="a-card-val">
+        {% if m.excel_arrears %}{{ "{:,}".format(m.excel_arrears) }}원{% else %}0원{% endif %}
+      </div>
     </div>
-    <div class="detail-row"><span class="dl">재계산</span>
-      <span class="dv" style="color:{% if not m.arrears_verified %}var(--amber){% else %}var(--text-3){% endif %};">{{ fmt_amt(m.calc_arrears) }}원</span>
+    <div class="a-card">
+      <div class="a-card-label">최근 입금일</div>
+      <div class="a-card-val" style="font-size:14px;margin-top:4px;">{{ m.last_paid_date or '—' }}</div>
     </div>
-    {% if not m.arrears_verified %}
-    <div class="detail-row"><span class="dl">검증사유</span>
-      <span class="dv"><div class="verify-reason">{{ m.verify_reason or '' }}</div></span>
+    <div class="a-card">
+      <div class="a-card-label">납부 상태</div>
+      <div class="a-card-val {% if (m.excel_arrears or 0) == 0 %}green{% endif %}" style="font-size:14px;margin-top:4px;">
+        {% if (m.excel_arrears or 0) == 0 %}완납{% elif (m.excel_arrears or 0) < 0 %}초과납부{% else %}미납{% endif %}
+      </div>
     </div>
-    {% endif %}
-    <div class="detail-row"><span class="dl">최근입금일</span><span class="dv">{{ m.last_paid_date or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">첫미납월</span><span class="dv">{{ m.first_unpaid_month or '–' }}</span></div>
-    <div class="detail-row"><span class="dl">자동이체</span>
-      <span class="dv">{% if m.is_auto_transfer %}<span class="badge b-blue">자동이체</span>{% else %}–{% endif %}</span>
-    </div>
-  </div>
-
-  <!-- 부과대수/업무 이력 -->
-  <div class="detail-section">
-    <h3>업무처리 이력</h3>
-    {% if work_history %}
-    {% for wq in work_history %}
-    <div class="detail-row">
-      <span class="dl text-xs">{{ wq.submitted_at.strftime('%Y/%m/%d') if wq.submitted_at else '–' }}</span>
-      <span class="dv">
-        <span class="badge {% if wq.status=='반영완료' %}b-ok{% elif wq.status=='취소' %}b-gray{% else %}b-warn{% endif %}">{{ wq.process_type }}</span>
-        <span class="text-xs" style="margin-left:4px;color:var(--text-3);">{{ wq.status }}</span>
-      </span>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="text-sm" style="padding:12px 0;color:var(--text-3);">이력 없음</div>
-    {% endif %}
-
-    {% if events %}
-    <hr class="div">
-    <div style="font-size:11px;font-weight:700;color:var(--text-3);margin-bottom:6px;">상태 이력</div>
-    {% for ev in events %}
-    <div class="detail-row">
-      <span class="dl text-xs">{{ ev.event_date_raw or '–' }}</span>
-      <span class="dv">
-        <span class="badge b-red" style="font-size:10px;">{{ ev.event_type }}</span>
-        <span class="text-xs" style="margin-left:4px;color:var(--text-3);">{{ ev.reason_raw or '' }}</span>
-      </span>
-    </div>
-    {% endfor %}
-    {% endif %}
   </div>
 </div>
 
 <!-- 월별 원장 -->
 {% if ledgers %}
-<div class="tbl-card" style="margin-bottom:16px;">
-  <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-    <span style="font-size:13px;font-weight:700;">월별 원장 ({{ ledgers|length }}건)</span>
-    <div style="display:flex;gap:8px;align-items:center;">
-      {% if dup_count > 0 %}<span class="badge b-warn">중복 {{ dup_count }}건</span>{% endif %}
-      <button class="btn btn-ghost btn-sm" onclick="toggleAdvanced()" id="adv-btn">⚙ 고급보기</button>
+<div class="md-card">
+  <div style="font-size:12px;font-weight:700;color:#e8356d;border-bottom:1.5px solid #fce;padding-bottom:7px;margin-bottom:12px;">월별 원장</div>
+  <div class="ledger-row">
+    {% for l in ledgers|reverse %}
+    {% set paid = (l.arrears_amount or 0) <= 0 %}
+    <div class="ledger-month {% if paid %}paid{% else %}unpaid{% endif %}">
+      <div class="lm-ym">{{ l.year }}-{{ "%02d"|format(l.month) }}</div>
+      <div class="lm-status">{% if paid %}납부{% else %}미납{% endif %}</div>
+      <div class="lm-amount">{{ "{:,}".format(l.arrears_amount or 0) }}</div>
     </div>
-  </div>
-  <div style="max-height:480px;overflow-y:auto;">
-    <table>
-      <thead>
-        <tr>
-          <th>연도</th><th>월</th><th>계정</th>
-          <th style="text-align:right;">부과금</th>
-          <th style="text-align:right;">입금액</th>
-          <th style="text-align:right;">미수금</th>
-          <th>입금일자</th>
-          <th class="adv-col" style="display:none;text-align:right;">이월금</th>
-          <th class="adv-col" style="display:none;text-align:right;">재계산</th>
-          <th class="adv-col" style="display:none;">원본</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for l in ledgers %}
-        <tr {% if l.is_duplicate %}style="opacity:.5;"{% endif %}>
-          <td class="text-sm">{{ l.year }}</td>
-          <td class="text-sm">{{ l.month }}월</td>
-          <td><span class="badge b-{{ '협' if not l.raw_account or '협' in l.raw_account else '관' }}" style="font-size:10px;">{{ '협' if not l.raw_account or '협' in l.raw_account else '관' }}</span></td>
-          <td class="text-sm text-right">{{ fmt_amt(l.charge_amount) if l.charge_amount else '–' }}</td>
-          <td class="text-sm text-right" style="color:var(--green);font-weight:{% if l.paid_amount %}600{% else %}400{% endif %};">{{ fmt_amt(l.paid_amount) if l.paid_amount else '–' }}</td>
-          <td class="text-right" style="font-weight:700;color:{% if (l.arrears_amount or 0) < 0 %}var(--blue){% elif (l.arrears_amount or 0) > 0 %}var(--red){% else %}var(--text-3){% endif %};">
-            {{ fmt_amt(l.arrears_amount) }}원
-          </td>
-          <td class="text-xs">{{ l.paid_date or '' }}</td>
-          <td class="adv-col text-sm text-right" style="display:none;">{{ fmt_amt(l.carry_over) if l.carry_over else '–' }}</td>
-          <td class="adv-col text-sm text-right" style="display:none;color:var(--text-4);">{{ fmt_amt(l.calc_arrears) }}</td>
-          <td class="adv-col text-xs" style="display:none;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ l.source_file }}/{{ l.source_sheet }}/{{ l.source_row }}">{{ l.source_sheet }}/{{ l.source_row }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% endfor %}
   </div>
 </div>
 {% endif %}
 
-<!-- 업무처리 모달 -->
-<div class="modal-bg" id="work-modal">
-  <div class="modal">
-    <h3>⚙️ 업무처리 — {{ m.name }}</h3>
-    <div style="background:var(--bg-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;">
-      현재 미수금: <strong style="color:var(--red);">{{ fmt_amt(m.excel_arrears) }}원</strong>
+<!-- 업무처리 이력 -->
+{% if work_history %}
+<div class="md-card np">
+  <div class="md-card-hd">
+    <span class="md-card-title">업무처리 이력</span>
+    <span style="font-size:11px;color:#aaa;">최근 {{ work_history|length }}건</span>
+  </div>
+  <table class="md-table">
+    <thead>
+      <tr><th>접수일</th><th>처리구분</th><th>상태</th><th>출처</th><th>비고</th></tr>
+    </thead>
+    <tbody>
+      {% for w in work_history %}
+      <tr>
+        <td style="font-size:12px;color:#888;">{{ str(w.submitted_at)[:10] if w.submitted_at else '—' }}</td>
+        <td><span class="tag tag-gray">{{ w.process_type or '—' }}</span></td>
+        <td>
+          {% if '완료' in (w.status or '') %}
+            <span class="tag tag-green">{{ w.status }}</span>
+          {% else %}
+            <span class="tag" style="background:#fef9c3;color:#92400e;">{{ w.status or '대기' }}</span>
+          {% endif %}
+        </td>
+        <td style="font-size:12px;color:#888;">{{ w.source_screen or '—' }}</td>
+        <td style="font-size:12px;color:#888;">{{ w.reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- 이벤트 이력 -->
+{% if events %}
+<div class="md-card np">
+  <div class="md-card-hd"><span class="md-card-title">상태 변경 이력</span></div>
+  <table class="md-table">
+    <thead>
+      <tr><th>일자</th><th>처리구분</th><th>비고</th></tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td style="font-size:12px;color:#888;">{{ str(e.created_at)[:10] if e.created_at else '—' }}</td>
+        <td><span class="tag tag-gray">{{ e.process_type or '—' }}</span></td>
+        <td style="font-size:12px;color:#888;">{{ e.reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+</div><!-- /md-wrap -->
+
+
+<!-- ════ 금액수정 모달 ════ -->
+<div class="modal-overlay" id="modal-amount">
+  <div class="modal-box">
+    <button class="modal-close-btn" onclick="closeModal('modal-amount')">✕</button>
+    <div class="modal-inner">
+      <div class="modal-title">금액수정</div>
+      <div class="modal-desc">입금액과 입금날짜만 수정 후 바로 반영합니다.</div>
+      <div class="modal-member-bar">
+        <span class="mmi">성명<strong>{{ m.name }}</strong></span>
+        <span class="mmi">차량번호<strong>{{ m.vehicle_no or '—' }}</strong></span>
+        <span class="mmi">지역<strong>{{ m.region or '—' }}</strong></span>
+        <span class="mmi">계정<strong>{{ m.account or '—' }}</strong></span>
+      </div>
+      <form method="post" action="/member/{{ m.id }}/edit">
+        <div class="form-row">
+          <label class="form-label">입금액 <span class="req">*</span></label>
+          <input class="form-inp" name="excel_arrears" type="number"
+                 value="{{ m.excel_arrears or 0 }}" placeholder="입금액 입력">
+        </div>
+        <div class="form-row">
+          <label class="form-label">입금날짜 <span class="req">*</span></label>
+          <input class="form-inp" name="last_paid_date" type="date"
+                 value="{{ m.last_paid_date or '' }}">
+        </div>
+        <!-- 나머지 필드 유지용 hidden -->
+        <input type="hidden" name="name" value="{{ m.name }}">
+        <input type="hidden" name="vehicle_no" value="{{ m.vehicle_no or '' }}">
+        <input type="hidden" name="region" value="{{ m.region or '' }}">
+        <input type="hidden" name="account" value="{{ m.account or '' }}">
+        <input type="hidden" name="mobile" value="{{ m.mobile or '' }}">
+        <input type="hidden" name="phone" value="{{ m.phone or '' }}">
+        <input type="hidden" name="address" value="{{ m.address or '' }}">
+        <input type="hidden" name="official_address" value="{{ m.official_address or '' }}">
+        <input type="hidden" name="status" value="{{ m.status or '정상' }}">
+        <input type="hidden" name="note" value="{{ m.note or '' }}">
+        <input type="hidden" name="join_date_raw" value="{{ m.join_date_raw or '' }}">
+        <input type="hidden" name="permit_date_raw" value="{{ m.permit_date_raw or '' }}">
+        <input type="hidden" name="cert_issue_date_raw" value="{{ m.cert_issue_date_raw or '' }}">
+        <input type="hidden" name="cert_no" value="{{ m.cert_no or '' }}">
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-amount')">취소</button>
+          <button type="submit" class="btn-confirm">반영</button>
+        </div>
+      </form>
     </div>
-    <form method="post" action="/arrears/{{ m.id }}/to-work">
-      <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-        <div class="fg"><label>처리 구분</label>
-          <select name="process_type">
-            <option value="폐업">폐업</option><option value="양도">양도</option>
-            <option value="이관">이관</option><option value="탈퇴">탈퇴</option>
-            <option value="사망">사망</option><option value="말소">말소</option>
-            <option value="현역복구">현역복구</option><option value="기타">기타</option>
+  </div>
+</div>
+
+<!-- ════ 폐업처리 모달 ════ -->
+<div class="modal-overlay" id="modal-closure">
+  <div class="modal-box">
+    <button class="modal-close-btn" onclick="closeModal('modal-closure')">✕</button>
+    <div class="modal-inner">
+      <div class="modal-title">폐업 처리</div>
+      <div class="modal-desc">회원 상태를 폐업/양도/이관/탈퇴 등으로 처리합니다.</div>
+      <div class="modal-member-bar">
+        <span class="mmi">성명<strong>{{ m.name }}</strong></span>
+        <span class="mmi">차량번호<strong>{{ m.vehicle_no or '—' }}</strong></span>
+        <span class="mmi">지역<strong>{{ m.region or '—' }}</strong></span>
+        <span class="mmi">계정<strong>{{ m.account or '—' }}</strong></span>
+      </div>
+      <div class="modal-warn">
+        ⚠️ 폐업 처리 시 납부현황 목록에서 제외됩니다.<br>
+        데이터는 삭제되지 않으며 과거 정보 및 상세 정보는 유지됩니다.
+      </div>
+      <form method="post" action="/arrears/{{ m.id }}/to-work">
+        <div class="form-row">
+          <label class="form-label">처리구분 <span class="req">*</span></label>
+          <select class="form-sel" name="process_type" required>
+            <option value="">선택하세요</option>
+            <option>폐업</option><option>양도</option><option>이관</option>
+            <option>탈퇴</option><option>회원폐업</option><option>폐지</option>
+            <option>관리비폐지</option><option>사망</option><option>말소</option>
           </select>
         </div>
-        <div class="fg"><label>처리일자</label><input type="date" name="event_date"></div>
-      </div>
-      <div class="fg"><label>사유/비고</label><input type="text" name="reason" placeholder="선택 입력"></div>
-      <div style="margin-top:10px;padding:9px 12px;background:var(--amber-lt);border-radius:6px;font-size:12px;color:var(--amber);">
-        ⚠ 처리대기목록에 <strong>반영대기</strong>로 등록됩니다.
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" onclick="document.getElementById('work-modal').classList.remove('open')">취소</button>
-        <button type="submit" class="btn btn-primary">등록</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- 금액수정 모달 -->
-<div class="modal-bg" id="amount-modal">
-  <div class="modal">
-    <h3>💰 금액수정 — {{ m.name }}</h3>
-    <div style="background:var(--bg-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;">
-      현재 미수금: <strong style="color:{% if (m.excel_arrears or 0) < 0 %}var(--blue){% else %}var(--red){% endif %};">{{ fmt_amt(m.excel_arrears) }}원</strong>
+        <div class="form-row">
+          <label class="form-label">처리일자 <span class="req">*</span></label>
+          <input class="form-inp" name="event_date" type="date" id="closure-date">
+        </div>
+        <div class="form-row">
+          <label class="form-label">비고</label>
+          <input class="form-inp" name="reason" placeholder="비고 입력 (선택)">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-closure')">취소</button>
+          <button type="submit" class="btn-danger">폐업처리</button>
+        </div>
+      </form>
     </div>
-    <form method="post" action="/member/{{ m.id }}/amount-adjust">
-      <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-        <div class="fg">
-          <label>수정 후 미수금</label>
-          <input type="number" name="adjust_amount" value="{{ m.excel_arrears or 0 }}" required placeholder="음수 가능 (선납/초과납부)">
-        </div>
-        <div class="fg">
-          <label>수정 사유</label>
-          <input type="text" name="adjust_reason" placeholder="예: 엑셀 음수 반영 누락">
-        </div>
-      </div>
-      <div class="fg"><label>메모</label><input type="text" name="note" placeholder="선택"></div>
-      <div style="margin-top:10px;padding:9px 12px;background:var(--amber-lt);border-radius:6px;font-size:12px;color:var(--amber);">
-        ⚠ 부과대수 관리에 <strong>금액수정 반영대기</strong>로 등록됩니다.
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" onclick="document.getElementById('amount-modal').classList.remove('open')">취소</button>
-        <button type="submit" class="btn btn-primary">금액수정 등록</button>
-      </div>
-    </form>
   </div>
 </div>
 
-{% endblock %}
-{% block scripts %}
 <script>
-let advVisible = false;
-function toggleAdvanced() {
-  advVisible = !advVisible;
-  document.querySelectorAll('.adv-col').forEach(el => {
-    el.style.display = advVisible ? '' : 'none';
-  });
-  document.getElementById('adv-btn').textContent = advVisible ? '✕ 기본보기' : '⚙ 고급보기';
-}
-document.getElementById('work-modal').addEventListener('click', function(e) {
-  if (e.target === this) this.classList.remove('open');
+function openModal(id){ document.getElementById(id).classList.add('show'); }
+function closeModal(id){ document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('.modal-overlay').forEach(function(ov){
+  ov.addEventListener('click', function(e){ if(e.target===this) this.classList.remove('show'); });
 });
-document.getElementById('amount-modal')?.addEventListener('click', function(e) {
-  if (e.target === this) this.classList.remove('open');
-});
+// 오늘 날짜 자동 세팅
+document.getElementById('closure-date').value = new Date().toISOString().split('T')[0];
 </script>
+
 {% endblock %}
