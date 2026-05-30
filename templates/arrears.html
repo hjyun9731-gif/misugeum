@@ -1,299 +1,588 @@
-
-
-
 {% extends "base.html" %}
 {% set active = "arrears" %}
-{% block title %}미수금 명단{% endblock %}
-{% block page_title %}미수금 명단{% endblock %}
+{% block title %}납부현황{% endblock %}
+{% block page_title %}납부현황{% endblock %}
 {% block content %}
 
-<div class="page-header">
-  
-<!-- report-export-buttons-for-arrears -->
-<div id="report-export-buttons-for-arrears" style="
-    margin: 18px 0 18px 0;
-    padding: 14px 16px;
-    border: 1px solid #f3c4d8;
-    border-radius: 16px;
-    background: #fff;
-    box-shadow: 0 2px 10px rgba(236, 72, 153, 0.08);
-">
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <strong style="font-size:15px; color:#be185d;">보고/집계 엑셀 추출</strong>
+<style>
+/* ── 납부현황 전용 스타일 ── */
+.pv-wrap { display:flex; flex-direction:column; gap:14px; }
 
-        <label style="font-size:13px; color:#374151;">
-            기준년도
-            <input id="reportExportYear" type="number" min="2000" max="2100"
-                   style="width:90px; padding:7px 9px; border:1px solid #f9a8d4; border-radius:8px;">
-        </label>
+/* 기준조회 카드 */
+.pv-query-card {
+  background:white; border-radius:12px; border:1px solid #eee;
+  padding:16px 20px;
+}
+.pv-query-title {
+  font-size:11px; font-weight:700; color:#bbb; letter-spacing:.6px;
+  text-transform:uppercase; margin-bottom:10px;
+}
+.pv-query-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.pv-inp {
+  border:1px solid #e2e8f0; border-radius:7px; padding:6px 10px;
+  font-size:13px; font-family:inherit; outline:none; color:#222;
+}
+.pv-inp:focus { border-color:#e8356d; }
 
-        <label style="font-size:13px; color:#374151;">
-            기준월
-            <input id="reportExportMonth" type="number" min="1" max="12"
-                   style="width:70px; padding:7px 9px; border:1px solid #f9a8d4; border-radius:8px;">
-        </label>
+/* 탭+필터 카드 */
+.pv-filter-card {
+  background:white; border-radius:12px; border:1px solid #eee;
+  padding:16px 20px;
+}
+.pv-tabs { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+.pv-tab {
+  padding:7px 18px; border-radius:20px; border:1px solid #e2e8f0;
+  background:white; cursor:pointer; font-size:12px; font-weight:600;
+  color:#666; text-decoration:none; transition:all .15s; display:inline-block;
+}
+.pv-tab:hover { border-color:#f9a8d4; color:#e8356d; }
+.pv-tab.on { background:#e8356d; color:white; border-color:#e8356d; }
 
-        <button type="button" onclick="downloadBillingCountExcel()" style="
-            padding: 8px 13px;
-            border: 0;
-            border-radius: 9px;
-            background: #ec4899;
-            color: white;
-            cursor: pointer;
-            font-weight: 700;
-        ">N월 부과대수 엑셀</button>
+.pv-filter-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.pv-flabel { font-size:12px; color:#666; white-space:nowrap; }
+.pv-fsel {
+  border:1px solid #e2e8f0; border-radius:7px; padding:6px 8px;
+  font-size:12px; background:white; outline:none; font-family:inherit; color:#222;
+}
+.pv-fsel:focus { border-color:#e8356d; }
+.pv-finp {
+  border:1px solid #e2e8f0; border-radius:7px; padding:6px 10px;
+  font-size:12px; outline:none; font-family:inherit; color:#222;
+}
+.pv-finp:focus { border-color:#e8356d; }
 
-        <button type="button" onclick="downloadDepositExcel()" style="
-            padding: 8px 13px;
-            border: 0;
-            border-radius: 9px;
-            background: #f59e0b;
-            color: white;
-            cursor: pointer;
-            font-weight: 700;
-        ">N월 입금추출 엑셀</button>
-    </div>
+/* 버튼 */
+.btn-pink {
+  background:#e8356d; color:white; border:none; border-radius:7px;
+  padding:7px 15px; font-size:12px; font-weight:700; cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px; transition:all .15s;
+  font-family:inherit;
+}
+.btn-pink:hover { background:#c9285d; }
+.btn-outline-sm {
+  background:white; border:1px solid #e2e8f0; color:#555; border-radius:7px;
+  padding:7px 13px; font-size:12px; cursor:pointer; font-family:inherit;
+  transition:all .15s;
+}
+.btn-outline-sm:hover { background:#f8f8f8; }
+.btn-blue {
+  background:#2563eb; color:white; border:none; border-radius:7px;
+  padding:7px 15px; font-size:12px; font-weight:700; cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px; font-family:inherit;
+}
+.btn-blue:hover { background:#1d4ed8; }
+.btn-add {
+  background:white; border:1.5px solid #e8356d; color:#e8356d;
+  border-radius:7px; padding:7px 14px; font-size:12px; font-weight:700;
+  cursor:pointer; display:inline-flex; align-items:center; gap:4px;
+  font-family:inherit; transition:all .15s; text-decoration:none;
+}
+.btn-add:hover { background:#fde8ef; }
 
-    <div style="margin-top:8px; font-size:12px; color:#6b7280;">
-        선택한 기준월 기준으로 부과대수와 입금내역을 엑셀로 다운로드합니다.
-    </div>
-</div>
+/* 목록 카드 */
+.pv-list-card {
+  background:white; border-radius:12px; border:1px solid #eee;
+  overflow:hidden;
+}
+.pv-list-meta {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:11px 18px; border-bottom:1px solid #eee;
+}
+.pv-total { display:flex; align-items:center; gap:6px; font-size:13px; color:#555; }
+.pv-total .cnt { color:#e8356d; font-weight:700; }
+.pv-meta-right { display:flex; align-items:center; gap:12px; }
+.pv-sort-info { font-size:11px; color:#bbb; }
 
-<script>
-(function initReportExportMonth() {
-    const now = new Date();
-    const y = document.getElementById("reportExportYear");
-    const m = document.getElementById("reportExportMonth");
-    if (y && !y.value) y.value = now.getFullYear();
-    if (m && !m.value) m.value = now.getMonth() + 1;
-})();
+.pv-table-wrap { overflow-x:auto; }
+.pv-table { width:100%; border-collapse:collapse; }
+.pv-table th {
+  background:#fafafa; padding:10px 12px; text-align:left;
+  font-size:12px; color:#666; font-weight:600; border-bottom:1px solid #eee;
+  white-space:nowrap;
+}
+.pv-table td {
+  padding:10px 12px; border-bottom:1px solid #f3f3f3;
+  font-size:13px; color:#222; vertical-align:middle;
+}
+.pv-table tr:last-child td { border-bottom:none; }
+.pv-table tr:hover td { background:#fffbfc; }
+.pv-table th.r, .pv-table td.r { text-align:right; }
+.pv-table th.c, .pv-table td.c { text-align:center; }
 
-function getReportExportYM() {
-    const year = document.getElementById("reportExportYear")?.value || new Date().getFullYear();
-    const month = document.getElementById("reportExportMonth")?.value || (new Date().getMonth() + 1);
+/* 태그 */
+.tag {
+  display:inline-block; padding:2px 9px; border-radius:20px;
+  font-size:11px; font-weight:700; white-space:nowrap;
+}
+.tag-assoc { background:#fde8ef; color:#be185d; }
+.tag-mgmt  { background:#dbeafe; color:#1d4ed8; }
+.tag-taxi  { background:#fef9c3; color:#854d0e; }
 
-    if (!year || !month || Number(month) < 1 || Number(month) > 12) {
-        alert("기준년도와 기준월을 확인해 주세요.");
-        return null;
-    }
+/* 이름 링크 */
+.name-link {
+  color:#e8356d; font-weight:600; cursor:pointer;
+  text-decoration:none;
+}
+.name-link:hover { text-decoration:underline; }
 
-    return { year, month };
+/* 미수금 */
+.arr-red  { color:#dc2626; font-weight:700; }
+.arr-zero { color:#ccc; }
+.arr-over { color:#7c3aed; font-weight:700; }
+
+/* 액션 버튼 */
+.act-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:4px 11px; border-radius:5px; font-size:11px; font-weight:700;
+  cursor:pointer; border:1.5px solid; transition:all .12s; font-family:inherit;
+}
+.act-edit  { border-color:#2563eb; color:#2563eb; background:white; }
+.act-edit:hover  { background:#eff6ff; }
+.act-close { border-color:#dc2626; color:#dc2626; background:white; }
+.act-close:hover { background:#fef2f2; }
+
+/* 페이지네이션 */
+.pv-pagination {
+  display:flex; align-items:center; justify-content:center;
+  gap:4px; padding:14px;
+}
+.pg-a {
+  border:1px solid #eee; border-radius:5px; padding:5px 10px;
+  font-size:12px; color:#555; text-decoration:none; min-width:32px;
+  text-align:center; display:inline-block; transition:all .12s;
+}
+.pg-a:hover { background:#f5f5f7; }
+.pg-a.on { background:#e8356d; color:white; border-color:#e8356d; }
+.pg-a.dis { color:#ddd; pointer-events:none; }
+
+/* 메시지 */
+.pv-msg {
+  background:#f0fdf4; border:1px solid #86efac; border-radius:8px;
+  padding:10px 16px; color:#15803d; font-size:13px;
 }
 
-function downloadBillingCountExcel() {
-    const ym = getReportExportYM();
-    if (!ym) return;
-    window.location.href = `/api/reports/billing-count/export?year=${ym.year}&month=${ym.month}`;
+/* ── 모달 공통 ── */
+.modal-overlay {
+  display:none; position:fixed; inset:0;
+  background:rgba(0,0,0,0.45); z-index:500;
+  align-items:center; justify-content:center; padding:20px;
 }
-
-function downloadDepositExcel() {
-    const ym = getReportExportYM();
-    if (!ym) return;
-    window.location.href = `/api/reports/deposit/monthly-ledger-export?year=${ym.year}&month=${ym.month}`;
+.modal-overlay.show { display:flex; }
+.modal-box {
+  background:white; border-radius:14px; width:500px;
+  max-height:90vh; overflow-y:auto; position:relative;
+  box-shadow:0 20px 60px rgba(0,0,0,0.18);
 }
-</script>
-<!-- /report-export-buttons-for-arrears -->
+.modal-box.wide { width:580px; }
+.modal-box.xl   { width:680px; }
+.modal-inner { padding:24px; }
+.modal-close-btn {
+  position:absolute; top:14px; right:14px; background:none; border:none;
+  cursor:pointer; color:#bbb; font-size:22px; line-height:1; padding:4px;
+  font-family:inherit;
+}
+.modal-close-btn:hover { color:#555; }
+.modal-title { font-size:16px; font-weight:700; color:#111; margin-bottom:3px; }
+.modal-desc  { font-size:12px; color:#999; margin-bottom:16px; }
+.modal-member-bar {
+  background:#fafafa; border:1px solid #eee; border-radius:8px;
+  padding:10px 14px; margin-bottom:16px;
+  display:flex; gap:16px; flex-wrap:wrap;
+}
+.mmi { font-size:12px; color:#777; }
+.mmi strong { color:#111; margin-left:3px; }
+.modal-warn {
+  background:#fff5f5; border:1px solid #fecaca; border-radius:8px;
+  padding:10px 14px; margin-bottom:14px; font-size:12px;
+  color:#991b1b; line-height:1.6;
+}
+.modal-section {
+  background:#fff8fb; border:1px solid #fce4ef;
+  border-radius:8px; padding:14px; margin-top:12px;
+}
+.modal-section-title { font-size:12px; font-weight:700; color:#e8356d; margin-bottom:10px; }
+.modal-actions {
+  display:flex; gap:8px; justify-content:flex-end;
+  margin-top:18px; padding-top:16px; border-top:1px solid #eee;
+}
+.btn-cancel {
+  background:white; border:1px solid #ddd; color:#666;
+  padding:8px 18px; border-radius:7px; cursor:pointer;
+  font-size:13px; font-family:inherit;
+}
+.btn-cancel:hover { background:#f5f5f7; }
+.btn-confirm {
+  background:#e8356d; color:white; border:none;
+  padding:8px 22px; border-radius:7px; cursor:pointer;
+  font-size:13px; font-weight:700; font-family:inherit;
+}
+.btn-confirm:hover { background:#c9285d; }
+.btn-danger {
+  background:#dc2626; color:white; border:none;
+  padding:8px 22px; border-radius:7px; cursor:pointer;
+  font-size:13px; font-weight:700; font-family:inherit;
+}
+.btn-danger:hover { background:#b91c1c; }
 
-<span class="page-sub">현재 미수금 <strong style="color:var(--red);">{{ fmt_amt(total_arr) }}원</strong> · {{ total_count }}명</span>
-  <div class="flex-gap" style="margin-left:auto;">
-    <a href="/member_add" class="btn btn-primary btn-sm">+ 명단 추가</a>
-  </div>
-</div>
+/* 폼 */
+.form-row { margin-bottom:12px; }
+.form-label { font-size:12px; color:#555; font-weight:600; margin-bottom:5px; display:block; }
+.req { color:#e8356d; }
+.form-inp, .form-sel {
+  width:100%; border:1px solid #e2e8f0; border-radius:7px;
+  padding:8px 10px; font-size:13px; font-family:inherit;
+  outline:none; color:#222; background:white;
+}
+.form-inp:focus, .form-sel:focus { border-color:#e8356d; }
+.form-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+</style>
 
-{% if msg %}<div class="msg-box msg-ok">✓ {{ msg }}</div>{% endif %}
+<div class="pv-wrap">
 
-<!-- 빠른 필터 -->
-<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
-  <a href="/arrears" class="btn btn-sm {% if not amount_filter and not status_filter and not contact_filter and not amount_min %}btn-primary{% else %}btn-ghost{% endif %}">전체 보기</a>
-  <a href="/arrears?amount_filter=미수만{% if region %}&region={{ region }}{% endif %}{% if account %}&account={{ account }}{% endif %}" class="btn btn-sm {% if amount_filter=='미수만' %}btn-primary{% else %}btn-ghost{% endif %}">미수</a>
-  <a href="/arrears?amount_filter=고액미납{% if region %}&region={{ region }}{% endif %}{% if account %}&account={{ account }}{% endif %}" class="btn btn-sm {% if amount_filter=='고액미납' %}btn-primary{% else %}btn-ghost{% endif %}" title="관리비 10만+ / 협회비 30만+">고액미납</a>
-</div>
+  {% if msg %}
+  <div class="pv-msg">✅ {{ msg }}</div>
+  {% endif %}
 
-<!-- 필터 -->
-<form method="get" action="/arrears" class="filter-bar auto-submit">
-  <input type="text" name="q" value="{{ q }}" placeholder="성명, 차량번호, 뒷자리 4자리" class="fi">
-  <label>지역</label>
-  <select name="region" class="fs">
-    <option value="">전체 지역</option>
-    {% for r in regions %}<option value="{{ r }}" {% if region==r %}selected{% endif %}>{{ r }}</option>{% endfor %}
-  </select>
-  <label>계정</label>
-  <select name="account" class="fs">
-    <option value="">전체</option>
-    <option value="협" {% if account=="협" %}selected{% endif %}>협회비</option>
-    <option value="관" {% if account=="관" %}selected{% endif %}>관리비</option>
-    <option value="택배" {% if account=="택배" %}selected{% endif %}>택배관리비</option>
-  </select>
-  <input type="hidden" name="amount_filter" value="{{ amount_filter }}">
-  <label>최소금액</label>
-  <div class="range-wrap">
-    <input type="range" class="range-input" id="arrears-range"
-           min="0" max="1000000" step="10000" value="{{ amount_min }}">
-    <span class="range-val" id="arrears-range-val">{{ (amount_min // 10000)|string + '만원+' if amount_min > 0 else '전체' }}</span>
-    <input type="hidden" name="amount_min" id="arrears-amount-min" value="{{ amount_min }}">
-  </div>
-  <label>상태</label>
-  <select name="status_filter" class="fs">
-    <option value="">전체</option>
-    <option value="완납제외" {% if status_filter=="완납제외" %}selected{% endif %}>완납 제외</option>
-    <option value="초과제외" {% if status_filter=="초과제외" %}selected{% endif %}>초과납부 제외</option>
-    <option value="확인필요" {% if status_filter=="확인필요" %}selected{% endif %}>확인필요</option>
-  </select>
-  <label>연락처</label>
-  <select name="contact_filter" class="fs">
-    <option value="">전체</option>
-    <option value="있음" {% if contact_filter=="있음" %}selected{% endif %}>있음</option>
-    <option value="없음" {% if contact_filter=="없음" %}selected{% endif %}>없음</option>
-  </select>
-  <label>정렬</label>
-  <select name="sort" class="fs">
-    <option value="" {% if not sort %}selected{% endif %}>지역·성명순</option>
-    <option value="amount_desc" {% if sort=="amount_desc" %}selected{% endif %}>금액 높은순</option>
-    <option value="amount_asc" {% if sort=="amount_asc" %}selected{% endif %}>금액 낮은순</option>
-    <option value="date_asc" {% if sort=="date_asc" %}selected{% endif %}>최근입금 오래된순</option>
-  </select>
-  <button type="submit" class="btn btn-search btn-sm">검색</button>
-  <a href="/arrears" class="btn btn-ghost btn-sm">초기화</a>
-</form>
-
-<!-- 테이블 -->
-<div class="tbl-card">
-  <table>
-    <thead>
-      <tr>
-        <th><input type="checkbox" id="chk-all"></th>
-        <th>지역</th><th>계정</th><th>차량번호</th><th>성명</th>
-        <th>연락처</th><th style="text-align:right;">현재미수금</th>
-        <th>최근입금일</th><th>상태</th><th style="text-align:center;">처리</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for m in items %}
-      <tr id="row-{{ m.id }}">
-        <td><input type="checkbox" class="row-chk" value="{{ m.id }}"></td>
-        <td class="nowrap text-sm">{{ m.region or '–' }}</td>
-        <td><span class="badge b-{{ m.account }}">{{ fmt_acc(m.account) }}</span></td>
-        <td class="nowrap text-sm" style="font-family:monospace;letter-spacing:.3px;">{{ m.vehicle_no or '–' }}</td>
-        <td class="nowrap"><a href="/member/{{ m.id }}" class="nl">{{ m.name }}</a></td>
-        <td class="text-sm">
-          {% if m.mobile %}{{ m.mobile }}{% elif m.phone %}{{ m.phone }}{% else %}<span style="color:var(--muted);">–</span>{% endif %}
-        </td>
-        <td class="nowrap" style="text-align:right;">
-          {% set amt = m.excel_arrears or 0 %}
-          {% if amt < 0 %}
-            <span class="overpay" style="font-weight:700;">{{ fmt_amt(amt) }}원</span>
-          {% elif amt > 0 %}
-            <span class="amount" style="font-weight:700;">{{ fmt_amt(amt) }}원</span>
-          {% else %}
-            <span class="text-sm" style="color:var(--muted);">0원</span>
-          {% endif %}
-        </td>
-        <td class="text-sm">{{ m.last_paid_date or '–' }}</td>
-        <td>
-          {% if not m.arrears_verified %}
-            <span class="badge b-warn" title="{{ m.verify_reason or '' }}">확인필요</span>
-          {% elif m.is_overpay %}
-            <span class="badge b-blue">초과납부</span>
-          {% elif amt > 0 %}
-            <span class="badge b-red">미수</span>
-          {% else %}
-            <span class="badge b-ok">정상</span>
-          {% endif %}
-        </td>
-        <td style="text-align:center;white-space:nowrap;">
-          <a href="/member/{{ m.id }}" class="btn btn-ghost btn-sm">상세</a>
-          <button class="btn btn-warn btn-sm" onclick="openWorkModal({{ m.id }}, '{{ m.name }}', {{ m.excel_arrears or 0 }})">부과대수 등록</button>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="10"><div class="empty-state"><div class="ei">💰</div><div class="et">조회 결과가 없습니다</div></div></td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <div class="tbl-footer">
-    <span>{{ total_count }}명 중 {{ items|length }}명 표시</span>
-    <span>총 미수금 <strong style="color:var(--red);">{{ fmt_amt(total_arr) }}원</strong></span>
-    {% if total_pages > 1 %}
-    <div style="display:flex;align-items:center;gap:4px;">
-      {% if page > 1 %}<a href="?q={{ q }}&region={{ region }}&account={{ account }}&amount_filter={{ amount_filter }}&status_filter={{ status_filter }}&contact_filter={{ contact_filter }}&sort={{ sort }}&page={{ page-1 }}" class="btn btn-ghost btn-sm">← 이전</a>{% endif %}
-      <span class="text-sm" style="padding:0 8px;">{{ page }} / {{ total_pages }}</span>
-      {% if page < total_pages %}<a href="?q={{ q }}&region={{ region }}&account={{ account }}&amount_filter={{ amount_filter }}&status_filter={{ status_filter }}&contact_filter={{ contact_filter }}&sort={{ sort }}&page={{ page+1 }}" class="btn btn-ghost btn-sm">다음 →</a>{% endif %}
+  <!-- 기준 조회 -->
+  <div class="pv-query-card">
+    <div class="pv-query-title">기준 조회</div>
+    <div class="pv-query-row">
+      <span class="pv-flabel">기준년도</span>
+      <input class="pv-inp" id="py-year" style="width:72px;" value="{{ request.query_params.get('year', '') }}" placeholder="2026">
+      <span class="pv-flabel" style="margin-left:8px;">기준월</span>
+      <select class="pv-fsel" id="py-month" style="width:65px;">
+        {% for m in range(1,13) %}
+        <option value="{{ m }}" {% if request.query_params.get('month','') == m|string %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      <a href="/payments/export?year={{ request.query_params.get('year','') }}&month={{ request.query_params.get('month','') }}" class="btn-pink" style="margin-left:8px; text-decoration:none;">
+        ⬇ 입금추출엑셀
+      </a>
     </div>
-    {% endif %}
   </div>
-</div>
 
-<!-- 업무처리 모달 -->
-<div class="modal-bg" id="work-modal">
-  <div class="modal">
-    <h3>⚙️ 업무처리 — <span id="wm-name"></span></h3>
-    <div id="wm-info" style="background:var(--surface-2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;"></div>
-    <form method="post" id="wm-form" action="">
-      <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-        <div class="fg">
-          <label>처리 구분</label>
-          <select name="process_type">
-            <option value="폐업">폐업</option>
-            <option value="양도">양도</option>
-            <option value="이관">이관</option>
-            <option value="탈퇴">탈퇴</option>
-            <option value="사망">사망</option>
-            <option value="말소">말소</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>처리일자</label>
-          <input type="date" name="event_date">
-        </div>
+  <!-- 탭 + 필터 -->
+  <div class="pv-filter-card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+      <div class="pv-tabs">
+        <a href="/arrears" class="pv-tab {% if not account %}on{% endif %}">전체보기</a>
+        <a href="/arrears?account=협" class="pv-tab {% if account=='협' %}on{% endif %}">협회비</a>
+        <a href="/arrears?account=관" class="pv-tab {% if account=='관' %}on{% endif %}">관리비</a>
+        <a href="/arrears?account=택배" class="pv-tab {% if account=='택배' %}on{% endif %}">70세</a>
       </div>
-      <div class="fg">
-        <label>사유/비고</label>
-        <input type="text" name="reason" placeholder="선택 입력">
-      </div>
-      <div style="margin-top:10px;padding:9px 12px;background:var(--amber-lt);border-radius:6px;font-size:12px;color:var(--amber);border:1px solid var(--amber-mid);">
-        ⚠ 즉시 확정이 아닙니다. <strong>부과대수 관리</strong>에 반영대기로 등록됩니다.
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" onclick="document.getElementById('work-modal').classList.remove('open')">취소</button>
-        <button type="submit" class="btn btn-primary">부과대수 관리로</button>
+      <a href="/add-member" class="btn-add">＋ 명단추가</a>
+    </div>
+
+    <form method="get" action="/arrears">
+      <div class="pv-filter-row">
+        <span class="pv-flabel">지역</span>
+        <select class="pv-fsel" name="region" style="width:90px;">
+          <option value="">전체</option>
+          {% for r in regions %}
+          <option value="{{ r }}" {% if region==r %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+
+        <span class="pv-flabel">최소금액</span>
+        <input class="pv-finp" name="amount_min" type="number"
+               value="{{ amount_min if amount_min else '' }}"
+               placeholder="예: 0" style="width:80px;">
+
+        <span class="pv-flabel">이름/차량</span>
+        <input class="pv-finp" name="q" value="{{ q }}"
+               placeholder="이름 또는 차량번호" style="width:130px;">
+
+        <span class="pv-flabel">정렬</span>
+        <select class="pv-fsel" name="sort" style="width:100px;">
+          <option value="" {% if sort=='' %}selected{% endif %}>지역→이름</option>
+          <option value="amount_desc" {% if sort=='amount_desc' %}selected{% endif %}>미수금↓</option>
+          <option value="amount_asc" {% if sort=='amount_asc' %}selected{% endif %}>미수금↑</option>
+          <option value="date_asc" {% if sort=='date_asc' %}selected{% endif %}>입금일↑</option>
+        </select>
+
+        <button type="submit" class="btn-blue">🔍 조회</button>
+        <a href="/arrears" class="btn-outline-sm">↺ 초기화</a>
       </div>
     </form>
   </div>
+
+  <!-- 목록 -->
+  <div class="pv-list-card">
+    <div class="pv-list-meta">
+      <div class="pv-total">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e8356d" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        총 <span class="cnt">{{ total_count|default(0) }}</span>건
+        &nbsp;|&nbsp; 미수금 합계: <span class="cnt">{{ "{:,}".format(total_arr|int) }}원</span>
+      </div>
+      <div class="pv-meta-right">
+        <span class="pv-sort-info">정렬: 지역 → 이름순 ↕</span>
+      </div>
+    </div>
+
+    <div class="pv-table-wrap">
+      <table class="pv-table">
+        <thead>
+          <tr>
+            <th>지역</th>
+            <th>계정</th>
+            <th>차량번호</th>
+            <th>성명</th>
+            <th>연락처</th>
+            <th class="r">미수금</th>
+            <th>최근입금일</th>
+            <th class="c">처리</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in items %}
+          <tr>
+            <td>{{ m.region or '—' }}</td>
+            <td>
+              {% set acc = m.account or '' %}
+              {% if '협' in acc %}
+                <span class="tag tag-assoc">협회비</span>
+              {% elif '관' in acc %}
+                <span class="tag tag-mgmt">관리비</span>
+              {% elif '택' in acc %}
+                <span class="tag tag-taxi">택배</span>
+              {% else %}
+                <span class="tag" style="background:#f3f4f6;color:#555;">{{ acc or '—' }}</span>
+              {% endif %}
+            </td>
+            <td>{{ m.vehicle_no or '—' }}</td>
+            <td>
+              <a class="name-link" href="/member/{{ m.id }}">{{ m.name }}</a>
+            </td>
+            <td style="font-size:12px;color:#666;">
+              {{ m.mobile or m.phone or '—' }}
+            </td>
+            <td class="r">
+              {% set arr = m.excel_arrears or 0 %}
+              {% if arr > 0 %}
+                <span class="arr-red">{{ "{:,}".format(arr) }}원</span>
+              {% elif arr < 0 %}
+                <span class="arr-over">{{ "{:,}".format(arr) }}원</span>
+              {% else %}
+                <span class="arr-zero">0원</span>
+              {% endif %}
+            </td>
+            <td style="font-size:12px;color:#888;">
+              {{ m.last_paid_date or '—' }}
+            </td>
+            <td class="c">
+              <div style="display:flex;gap:4px;justify-content:center;">
+                <button class="act-btn act-edit"
+                  onclick="openEditModal({{ m.id }},'{{ m.name }}','{{ m.vehicle_no }}','{{ m.region }}','{{ m.account }}','{{ m.mobile or m.phone or '' }}',{{ m.excel_arrears or 0 }},'{{ m.last_paid_date or '' }}')">
+                  수정
+                </button>
+                <button class="act-btn act-close"
+                  onclick="openClosureModal({{ m.id }},'{{ m.name }}','{{ m.vehicle_no }}','{{ m.region }}','{{ m.account }}')">
+                  폐업
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" style="text-align:center;padding:40px;color:#ccc;">
+              조회 결과가 없습니다.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 페이지네이션 -->
+    {% if total_pages > 1 %}
+    <div class="pv-pagination">
+      {% if page > 1 %}
+        <a class="pg-a" href="?{{ request.query_params|replace('page='+page|string,'') }}&page={{ page-1 }}">‹</a>
+      {% else %}
+        <span class="pg-a dis">‹</span>
+      {% endif %}
+
+      {% for p in range([1,page-3]|max, [total_pages+1,page+4]|min) %}
+        <a class="pg-a {% if p==page %}on{% endif %}"
+           href="?{{ request.query_params|replace('page='+page|string,'') }}&page={{ p }}">{{ p }}</a>
+      {% endfor %}
+
+      {% if page < total_pages %}
+        <a class="pg-a" href="?{{ request.query_params|replace('page='+page|string,'') }}&page={{ page+1 }}">›</a>
+      {% else %}
+        <span class="pg-a dis">›</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+</div><!-- /pv-wrap -->
+
+
+<!-- ════════════════════════════════ -->
+<!-- 수정 모달 -->
+<!-- ════════════════════════════════ -->
+<div class="modal-overlay" id="modal-edit">
+  <div class="modal-box">
+    <button class="modal-close-btn" onclick="closeModal('modal-edit')">✕</button>
+    <div class="modal-inner">
+      <div class="modal-title">회원 정보 수정</div>
+      <div class="modal-desc">기본 정보 및 입금 내역을 수정합니다.</div>
+      <div class="modal-member-bar" id="edit-mbar"></div>
+
+      <form id="edit-form" method="post">
+        <input type="hidden" name="csrf_token" value="">
+        <div class="form-grid2">
+          <div class="form-row">
+            <label class="form-label">계정</label>
+            <select class="form-sel" name="account" id="edit-account">
+              <option value="협회비">협회비</option>
+              <option value="관리비">관리비</option>
+              <option value="택배관리비">택배관리비</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">지역</label>
+            <select class="form-sel" name="region" id="edit-region">
+              {% for r in regions %}
+              <option value="{{ r }}">{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">차량번호</label>
+            <input class="form-inp" name="vehicle_no" id="edit-car">
+          </div>
+          <div class="form-row">
+            <label class="form-label">성명</label>
+            <input class="form-inp" name="name" id="edit-name">
+          </div>
+          <div class="form-row">
+            <label class="form-label">연락처</label>
+            <input class="form-inp" name="mobile" id="edit-phone">
+          </div>
+          <div class="form-row">
+            <label class="form-label">미수금액</label>
+            <input class="form-inp" name="excel_arrears" type="number" id="edit-amount">
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="form-label">최근 입금일자</label>
+          <input class="form-inp" name="last_paid_date" type="date" id="edit-paydate">
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-title">수동입금처리</div>
+          <div class="form-grid2">
+            <div class="form-row" style="margin:0;">
+              <label class="form-label">입금액</label>
+              <input class="form-inp" name="manual_amount" type="number" placeholder="입금액 입력">
+            </div>
+            <div class="form-row" style="margin:0;">
+              <label class="form-label">입금날짜</label>
+              <input class="form-inp" name="manual_date" type="date">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-edit')">취소</button>
+          <button type="submit" class="btn-confirm">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
-{% endblock %}
-{% block scripts %}
-<script>
-function openWorkModal(mid, name, arrears) {
-  document.getElementById('wm-name').textContent = name;
-  document.getElementById('wm-info').textContent = '현재 미수금: ' + arrears.toLocaleString() + '원';
-  document.getElementById('wm-form').action = '/arrears/' + mid + '/to-work';
-  document.getElementById('work-modal').classList.add('open');
-}
-document.getElementById('work-modal').addEventListener('click', function(e) {
-  if (e.target === this) this.classList.remove('open');
-});
-document.querySelectorAll('.auto-submit select').forEach(el => el.addEventListener('change', () => el.closest('form').submit()));
+<!-- ════════════════════════════════ -->
+<!-- 폐업처리 모달 -->
+<!-- ════════════════════════════════ -->
+<div class="modal-overlay" id="modal-closure">
+  <div class="modal-box">
+    <button class="modal-close-btn" onclick="closeModal('modal-closure')">✕</button>
+    <div class="modal-inner">
+      <div class="modal-title">폐업 처리</div>
+      <div class="modal-desc">회원 상태를 폐업/양도/이관/탈퇴 등으로 처리합니다.</div>
+      <div class="modal-member-bar" id="closure-mbar"></div>
+      <div class="modal-warn">
+        ⚠️ 폐업 처리 시 납부현황 목록에서 제외됩니다.<br>
+        데이터는 삭제되지 않으며 과거 정보 및 상세 정보는 유지됩니다.
+      </div>
+      <form id="closure-form" method="post">
+        <div class="form-row">
+          <label class="form-label">처리구분 <span class="req">*</span></label>
+          <select class="form-sel" name="process_type" required>
+            <option value="">선택하세요</option>
+            <option>폐업</option>
+            <option>양도</option>
+            <option>이관</option>
+            <option>탈퇴</option>
+            <option>회원폐업</option>
+            <option>폐지</option>
+            <option>관리비폐지</option>
+            <option>사망</option>
+            <option>말소</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label">처리일자 <span class="req">*</span></label>
+          <input class="form-inp" name="event_date" type="date" id="closure-date">
+        </div>
+        <div class="form-row">
+          <label class="form-label">비고</label>
+          <input class="form-inp" name="reason" placeholder="비고 입력 (선택)">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-closure')">취소</button>
+          <button type="submit" class="btn-danger">폐업처리</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
-// 금액 슬라이더
-(function(){
-  const range = document.getElementById('arrears-range');
-  const valEl = document.getElementById('arrears-range-val');
-  const hidden = document.getElementById('arrears-amount-min');
-  if (!range) return;
-  function update() {
-    const v = parseInt(range.value);
-    hidden.value = v;
-    valEl.textContent = v > 0 ? (v / 10000).toFixed(0) + '만원+' : '전체';
-    const pct = ((v / 1000000) * 100).toFixed(1);
-    range.style.background = `linear-gradient(to right, #e91e8c ${pct}%, #dcd6e4 ${pct}%)`;
-  }
-  range.addEventListener('input', update);
-  range.addEventListener('change', () => range.closest('form').submit());
-  update();
-})();
-document.getElementById('chk-all').addEventListener('change', function() {
-  document.querySelectorAll('.row-chk').forEach(c => c.checked = this.checked);
+<script>
+function openModal(id){ document.getElementById(id).classList.add('show'); }
+function closeModal(id){ document.getElementById(id).classList.remove('show'); }
+
+document.querySelectorAll('.modal-overlay').forEach(function(ov){
+  ov.addEventListener('click', function(e){ if(e.target===this) this.classList.remove('show'); });
 });
+
+function openEditModal(mid, name, car, region, account, phone, arrears, lastPay){
+  var bar = document.getElementById('edit-mbar');
+  bar.innerHTML = '<span class="mmi">성명<strong>'+name+'</strong></span>'
+    + '<span class="mmi">차량번호<strong>'+car+'</strong></span>'
+    + '<span class="mmi">지역<strong>'+region+'</strong></span>'
+    + '<span class="mmi">계정<strong>'+account+'</strong></span>';
+
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-car').value = car;
+  document.getElementById('edit-phone').value = phone;
+  document.getElementById('edit-amount').value = arrears;
+  if(lastPay) document.getElementById('edit-paydate').value = lastPay;
+
+  var regionSel = document.getElementById('edit-region');
+  for(var i=0; i<regionSel.options.length; i++){
+    if(regionSel.options[i].value === region){ regionSel.selectedIndex=i; break; }
+  }
+
+  document.getElementById('edit-form').action = '/member/'+mid+'/edit';
+  openModal('modal-edit');
+}
+
+function openClosureModal(mid, name, car, region, account){
+  var bar = document.getElementById('closure-mbar');
+  bar.innerHTML = '<span class="mmi">성명<strong>'+name+'</strong></span>'
+    + '<span class="mmi">차량번호<strong>'+car+'</strong></span>'
+    + '<span class="mmi">지역<strong>'+region+'</strong></span>'
+    + '<span class="mmi">계정<strong>'+account+'</strong></span>';
+
+  var today = new Date().toISOString().split('T')[0];
+  document.getElementById('closure-date').value = today;
+  document.getElementById('closure-form').action = '/arrears/'+mid+'/to-work';
+  openModal('modal-closure');
+}
 </script>
+
 {% endblock %}
