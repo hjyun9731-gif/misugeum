@@ -3987,6 +3987,7 @@ def safe_pending_board_page(
     user: User = Depends(require_user)
 ):
     import json
+    from html import escape
     from sqlalchemy import or_
 
     ACTIVE_MONTHS = {(2026, 5), (2026, 6)}
