@@ -4120,10 +4120,12 @@ def safe_pending_board_page(
                 bq = bq.filter(or_(
                     BillingPerson.name.ilike(like),
                     BillingPerson.vehicle_no.ilike(like),
-                    BillingPerson.region.ilike(like),
-                    BillingPerson.process_type.ilike(like),
-                    BillingPerson.source_sheet.ilike(like),
                 ))
+            except Exception:
+                pass
+        if region:
+            try:
+                bq = bq.filter(BillingPerson.region.ilike(f"%{region}%"))
             except Exception:
                 pass
 
@@ -4193,6 +4195,17 @@ def safe_pending_board_page(
             if not name and not vehicle:
                 continue
 
+            # q 필터: 성명·차량번호만
+            if q:
+                _q = q.lower()
+                if _q not in name.lower() and _q not in vehicle.lower():
+                    continue
+            # region 필터
+            if region:
+                wq_region = str(pick(w, "region", "지역") or "").lower()
+                if region.lower() not in wq_region:
+                    continue
+
             raw_status = str(pick(w, "status", "reflect_status") or "").strip()
             if raw_status in ["완료", "처리완료", "반영완료"]:
                 st = "반영완료"
@@ -4218,7 +4231,7 @@ def safe_pending_board_page(
                 "region": pick(w, "region", "지역"),
                 "name": name,
                 "vehicle_no": vehicle,
-                "arrears": "",
+                "arrears": safe(w, "arrears_at_submit") or 0,
                 "request_date": req,
                 "next_billing_date": nxt,
                 "source": pick(w, "source", "source_screen") or "처리대기",
@@ -4332,114 +4345,6 @@ def safe_pending_board_page(
     if page_size not in [30, 50, 100]:
         page_size = 50
 
-    rows = []
-    err = ""
-
-    # 1) BillingPerson: 부과대수 자료
-    try:
-        bq = db.query(BillingPerson)
-
-        if year:
-            bq = bq.filter(BillingPerson.year == int(year))
-        if month:
-            bq = bq.filter(BillingPerson.month == int(month))
-        if process_type:
-            if process_type == "폐지":
-                bq = bq.filter(BillingPerson.process_type.in_(["폐지", "관리비폐지"]))
-            elif process_type == "이관":
-                bq = bq.filter(BillingPerson.process_type.in_(["이관", "타도"]))
-            elif process_type == "협회비":
-                bq = bq.filter(BillingPerson.process_type.in_(["협회가입", "협회가입원", "협회비"]))
-            elif process_type == "관리비":
-                bq = bq.filter(BillingPerson.process_type.in_(["택배신규", "관리비"]))
-            else:
-                bq = bq.filter(BillingPerson.process_type == process_type)
-        if status:
-            bq = bq.filter(BillingPerson.reflect_status == status)
-
-        if q:
-            like = f"%{q}%"
-            bq = bq.filter(or_(
-                BillingPerson.name.ilike(like),
-                BillingPerson.vehicle_no.ilike(like),
-            ))
-        if region:
-            bq = bq.filter(BillingPerson.region.ilike(f"%{region}%"))
-
-        for bp in bq.order_by(BillingPerson.year.desc(), BillingPerson.month.desc(), BillingPerson.id.desc()).limit(3000).all():
-            raw_pt = sg(bp, "process_type")
-            pt = norm_pt(raw_pt)
-            st = sg(bp, "reflect_status") or "부과대수상세"
-
-            if st in ["처리대기", "반영대기"] and pt in ["협회비", "관리비"]:
-                view_status = "반영대기"
-            else:
-                view_status = st
-
-            rows.append({
-                "kind": "billing",
-                "id": sg(bp, "id"),
-                "ym": f'{sg(bp, "year")}-{int(sg(bp, "month") or 0):02d}' if sg(bp, "month") else "",
-                "status": view_status,
-                "pt_raw": raw_pt,
-                "pt_norm": pt,
-                "region": sg(bp, "region"),
-                "name": sg(bp, "name"),
-                "vehicle": sg(bp, "vehicle_no"),
-                "account": sg(bp, "account"),
-                "source": "부과대수",
-                "sheet": sg(bp, "source_sheet"),
-                "row": sg(bp, "source_row"),
-                "note": sg(bp, "note"),
-                "arrears": 0,
-            })
-    except Exception as e:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        err += "BillingPerson 오류: " + escape(repr(e)) + "<br>"
-
-    # 2) WorkQueue: 일반 처리대기 업무
-    try:
-        wq = db.query(WorkQueue).limit(2000).all()
-        for w in wq:
-            if region and region.lower() not in (sg(w, "region") or "").lower():
-                continue
-            if q:
-                _q = q.lower()
-                if _q not in (sg(w, "name") or "").lower() and _q not in (sg(w, "vehicle_no") or "").lower():
-                    continue
-            raw_pt = sg(w, "process_type") or sg(w, "work_type")
-            pt = norm_pt(raw_pt)
-            st = sg(w, "status") or "처리대기"
-
-            rows.append({
-                "kind": "work",
-                "id": sg(w, "id"),
-                "ym": "",
-                "status": st,
-                "pt_raw": raw_pt,
-                "pt_norm": pt,
-                "region": sg(w, "region"),
-                "name": sg(w, "name"),
-                "vehicle": sg(w, "vehicle_no"),
-                "account": sg(w, "account"),
-                "source": sg(w, "source_screen") or "처리대기",
-                "sheet": "",
-                "row": "",
-                "note": sg(w, "note") or sg(w, "work_reason"),
-                "arrears": sg(w, "arrears_at_submit") or 0,
-            })
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-
-    filtered = [r for r in rows if tab_match(r)]
-
-
     total = len(filtered)
     total_pages = max(1, (total + page_size - 1) // page_size)
     if page > total_pages:
@@ -4453,18 +4358,8 @@ def safe_pending_board_page(
 
     tabs = main_tabs
 
-    counts = {}
-    for t in tabs:
-        counts[t] = sum(1 for r in rows if (
-            (t == "전체" and r.get("status") != "부과대수상세") or
-            (t == "반영대기" and r.get("status") == "반영대기" and r.get("pt_norm") in ["협회비", "관리비"]) or
-            (t == "협회비" and r.get("pt_norm") == "협회비") or
-            (t == "관리비" and r.get("pt_norm") == "관리비") or
-            (t == "폐업" and r.get("pt_norm") in ["폐지", "양도", "이관", "사망", "말소"]) or
-            (t == "탈퇴" and r.get("pt_norm") == "탈퇴") or
-            (t == "부과대수상세" and r.get("kind") == "billing") or
-            (t == "반영완료" and r.get("status") == "반영완료")
-        ))
+    # counts는 remote의 match_tab 함수 재사용 (전체 rows 기준)
+    counts = {t: sum(1 for r in rows if match_tab(r, t)) for t in tabs}
 
     def h(v):
         return escape(str(v or ""))
@@ -4479,30 +4374,35 @@ def safe_pending_board_page(
 
     row_html = ""
     for r in page_rows:
-        detail_url = f"/api/work/detail?id={h(r.get('id'))}&row_type={h(r.get('kind'))}"
+        detail_url = f"/api/work/detail?id={h(r.get('id'))}&row_type={h(r.get('row_type'))}"
+        arrears_val = r.get("arrears") or 0
+        try:
+            arrears_int = int(float(str(arrears_val).replace(",","").replace("원","").strip())) if arrears_val else 0
+        except Exception:
+            arrears_int = 0
+        arrears_disp = f"{arrears_int:,}원" if arrears_int else "–"
+        arrears_style = "color:#e11d48;font-weight:700;" if arrears_int else "color:#bbb;"
         row_html += f"""
         <tr>
           <td>{h(r.get('status'))}</td>
-          <td>{h(r.get('pt_norm'))}</td>
+          <td>{h(r.get('pt_norm') or r.get('process_type'))}</td>
           <td>{h(r.get('ym'))}</td>
           <td>{h(r.get('region'))}</td>
           <td>{h(r.get('name'))}</td>
-          <td>{h(r.get('vehicle'))}</td>
-          <td>{h(r.get('account'))}</td>
-          <td style="text-align:right;{'color:#e11d48;font-weight:700;' if r.get('arrears',0) else 'color:#bbb;'}">{'{:,}원'.format(r['arrears']) if r.get('arrears') else '–'}</td>
+          <td>{h(r.get('vehicle_no'))}</td>
+          <td style="text-align:right;{arrears_style}">{arrears_disp}</td>
           <td>{h(r.get('source'))}</td>
-          <td>{h(r.get('sheet'))}</td>
-          <td>{h(r.get('note'))}</td>
+          <td>{h(r.get('request_date'))}</td>
           <td><a class="btn ghost" href="{detail_url}">상세</a></td>
         </tr>
         """
 
     if not row_html:
-        row_html = '<tr><td colspan="12" style="text-align:center;padding:24px;color:#777;">조회 결과 없음</td></tr>'
+        row_html = '<tr><td colspan="10" style="text-align:center;padding:24px;color:#777;">조회 결과 없음</td></tr>'
 
     prev_link = ""
     next_link = ""
-    base = f"/work/pending-board?tab={h(tab)}&q={h(q)}&year={h(year or '')}&month={h(month or '')}&region={h(region)}&process_type={h(process_type)}&status={h(status)}&page_size={page_size}"
+    base = f"/work/pending-board?tab={h(tab)}&q={h(q)}&year={h(year)}&month={h(month)}&region={h(region)}&process_type={h(process_type)}&status={h(status)}&page_size={page_size}"
     if page > 1:
         prev_link = f'<a class="btn ghost" href="{base}&page={page-1}">이전</a>'
     if page < total_pages:
@@ -4530,7 +4430,8 @@ def safe_pending_board_page(
         process_options += f'<option value="{h(pt)}" {"selected" if str(process_type or "") == pt else ""}>{h(pt)}</option>'
 
     region_options = '<option value="">전체 지역</option>'
-    for reg in sorted({r.get("region", "") for r in rows if r.get("region")}):
+    all_regions = sorted({str(r.get("region") or "") for r in rows if r.get("region")})
+    for reg in all_regions:
         region_options += f'<option value="{h(reg)}" {"selected" if region == reg else ""}>{h(reg)}</option>'
 
     status_options = '<option value="">전체</option>'
@@ -4751,7 +4652,7 @@ form{{
 <thead>
 <tr>
 <th>상태</th><th>처리구분</th><th>연월</th><th>지역</th><th>성명</th><th>차량번호</th>
-<th>계정</th><th>기존미수금</th><th>출처</th><th>원본시트</th><th>비고</th><th>상세</th>
+<th style="text-align:right;">기존미수금</th><th>출처</th><th>요청/처리일</th><th>상세</th>
 </tr>
 </thead>
 <tbody>
