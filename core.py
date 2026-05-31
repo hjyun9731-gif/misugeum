@@ -247,7 +247,8 @@ def guess_sheet_type(sheet_name: str, first_row: List[str]) -> str:
 def guess_file_year(filename: str) -> int:
     m = re.search(r"(20\d{2})", filename)
     if m: return int(m.group(1))
-    return 2026
+    from datetime import date
+    return date.today().year
 
 # ── 회비내역 파싱 ─────────────────────────────────────────────────────────────
 def parse_ledger_sheet(raw: pd.DataFrame, sheet_name: str, file_year: int):
@@ -511,7 +512,8 @@ def classify_autopay(payments: List[Tuple[int,str]]) -> str:
             d1 = date.fromisoformat(dates[i-1][:10])
             d2 = date.fromisoformat(dates[i][:10])
             gaps.append(abs((d2-d1).days))
-        except: pass
+        except (ValueError, AttributeError, TypeError):
+            pass
     if not gaps: return "해당없음"
 
     avg_gap = sum(gaps)/len(gaps)
@@ -526,7 +528,8 @@ def classify_autopay(payments: List[Tuple[int,str]]) -> str:
         last = date.fromisoformat(max(dates)[:10])
         if (date.today() - last).days > 200:
             return "입금끊김"
-    except: pass
+    except (ValueError, AttributeError, TypeError):
+        pass
 
     return pat
 

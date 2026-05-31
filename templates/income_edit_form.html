@@ -69,7 +69,7 @@
         </div>
 
         <div class="field">
-          <label>처리대상</label>
+          <label>처리대상 <span style="font-weight:400;color:#9b8090;font-size:12px;">※ 가수금은 '없음'으로 두고 확인 후 변경, 잡수입(자격증명발급)은 확인 후 관리비 선택</span></label>
           <select name="pending_target">
             {% for v in ['없음','협회비','관리비'] %}
             <option value="{{ v }}" {% if pending_target == v %}selected{% endif %}>{{ v }}</option>

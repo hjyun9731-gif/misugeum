@@ -9,7 +9,7 @@ _pwd = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 def hash_pw(p: str) -> str: return _pwd.hash(str(p))
 def verify_pw(plain: str, hashed: str) -> bool:
     try: return _pwd.verify(str(plain), hashed)
-    except: return False
+    except Exception: return False
 
 def ensure_admin(db: Session):
     u = db.query(User).filter(User.username == "admin").first()
