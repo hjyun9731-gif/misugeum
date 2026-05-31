@@ -54,6 +54,9 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+templates.env.globals.update(str=str, int=int, float=float, len=len, list=list,
+                              dict=dict, enumerate=enumerate, sorted=sorted, zip=zip,
+                              abs=abs, min=min, max=max, round=round)
 
 CURRENT_YEAR = int(os.getenv("BILLING_YEAR", str(datetime.now().year)))
 EXCLUDED_STATUSES = {"폐업","양도","이관","탈퇴","사망","말소","확인필요"}
@@ -317,10 +320,16 @@ def logout(request: Request):
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db),
               user: User = Depends(require_user)):
-    # 대시보드는 미수금/대상자 숫자가 자주 바뀌므로 캐시를 쓰지 않고 매번 재계산
-    _invalidate_snap(db, "dashboard")
-    snap = _build_dashboard_snap(db)
-    _set_snap(db, "dashboard", snap)
+    try:
+        _invalidate_snap(db, "dashboard")
+        snap = _build_dashboard_snap(db)
+        _set_snap(db, "dashboard", snap)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        snap = {}
 
     return templates.TemplateResponse(request, "dashboard.html", {
         "request": request, "user": user, "snap": snap, "fmt_amt": fmt_amt,
@@ -699,6 +708,7 @@ def member_add_page(request: Request, db: Session = Depends(get_db), user: User 
         "user": user,
         "regions": regions,
         "m": None,
+        "msg": request.query_params.get("msg", ""),
     })
 
 
@@ -3652,9 +3662,27 @@ def pending_board_detail_html(
             pass
         data = None
 
+    FIELD_LABELS = {
+        "status": "상태", "process_type": "처리구분", "region": "지역",
+        "name": "성명", "vehicle_no": "차량번호", "account": "회계구분",
+        "before_arrears": "기존미수금", "request_date": "요청/처리일",
+        "next_billing_date": "다음부과일", "source": "출처",
+        "source_sheet": "원본시트", "source_row": "원본행",
+        "reason": "사유", "note": "비고", "amount": "금액",
+        "created_at": "등록일시", "updated_at": "수정일시",
+    }
+    raw_items = []
+    if data:
+        for k, v in data.items():
+            if k in ("kind", "id", "raw_data") or not v:
+                continue
+            raw_items.append({"label": FIELD_LABELS.get(k, k), "value": str(v)})
     return templates.TemplateResponse(request, "pending_board_detail.html", {
+        "request": request,
         "user": user,
         "data": data,
+        "item": data,
+        "raw_items": raw_items,
     })
 
 
@@ -4401,7 +4429,7 @@ def safe_pending_board_page(
 
     row_html = ""
     for r in page_rows:
-        detail_url = f"/api/work/detail?id={h(r.get('id'))}&row_type={h(r.get('row_type'))}"
+        detail_url = f"/work/pending-board/detail/{h(r.get('row_type', 'billing'))}/{h(str(r.get('id', 0)))}"
         st_val = r.get("status") or ""
         pt_val = r.get("pt_norm") or r.get("process_type") or ""
         arrears_val = r.get("arrears") or 0
@@ -5790,9 +5818,15 @@ def bank_reset_all(include_applied: str = Form(""),
 def settings_page(request: Request,
                   db: Session = Depends(get_db),
                   user: User = Depends(require_user)):
+    try:
+        all_users = db.query(User).order_by(User.id).all()
+    except Exception:
+        all_users = []
     return templates.TemplateResponse(request, "settings.html", {
         "request": request,
         "user": user,
+        "users": all_users,
+        "msg": request.query_params.get("msg", ""),
     })
 
 
@@ -5824,7 +5858,8 @@ def add_member_page(request: Request, db: Session = Depends(get_db),
                     user: User = Depends(require_user)):
     regions = sorted({x[0] for x in db.query(Member.region).distinct().filter(Member.region != None).all() if x[0]})
     return templates.TemplateResponse(request, "add_member.html",
-        {"request": request, "user": user, "regions": regions})
+        {"request": request, "user": user, "regions": regions, "m": None,
+         "msg": request.query_params.get("msg", "")})
 
 @app.post("/member/new")
 def add_member_save(request: Request,
@@ -7978,6 +8013,7 @@ def bank_mark_income_form(
         "tx": tx,
         "kind_code": kind_code,
         "fmt_amt": fmt_amt,
+        "next_billing_date": "",
     })
 
 
